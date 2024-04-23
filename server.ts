@@ -16,7 +16,7 @@ app.post('/api/login', (req, res) => {
         res.status(401).send('invalid username or password');
     }
 });
-//send their own location 
+
 app.post('/api/sendLocation', (req, res) => {
     const { username, latitude, longitude } = req.body;
     const existingLocationIndex = playerLocations.findIndex(loc => loc.username === username);
@@ -29,15 +29,18 @@ app.post('/api/sendLocation', (req, res) => {
         playerLocations.push({ username, latitude, longitude });
     }
 
-    res.status(200).send('Location received');
+    // Send the updated playerLocations as a response
+    res.status(200).json(playerLocations);
+    console.log('playerlocation received');
 });
 
 app.get('/api/protected', (req, res) => {
     res.send('protected content');
 });
-//fetch location of other players
+
 app.get('/api/getOtherPlayersData', (req, res) => {
-    res.json(playerLocations);
+    res.status(200).json(playerLocations);
+    console.log('playerlocation sent');
 });
 
 app.listen(3000, () => {
