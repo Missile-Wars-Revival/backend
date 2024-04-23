@@ -18,20 +18,27 @@ app.post('/api/login', (req, res) => {
 });
 
 app.post('/api/sendLocation', (req, res) => {
-    const { username, latitude, longitude } = req.body;
+    const { username, latitude, longitude, timestamp } = req.body; // Destructuring timestamp from req.body
     const existingLocationIndex = playerLocations.findIndex(loc => loc.username === username);
+
+    const locationData = {
+        username,
+        latitude,
+        longitude,
+        timestamp, // Include timestamp in the location data
+    };
 
     if (existingLocationIndex !== -1) {
         // Update existing location
-        playerLocations[existingLocationIndex] = { username, latitude, longitude };
+        playerLocations[existingLocationIndex] = locationData;
     } else {
         // Add new location
-        playerLocations.push({ username, latitude, longitude });
+        playerLocations.push(locationData);
     }
 
     // Send the updated playerLocations as a response
     res.status(200).json(playerLocations);
-    console.log('playerlocation received');
+    console.log('playerlocation received:', locationData); // Logging the received location data
 });
 
 app.get('/api/protected', (req, res) => {
