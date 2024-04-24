@@ -74,6 +74,13 @@ app.post('/api/register', async (req, res) => {
         }
     });
 
+    await prisma.gameplayUser.create({
+        data: {
+            username: username,
+            createdAt: new Date().toDateString(),
+        }
+    })
+
     res.status(200).json({ message: 'User created' });
 });
 
