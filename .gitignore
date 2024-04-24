@@ -42,7 +42,7 @@ yarn-error.log*
 .env*.development
 .env*.test
 .env*.production
-.env*.vault
+.env.me
 
 # vercel
 .vercel
