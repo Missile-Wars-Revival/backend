@@ -143,7 +143,11 @@ app.get('/api/nearby', async (req, res) => {
         }
     })
 
-    res.status(200).json({ nearbyUsers });
+    if (nearbyUsers) {
+        res.status(200).json({ message: 'Nearby users found', nearbyUsers });
+    } else {
+        res.status(404).json({ message: 'No nearby users found' });
+    }
 });
 
 
