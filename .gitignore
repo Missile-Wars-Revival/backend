@@ -29,7 +29,6 @@
 *.db-journal
 *.log
 *.log.*
-
 .env
 
 
@@ -40,6 +39,10 @@ yarn-error.log*
 
 # local env files
 .env*.local
+.env*.development
+.env*.test
+.env*.production
+.env*.vault
 
 # vercel
 .vercel
@@ -48,3 +51,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+
+.env*
+.flaskenv*
+!.env.project
+!.env.vault

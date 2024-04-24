@@ -1,0 +1,98 @@
+datasource db {
+    provider = "cockroachdb"
+    url      = env("DATABASE_URL")
+}
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+model Sessions {
+    lastIp        String @default("")
+    username      String @id @default("")
+    lastLoginTime String @default("")
+    userAgent     String @default("")
+}
+
+model Users {
+    id       Int    @id @default(sequence())
+    email    String @default("")
+    password String @default("")
+    username String @unique @default("")
+    role     String @default("user")
+    avatar   String @default("")
+}
+
+model GameplayUser {
+    id             Int              @id @default(sequence())
+    username       String           @unique @default("")
+    location       Locations[]
+    level          Int              @default(1)
+    exp            Int              @default(0)
+    money          Int              @default(0)
+    health         Int              @default(100)
+    createdAt      String           @default("")
+    updatedAt      String           @default("")
+    deletedAt      String           @default("")
+    currentSession BattleSessions[]
+    defending      BattleSessions[] @relation(name: "DefenderRelation")
+    attacking      BattleSessions[] @relation(name: "AttackerRelation")
+}
+
+model Messages {
+    id        Int    @id @default(sequence())
+    sender    String @default("")
+    receiver  String @default("")
+    content   String @default("")
+    createdAt String @default("")
+    updatedAt String @default("")
+    deletedAt String @default("")
+}
+
+model Friends {
+    id        Int    @id @default(sequence())
+    username  String @default("")
+    friend    String @default("")
+    createdAt String @default("")
+    updatedAt String @default("")
+    deletedAt String @default("")
+}
+
+model FriendRequests {
+    id        Int    @id @default(sequence())
+    username  String @default("")
+    friend    String @default("")
+    createdAt String @default("")
+    updatedAt String @default("")
+    deletedAt String @default("")
+}
+
+model BattleSessions {
+    attacker         GameplayUser  @relation(name: "AttackerRelation", fields: [attackerUsername], references: [username])
+    defender         GameplayUser  @relation(name: "DefenderRelation", fields: [defenderUsername], references: [username])
+    attackerUsername String        @default("")
+    defenderUsername String        @default("")
+    sessionId        String        @default(uuid())
+    createdAt        String        @default("")
+    updatedAt        String        @default("")
+    deletedAt        String        @default("")
+    target           String        @default("")
+    status           String        @default("")
+    result           String        @default("")
+    GameplayUser     GameplayUser? @relation(fields: [gameplayUserId], references: [id])
+    gameplayUserId   Int?
+
+    @@id([attackerUsername, defenderUsername])
+}
+
+model Locations {
+    username     String        @unique @default("")
+    latitude     String        @default("")
+    longitude    String        @default("")
+    createdAt    String        @default("")
+    updatedAt    String        @default("")
+    deletedAt    String        @default("")
+    GameplayUser GameplayUser? @relation(fields: [username], references: [username])
+
+    @@id([username])
+}
