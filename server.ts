@@ -125,35 +125,47 @@ app.post('/api/dispatch', async (req, res) => {
 
 });
 
-app.get('/api/nearby', async (req, res) => {
-    const { username, latitude, longitude } = req.body; // Destructuring timestamp from req.body
+app.post('/api/nearby', async (req, res) => {
+    const { username, latitude, longitude } = req.body;
 
-    const nearbyUsers = await prisma.gameplayUser.findMany({
-        where: {
-            username: {
-                not: username
-            },
-            location: {
-                some: {
-                    latitude: {
-                        gte: String(latitude - 0.135),
-                        lte: String(latitude + 0.135)
-                    },
-                    longitude: {
-                        gte: String(longitude - 0.176),
-                        lte: String(longitude + 0.176)
+    // Validate request data
+    if (!username || !latitude || !longitude) {
+        return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    try {
+        const nearbyUsers = await prisma.gameplayUser.findMany({
+            where: {
+                username: {
+                    not: username
+                },
+                location: {
+                    some: {
+                        latitude: {
+                            gte: String(latitude - 0.135),
+                            lte: String(latitude + 0.135)
+                        },
+                        longitude: {
+                            gte: String(longitude - 0.176),
+                            lte: String(longitude + 0.176)
+                        }
                     }
                 }
             }
-        }
-    })
+        });
 
-    if (nearbyUsers) {
-        res.status(200).json({ message: 'Nearby users found', nearbyUsers });
-    } else {
-        res.status(404).json({ message: 'No nearby users found' });
+        if (nearbyUsers && nearbyUsers.length > 0) {
+            res.status(200).json({ message: 'Nearby users found', nearbyUsers });
+        } else {
+            res.status(200).json({ message: 'No nearby users found' }); // Changed to 200 OK with custom message
+        }
+    } catch (error) {
+        console.log('Error fetching nearby users:', error);
+        res.status(500).json({ message: 'Internal Server Error' });
     }
 });
+
+
 // add friend logic...
 app.post('/api/addFriend', async (req, res) => {
     const { username, friendUsername } = req.body;
@@ -179,7 +191,7 @@ app.delete('/api/removeFriend', async (req, res) => {
     const { username, friendUsername } = req.body;
 
     // Logic to remove friend from user's friend list (assuming you have a friends table or field in users table)
-    // Update this part based on your database schema
+    // Update this part based on your database schema 
 
     res.status(200).json({ message: 'Friend removed' });
 });
