@@ -2,12 +2,36 @@ import express from 'express';
 import bodyParser from 'body-parser';
 import { PrismaClient } from '@prisma/client';
 import * as argon2 from "argon2";
+import swaggerUi from 'swagger-ui-express';
+import swaggerJSDoc from 'swagger-jsdoc';
 
 const prisma = new PrismaClient();
 
-
 const app = express();
 app.use(bodyParser.json());
+
+// Swagger definition
+const swaggerDefinition = {
+    info: {
+        title: 'Missile Wars Backend',
+        version: '0.0.1',
+        description: 'Endpoints to interact with the Missile Wars game backend',
+    },
+    host: 'localhost:3000', // Your host
+    basePath: '/', // Base path for your API
+};
+
+// Options for the swagger docs
+const options = {
+    swaggerDefinition,
+    apis: ['./routes/*.ts'], // Path to the API routes folder
+};
+
+// Initialize swagger-jsdoc
+const swaggerSpec = swaggerJSDoc(options);
+
+// Serve Swagger docs
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
@@ -22,7 +46,7 @@ app.post('/api/login', async (req, res) => {
     if (user && await argon2.verify(user.password, password)) {
         res.status(200).json({ message: 'Login successful' });
     } else {
-        res.status(401).json({ message: 'Login failed' });
+        res.status(401).json({ message: 'Invalid username or password' });
     }
 });
 
