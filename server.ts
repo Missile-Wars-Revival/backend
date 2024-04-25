@@ -125,8 +125,6 @@ app.post('/api/dispatch', async (req, res) => {
 
 });
 
-
-
 app.get('/api/nearby', async (req, res) => {
     const { username, latitude, longitude } = req.body; // Destructuring timestamp from req.body
 
@@ -138,12 +136,12 @@ app.get('/api/nearby', async (req, res) => {
             location: {
                 some: {
                     latitude: {
-                        gte: String(latitude - 0.01),
-                        lte: String(latitude + 0.01)
+                        gte: String(latitude - 0.135),
+                        lte: String(latitude + 0.135)
                     },
                     longitude: {
-                        gte: String(longitude - 0.01),
-                        lte: String(longitude + 0.01)
+                        gte: String(longitude - 0.176),
+                        lte: String(longitude + 0.176)
                     }
                 }
             }
@@ -156,8 +154,68 @@ app.get('/api/nearby', async (req, res) => {
         res.status(404).json({ message: 'No nearby users found' });
     }
 });
+// add friend logic...
+app.post('/api/addFriend', async (req, res) => {
+    const { username, friendUsername } = req.body;
+
+    // Check if friend exists
+    const friend = await prisma.users.findFirst({
+        where: {
+            username: friendUsername
+        }
+    });
+
+    if (!friend) {
+        return res.status(404).json({ message: 'Friend not found' });
+    }
+
+    // Logic to add friend to user's friend list (assuming you have a friends table or field in users table)
+    // Update this part based on your database schema
+
+    res.status(200).json({ message: 'Friend added' });
+});
+
+app.delete('/api/removeFriend', async (req, res) => {
+    const { username, friendUsername } = req.body;
+
+    // Logic to remove friend from user's friend list (assuming you have a friends table or field in users table)
+    // Update this part based on your database schema
+
+    res.status(200).json({ message: 'Friend removed' });
+});
 
 
+//readded player locations to allow frontend to conintue working 
+let playerLocations: { username: string; latitude: number; longitude: number; }[] = [];
+
+app.post('/api/sendLocation', (req, res) => {
+    const { username, latitude, longitude, timestamp } = req.body; // Destructuring timestamp from req.body
+    const existingLocationIndex = playerLocations.findIndex(loc => loc.username === username);
+
+    const locationData = {
+        username,
+        latitude,
+        longitude,
+        timestamp, // Include timestamp in the location data
+    };
+
+    if (existingLocationIndex !== -1) {
+        // Update existing location
+        playerLocations[existingLocationIndex] = locationData;
+    } else {
+        // Add new location
+        playerLocations.push(locationData);
+    }
+
+    // Send the updated playerLocations as a response
+    res.status(200).json(playerLocations);
+    console.log('playerlocation received:', locationData); // Logging the received location data
+});
+
+app.get('/api/getOtherPlayersData', (req, res) => {
+    res.status(200).json(playerLocations);
+    console.log('playerlocation sent');
+});
 
 
 app.listen(3000, () => {
