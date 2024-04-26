@@ -1,27 +1,22 @@
 /**
  * @swagger
- * /api/nearby:
+ * /api/getFriends:
  *   get:
- *     description: Get nearby users
+ *     description: Get user's friends
  *     parameters:
  *       - name: username
  *         description: User's username
  *         in: query
  *         required: true
  *         type: string
- *       - name: latitude
- *         description: Latitude coordinate
- *         in: query
- *         required: true
- *         type: string
- *       - name: longitude
- *         description: Longitude coordinate
+ *       - name: password
+ *         description: User's password
  *         in: query
  *         required: true
  *         type: string
  *     responses:
  *       '200':
- *         description: Nearby users found
+ *         description: List of user's friends
  *       '400':
  *        description: Bad request
  * 
