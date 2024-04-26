@@ -29,7 +29,7 @@
 *.db-journal
 *.log
 *.log.*
-.env
+
 
 
 # debug
@@ -37,12 +37,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# local env files
-.env*.local
-.env*.development
-.env*.test
-.env*.production
-.env.me
 
 # vercel
 .vercel
