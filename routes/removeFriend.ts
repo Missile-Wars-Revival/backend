@@ -1,27 +1,27 @@
 /**
  * @swagger
- * /api/nearby:
- *   get:
- *     description: Get nearby users
+ * /api/removeFriend:
+ *   delete:
+ *     description: Remove a friend
  *     parameters:
  *       - name: username
  *         description: User's username
  *         in: query
  *         required: true
  *         type: string
- *       - name: latitude
- *         description: Latitude coordinate
+ *       - name: password
+ *         description: User's password
  *         in: query
  *         required: true
  *         type: string
- *       - name: longitude
- *         description: Longitude coordinate
+ *       - name: friend
+ *         description: Friend's username
  *         in: query
  *         required: true
  *         type: string
  *     responses:
- *       '200':
- *         description: Nearby users found
+ *       '204':
+ *         description: Friend removed
  *       '400':
  *        description: Bad request
  * 

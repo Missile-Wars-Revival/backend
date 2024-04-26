@@ -15,12 +15,17 @@ model Sessions {
 }
 
 model Users {
-    id       Int    @id @default(sequence())
-    email    String @default("")
-    password String @default("")
-    username String @unique @default("")
-    role     String @default("user")
-    avatar   String @default("")
+    id           Int           @id @default(sequence())
+    email        String        @default("")
+    password     String        @default("")
+    username     String        @unique @default("")
+    role         String        @default("user")
+    createdAt    String        @default("")
+    updatedAt    String        @default("")
+    deletedAt    String        @default("")
+    friends      String[]      @default([])
+    avatar       String        @default("")
+    GameplayUser GameplayUser?
 }
 
 model GameplayUser {
@@ -34,9 +39,11 @@ model GameplayUser {
     createdAt      String           @default("")
     updatedAt      String           @default("")
     deletedAt      String           @default("")
+    friendRequests FriendRequests[]
     currentSession BattleSessions[]
     defending      BattleSessions[] @relation(name: "DefenderRelation")
     attacking      BattleSessions[] @relation(name: "AttackerRelation")
+    user           Users            @relation(fields: [username], references: [username])
 }
 
 model Messages {
@@ -49,22 +56,15 @@ model Messages {
     deletedAt String @default("")
 }
 
-model Friends {
-    id        Int    @id @default(sequence())
-    username  String @default("")
-    friend    String @default("")
-    createdAt String @default("")
-    updatedAt String @default("")
-    deletedAt String @default("")
-}
-
 model FriendRequests {
-    id        Int    @id @default(sequence())
-    username  String @default("")
-    friend    String @default("")
-    createdAt String @default("")
-    updatedAt String @default("")
-    deletedAt String @default("")
+    id             Int           @id @default(sequence())
+    username       String        @default("")
+    friend         String        @default("")
+    createdAt      String        @default("")
+    updatedAt      String        @default("")
+    deletedAt      String        @default("")
+    GameplayUser   GameplayUser? @relation(fields: [gameplayUserId], references: [id])
+    gameplayUserId Int?
 }
 
 model BattleSessions {

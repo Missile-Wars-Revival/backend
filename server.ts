@@ -30,8 +30,11 @@ const options = {
 // Initialize swagger-jsdoc
 const swaggerSpec = swaggerJSDoc(options);
 
-// Serve Swagger docs
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// check if env is dev and serve swagger
+if (process.env.NODE_ENV === 'development') {
+    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+}
+
 
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
@@ -109,45 +112,50 @@ app.post('/api/register', async (req, res) => {
 });
 
 app.post('/api/dispatch', async (req, res) => {
-    const { username, latitude, longitude } = req.body; // Destructuring timestamp from req.body
+    const { username, password, latitude, longitude } = req.body; // Destructuring timestamp from req.body
 
-    const lastLocation = await prisma.locations.findFirst({
+    // verify username and password
+
+    const user = await prisma.users.findFirst({
         where: {
             username: username
-        },
-        orderBy: {
-            createdAt: 'desc'
         }
-    });
+    })
 
-
-    if (lastLocation) {
-        await prisma.gameplayUser.update({
+    if (user && await argon2.verify(user.password, password)) {
+        const lastLocation = await prisma.locations.findFirst({
             where: {
                 username: username
             },
-            data: {
-                location: {
-                    create: {
-                        latitude: latitude,
-                        longitude: longitude,
-                        updatedAt: new Date().toDateString()
-                    }
-                }
+            orderBy: {
+                createdAt: 'desc'
             }
-        })
-    } else {
-        await prisma.locations.create({
-            data: {
-                username: username,
-                latitude: latitude,
-                longitude: longitude,
-                createdAt: new Date().toDateString(),
-            }
-        })
-    }
+        });
 
-    res.status(200).json({ message: 'Location updated' });
+        if (lastLocation) {
+            await prisma.locations.create({
+                data: {
+                    username: username,
+                    latitude: latitude,
+                    longitude: longitude,
+                    createdAt: new Date().toDateString(),
+                }
+            })
+        } else {
+            await prisma.locations.create({
+                data: {
+                    username: username,
+                    latitude: latitude,
+                    longitude: longitude,
+                    createdAt: new Date().toDateString(),
+                }
+            })
+        }
+
+        res.status(200).json({ message: 'Location dispatched' });
+    } else {
+        res.status(404).json({ message: 'User not found' });
+    }
 
 });
 
@@ -183,6 +191,163 @@ app.get('/api/nearby', async (req, res) => {
     }
 });
 
+app.post('/api/friends', async (req, res) => {
+    const { username, password } = req.body; // Destructuring timestamp from req.body
+
+    const user = await prisma.users.findFirst({
+        where: {
+            username: username
+        }
+    })
+
+    if (user) {
+        if (await argon2.verify(user.password, password)) {
+            const friends = await prisma.users.findMany({
+                where: {
+                    username: {
+                        in: user.friends
+                    }
+                }
+            })
+
+            const friendUsers = await prisma.users.findMany({
+                where: {
+                    username: {
+                        in: user.friends
+                    }
+                }
+            })
+
+
+            if (friends) {
+                res.status(200).json({ message: 'Friends found', friendUsers });
+            } else {
+                res.status(404).json({ message: 'No friends found' });
+            }
+        }
+    }
+
+});
+
+app.post('/api/addFriend', async (req, res) => {
+    const { username, password, friend } = req.body; // Destructuring timestamp from req.body
+
+    const user = await prisma.users.findFirst({
+        where: {
+            username: username
+        }
+    })
+
+    const friendUser = await prisma.users.findFirst({
+        where: {
+            username: friend
+        }
+    })
+
+    if (!friendUser) {
+        return res.status(404).json({ message: 'Friend not found' });
+    }
+
+
+
+    if (user) {
+        if (await argon2.verify(user.password, password)) {
+
+
+            await prisma.users.update({
+                where: {
+                    username: username
+                },
+                data: {
+                    friends: {
+                        push: friend
+                    }
+                }
+            })
+
+            res.status(200).json({ message: 'Friend added' });
+        } else {
+            res.status(404).json({ message: 'User not found' });
+        }
+    }
+});
+
+
+
+app.delete('/api/removeFriend', async (req, res) => {
+    const { username, password, friend } = req.body; // Destructuring timestamp from req.body
+
+    const user = await prisma.users.findFirst({
+        where: {
+            username: username
+        }
+    })
+
+    const friendUser = await prisma.users.findFirst({
+        where: {
+            username: friend
+        }
+    })
+
+    if (!friendUser) {
+        return res.status(404).json({ message: 'Friend not found' });
+    }
+
+    if (user) {
+        if (await argon2.verify(user.password, password)) {
+
+
+            await prisma.users.update({
+                where: {
+                    username: username
+                },
+                data: {
+                    friends: {
+                        set: user.friends.filter((f) => f !== friend)
+                    }
+                }
+            })
+
+            res.status(204).end();
+        } else {
+            res.status(404).json({ message: 'User not found' });
+        }
+    }
+});
+
+
+app.get('/api/testusers', async (req, res) => {
+
+    const users = await prisma.users.findMany({
+        where: {
+            username: {
+                contains: 'test'
+            }
+        }
+    })
+
+    res.status(200).json({ users });
+})
+
+app.get('/api/getuser', async (req, res) => {
+
+    const { username } = req.query;
+
+    const user = await prisma.users.findFirst({
+        where: {
+            username: username?.toString()
+        }
+    })
+
+
+    const fmtUser = { "username": user?.username, "id": user?.id, "role": user?.role, "avatar": user?.avatar }
+
+    if (user) {
+        res.status(200).json({ ...fmtUser });
+    } else {
+        res.status(404).json({ message: 'User not found' });
+    }
+})
 
 
 
