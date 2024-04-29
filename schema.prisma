@@ -37,7 +37,7 @@ model GameplayUser {
     money          Int              @default(0)
     health         Int              @default(100)
     createdAt      String           @default("")
-    updatedAt      Int              @default("")
+    updatedAt      String           @default("")
     deletedAt      String           @default("")
     friendRequests FriendRequests[]
     currentSession BattleSessions[]
