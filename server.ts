@@ -112,51 +112,53 @@ app.post('/api/register', async (req, res) => {
 });
 
 app.post('/api/dispatch', async (req, res) => {
-    const { username, password, latitude, longitude } = req.body; // Destructuring timestamp from req.body
+    const { username, latitude, longitude } = req.body;
 
-    // verify username and password
-
-    const user = await prisma.users.findFirst({
+    // Check if the user exists
+    const user = await prisma.gameplayUser.findFirst({
         where: {
             username: username
         }
-    })
+    });
 
-    if (user && await argon2.verify(user.password, password)) {
+    if (user) {
         const lastLocation = await prisma.locations.findFirst({
             where: {
                 username: username
             },
             orderBy: {
-                createdAt: 'desc'
+                updatedAt: 'desc'
             }
         });
 
         if (lastLocation) {
-            await prisma.locations.create({
+            // User already has a location, update it
+            await prisma.locations.update({
+                where: {
+                    username: lastLocation.username
+                },
                 data: {
-                    username: username,
                     latitude: latitude,
                     longitude: longitude,
-                    createdAt: new Date().toDateString(),
+                    updatedAt: new Date().toISOString() // Convert Date object to string
                 }
-            })
+            });
         } else {
+            // User does not have a location, create a new one
             await prisma.locations.create({
                 data: {
                     username: username,
                     latitude: latitude,
                     longitude: longitude,
-                    createdAt: new Date().toDateString(),
+                    updatedAt: new Date().toISOString() // Convert Date object to string
                 }
-            })
+            });        
         }
 
         res.status(200).json({ message: 'Location dispatched' });
     } else {
         res.status(404).json({ message: 'User not found' });
     }
-
 });
 
 
