@@ -161,36 +161,60 @@ app.post('/api/dispatch', async (req, res) => {
     }
 });
 
+app.get('/api/playerlocations', async (req, res) => {
+    try {
+        const allLocations = await prisma.locations.findMany({
+            select: {
+                username: true,
+                latitude: true,
+                longitude: true,
+                updatedAt: true
+            }
+        });
+        res.status(200).json(allLocations);
+    } catch (error) {
+        console.error("Error fetching locations:", error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
 
 
 app.get('/api/nearby', async (req, res) => {
-    const { username, latitude, longitude } = req.body; // Destructuring timestamp from req.body
+    const { username, latitude, longitude } = req.body;
 
-    const nearbyUsers = await prisma.gameplayUser.findMany({
-        where: {
-            username: {
-                not: username
-            },
-            location: {
-                some: {
-                    latitude: {
-                        gte: String(latitude - 0.01),
-                        lte: String(latitude + 0.01)
-                    },
-                    longitude: {
-                        gte: String(longitude - 0.01),
-                        lte: String(longitude + 0.01)
-                    }
+// Approximate conversion factor from kilometers to degrees
+const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
+
+// Convert 15km radius to degrees
+const radiusInDegrees = 15 * kmToDegrees;
+
+const nearbyUsers = await prisma.gameplayUser.findMany({
+    where: {
+        username: {
+            not: username
+        },
+        location: {
+            some: {
+                latitude: {
+                    gte: String(latitude - radiusInDegrees),
+                    lte: String(latitude + radiusInDegrees)
+                },
+                longitude: {
+                    gte: String(longitude - radiusInDegrees),
+                    lte: String(longitude + radiusInDegrees)
                 }
             }
         }
-    })
-
-    if (nearbyUsers) {
-        res.status(200).json({ message: 'Nearby users found', nearbyUsers });
-    } else {
-        res.status(404).json({ message: 'No nearby users found' });
     }
+});
+
+if (nearbyUsers.length > 0) {
+    res.status(200).json({ message: 'Nearby users found', nearbyUsers });
+} else {
+    res.status(404).json({ message: 'No nearby users found' });
+}
+
 });
 
 app.post('/api/friends', async (req, res) => {
