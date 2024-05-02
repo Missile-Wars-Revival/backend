@@ -218,7 +218,7 @@ if (nearbyUsers.length > 0) {
 });
 
 app.post('/api/friends', async (req, res) => {
-    const { username, password } = req.body; // Destructuring timestamp from req.body
+    const { username } = req.body; // Only taking username from req.body
 
     const user = await prisma.users.findFirst({
         where: {
@@ -227,36 +227,26 @@ app.post('/api/friends', async (req, res) => {
     })
 
     if (user) {
-        if (await argon2.verify(user.password, password)) {
-            const friends = await prisma.users.findMany({
-                where: {
-                    username: {
-                        in: user.friends
-                    }
+        const friends = await prisma.users.findMany({
+            where: {
+                username: {
+                    in: user.friends
                 }
-            })
-
-            const friendUsers = await prisma.users.findMany({
-                where: {
-                    username: {
-                        in: user.friends
-                    }
-                }
-            })
-
-
-            if (friends) {
-                res.status(200).json({ message: 'Friends found', friendUsers });
-            } else {
-                res.status(404).json({ message: 'No friends found' });
             }
-        }
-    }
+        })
 
+        if (friends.length > 0) {
+            res.status(200).json({ message: 'Friends found', friends });
+        } else {
+            res.status(404).json({ message: 'No friends found' });
+        }
+    } else {
+        res.status(404).json({ message: 'User not found' });
+    }
 });
 
 app.post('/api/addFriend', async (req, res) => {
-    const { username, password, friend } = req.body; // Destructuring timestamp from req.body
+    const { username, friend } = req.body; // Destructuring username and friend from req.body
 
     const user = await prisma.users.findFirst({
         where: {
@@ -274,34 +264,27 @@ app.post('/api/addFriend', async (req, res) => {
         return res.status(404).json({ message: 'Friend not found' });
     }
 
-
-
     if (user) {
-        if (await argon2.verify(user.password, password)) {
-
-
-            await prisma.users.update({
-                where: {
-                    username: username
-                },
-                data: {
-                    friends: {
-                        push: friend
-                    }
+        await prisma.users.update({
+            where: {
+                username: username
+            },
+            data: {
+                friends: {
+                    push: friend
                 }
-            })
+            }
+        })
 
-            res.status(200).json({ message: 'Friend added' });
-        } else {
-            res.status(404).json({ message: 'User not found' });
-        }
+        res.status(200).json({ message: 'Friend added' });
+    } else {
+        res.status(404).json({ message: 'User not found' });
     }
 });
 
 
-
 app.delete('/api/removeFriend', async (req, res) => {
-    const { username, password, friend } = req.body; // Destructuring timestamp from req.body
+    const { username, friend } = req.body; // Destructuring username and friend from req.body
 
     const user = await prisma.users.findFirst({
         where: {
@@ -320,24 +303,20 @@ app.delete('/api/removeFriend', async (req, res) => {
     }
 
     if (user) {
-        if (await argon2.verify(user.password, password)) {
-
-
-            await prisma.users.update({
-                where: {
-                    username: username
-                },
-                data: {
-                    friends: {
-                        set: user.friends.filter((f) => f !== friend)
-                    }
+        await prisma.users.update({
+            where: {
+                username: username
+            },
+            data: {
+                friends: {
+                    set: user.friends.filter((f) => f !== friend)
                 }
-            })
+            }
+        })
 
-            res.status(204).end();
-        } else {
-            res.status(404).json({ message: 'User not found' });
-        }
+        res.status(204).end();
+    } else {
+        res.status(404).json({ message: 'User not found' });
     }
 });
 
