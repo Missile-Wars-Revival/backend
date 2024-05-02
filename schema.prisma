@@ -96,3 +96,14 @@ model Locations {
 
     @@id([username])
 }
+
+model Missile {
+    id          Int    @id @default(sequence())
+    destLat     String @default("")
+    destLong    String @default("")
+    currentLat  String @default("")
+    currentLong String @default("")
+    radius      Int
+    type        String
+    status      String
+}
