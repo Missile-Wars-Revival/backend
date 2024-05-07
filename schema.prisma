@@ -96,3 +96,14 @@ model Locations {
 
     @@id([username])
 }
+
+model Missile {
+    destLatitude        Float
+    destLongitude       Float
+    currentLatitude     Float
+    currentLongitude    Float
+    radius              Int
+    type                String
+    sentBy              String
+    status              String
+}
