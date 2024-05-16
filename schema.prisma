@@ -120,8 +120,8 @@ model Landmine {
 
 model Loot {
     id          Int    @id @default(sequence())
-    latitude    Float
     longitude   Float
+    latitude    Float
     rarity      String
     destLat     String @default("")
     destLong    String @default("")
