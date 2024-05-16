@@ -4,10 +4,18 @@ import { PrismaClient } from '@prisma/client';
 import * as argon2 from "argon2";
 import swaggerUi from 'swagger-ui-express';
 import swaggerJSDoc from 'swagger-jsdoc';
+import expressWs from 'express-ws';
+import { ParamsDictionary } from 'express-serve-static-core';
+import { ParsedQs } from 'qs';
 
 const prisma = new PrismaClient();
 
-const app = express();
+
+
+const wsServer = expressWs(express());
+const app = wsServer.app;
+
+
 app.use(bodyParser.json());
 
 // Swagger definition
@@ -34,6 +42,37 @@ const swaggerSpec = swaggerJSDoc(options);
 if (process.env.NODE_ENV === 'development') {
     app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 }
+
+function authenticate(ws: import("ws"), req: express.Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>) {
+    const authToken = req.headers['authorization']
+
+    if (!authToken || authToken !== 'missilewars') {
+        ws.send(JSON.stringify({ error: 'Authentication failed. Disconnecting.' }));
+
+        ws.close();
+        return false;
+    }
+
+    return true;
+}
+
+
+app.ws('/', (ws, req) => {
+    // Perform authentication when a new connection is established
+    if (!authenticate(ws, req)) {
+        return; 
+    }
+
+   
+    ws.on('message', (message: string) => {
+        console.log('Received message from client:', message);
+    });
+
+    ws.on('close', () => {
+        console.log('Client disconnected');
+    });
+
+});
 
 
 app.post('/api/login', async (req, res) => {
@@ -152,7 +191,7 @@ app.post('/api/dispatch', async (req, res) => {
                     longitude: longitude,
                     updatedAt: new Date().toISOString() // Convert Date object to string
                 }
-            });        
+            });
         }
 
         res.status(200).json({ message: 'Location dispatched' });
@@ -183,37 +222,37 @@ app.get('/api/playerlocations', async (req, res) => {
 app.get('/api/nearby', async (req, res) => {
     const { username, latitude, longitude } = req.body;
 
-// Approximate conversion factor from kilometers to degrees
-const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
+    // Approximate conversion factor from kilometers to degrees
+    const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
 
-// Convert 15km radius to degrees
-const radiusInDegrees = 15 * kmToDegrees;
+    // Convert 15km radius to degrees
+    const radiusInDegrees = 15 * kmToDegrees;
 
-const nearbyUsers = await prisma.gameplayUser.findMany({
-    where: {
-        username: {
-            not: username
-        },
-        location: {
-            some: {
-                latitude: {
-                    gte: String(latitude - radiusInDegrees),
-                    lte: String(latitude + radiusInDegrees)
-                },
-                longitude: {
-                    gte: String(longitude - radiusInDegrees),
-                    lte: String(longitude + radiusInDegrees)
+    const nearbyUsers = await prisma.gameplayUser.findMany({
+        where: {
+            username: {
+                not: username
+            },
+            location: {
+                some: {
+                    latitude: {
+                        gte: String(latitude - radiusInDegrees),
+                        lte: String(latitude + radiusInDegrees)
+                    },
+                    longitude: {
+                        gte: String(longitude - radiusInDegrees),
+                        lte: String(longitude + radiusInDegrees)
+                    }
                 }
             }
         }
-    }
-});
+    });
 
-if (nearbyUsers.length > 0) {
-    res.status(200).json({ message: 'Nearby users found', nearbyUsers });
-} else {
-    res.status(404).json({ message: 'No nearby users found' });
-}
+    if (nearbyUsers.length > 0) {
+        res.status(200).json({ message: 'Nearby users found', nearbyUsers });
+    } else {
+        res.status(404).json({ message: 'No nearby users found' });
+    }
 
 });
 
