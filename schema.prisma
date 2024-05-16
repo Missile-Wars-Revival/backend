@@ -98,6 +98,28 @@ model Locations {
 }
 
 model Missile {
+    destLatitude        Float
+    destLongitude       Float
+    currentLatitude     Float
+    currentLongitude    Float
+    radius              Int
+    type                String
+    sentBy              String
+    status              String
+}
+
+model Landmine {
+    latitude		Float
+    longitude		Float
+    placedBy		String
+    Type		String
+    Expires		String
+}
+
+model Loot {
+    latitude		Float
+    longitude		Float
+    rarity		String
     id          Int    @id @default(sequence())
     destLat     String @default("")
     destLong    String @default("")
