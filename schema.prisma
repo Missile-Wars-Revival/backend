@@ -98,36 +98,38 @@ model Locations {
 }
 
 model Missile {
-    id               Int    @id @default(sequence())
-    destLatitude     Float
-    destLongitude    Float
-    currentLatitude  Float
-    currentLongitude Float
-    radius           Int
-    type             String
-    sentBy           String
-    status           String
+    id         Int    @id @default(sequence())
+    destLat    String @default("")
+    destLong   String @default("")
+    launchLat  String @default("")
+    launchLong String @default("")
+    radius     Int
+    type       String
+    sentBy     String
+    status     String
 }
 
 model Landmine {
-    id        Int    @id @default(sequence())
-    latitude  Float
-    longitude Float
-    placedBy  String
-    Type      String
-    Expires   String
+    id         Int    @id @default(sequence())
+    destLat    String @default("")
+    destLong   String @default("")
+    launchLat  String @default("")
+    launchLong String @default("")
+    placedBy   String
+    Type       String
+    Expires    String
 }
 
 model Loot {
-    id          Int    @id @default(sequence())
-    longitude   Float
-    latitude    Float
-    rarity      String
-    destLat     String @default("")
-    destLong    String @default("")
-    currentLat  String @default("")
-    currentLong String @default("")
-    radius      Int
-    type        String
-    status      String
+    id         Int    @id @default(sequence())
+    longitude  Float
+    latitude   Float
+    rarity     String
+    destLat    String @default("")
+    destLong   String @default("")
+    launchLat  String @default("")
+    launchLong String @default("")
+    radius     Int
+    type       String
+    status     String
 }
