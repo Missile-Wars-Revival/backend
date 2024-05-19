@@ -10,6 +10,7 @@ import { ParsedQs } from 'qs';
 import * as jwt from 'jsonwebtoken';
 import { JwtPayload } from 'jsonwebtoken';
 import { WebSocketMessage } from 'middle-earth'
+import { URL } from 'url';
 
 const prisma = new PrismaClient();
 
@@ -44,9 +45,8 @@ const swaggerSpec = swaggerJSDoc(options);
 if (process.env.NODE_ENV === 'development') {
     app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 }
-
 function authenticate(ws: import("ws"), req: express.Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>) {
-    const authToken = req.headers['sec-websocket-key']
+    const authToken = req.headers['sec-websocket-protocol']
 
     if (!authToken || authToken !== 'missilewars') {
         ws.send(JSON.stringify({ error: 'Authentication failed. Disconnecting.' }));
