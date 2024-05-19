@@ -46,7 +46,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 function authenticate(ws: import("ws"), req: express.Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>) {
-    const authToken = req.headers['Sec-Websocket-Protocol']
+    const authToken = req.headers['sec-websocket-key']
 
     if (!authToken || authToken !== 'missilewars') {
         ws.send(JSON.stringify({ error: 'Authentication failed. Disconnecting.' }));
@@ -100,6 +100,7 @@ app.post('/api/login', async (req, res) => {
         res.status(401).json({ message: 'Invalid username or password' });
     }
 });
+
 
 app.post('/api/register', async (req, res) => {
     const { username, email, password } = req.body;
