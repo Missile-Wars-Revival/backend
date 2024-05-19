@@ -31,6 +31,8 @@
     "cross-env": "^7.0.3",
     "express": "^4.19.2",
     "express-ws": "^5.0.2",
+    "jsonwebtoken": "^9.0.2",
+    "middle-earth": "github:Missile-Wars-Revival/middle-earth",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0"
   }
