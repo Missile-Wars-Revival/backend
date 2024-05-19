@@ -7,9 +7,11 @@ import swaggerJSDoc from 'swagger-jsdoc';
 import expressWs from 'express-ws';
 import { ParamsDictionary } from 'express-serve-static-core';
 import { ParsedQs } from 'qs';
+import * as jwt from 'jsonwebtoken';
+import { JwtPayload } from 'jsonwebtoken';
+import { WebSocketMessage } from 'middle-earth'
 
 const prisma = new PrismaClient();
-
 
 
 const wsServer = expressWs(express());
@@ -44,7 +46,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 function authenticate(ws: import("ws"), req: express.Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>) {
-    const authToken = req.headers['authorization']
+    const authToken = req.headers['Sec-Websocket-Protocol']
 
     if (!authToken || authToken !== 'missilewars') {
         ws.send(JSON.stringify({ error: 'Authentication failed. Disconnecting.' }));
@@ -60,16 +62,21 @@ function authenticate(ws: import("ws"), req: express.Request<ParamsDictionary, a
 app.ws('/', (ws, req) => {
     // Perform authentication when a new connection is established
     if (!authenticate(ws, req)) {
-        return; 
+        return;
     }
 
-   
-    ws.on('message', (message: string) => {
-        console.log('Received message from client:', message);
+
+    ws.on('message', (message: WebSocketMessage) => {
+        message.messages.forEach((msg) => {
+            console.log('Received message:', msg);
+            ws.send(JSON.stringify({ message: msg }));
+        });
     });
 
+    ws.send(JSON.stringify({ message: 'Connection established' }));
+
     ws.on('close', () => {
-        console.log('Client disconnected');
+        console.log('Connection closed');
     });
 
 });
@@ -86,7 +93,9 @@ app.post('/api/login', async (req, res) => {
 
 
     if (user && await argon2.verify(user.password, password)) {
-        res.status(200).json({ message: 'Login successful' });
+
+        const token = jwt.sign({ username: user.username, password: user.password }, process.env.WS_SECRET || '',);
+        res.status(200).json({ message: 'Login successful', token });
     } else {
         res.status(401).json({ message: 'Invalid username or password' });
     }
@@ -151,19 +160,32 @@ app.post('/api/register', async (req, res) => {
 });
 
 app.post('/api/dispatch', async (req, res) => {
-    const { username, latitude, longitude } = req.body;
+    const { token, latitude, longitude } = req.body;
+
+
+    if (!token) {
+        return res.status(401).json({ message: 'Missing token' });
+    }
+
+    const decoded = jwt.verify(token, process.env.WS_SECRET || '')
+
+    if (!decoded) {
+        return res.status(401).json({ message: 'Invalid token' });
+    }
+
+
 
     // Check if the user exists
     const user = await prisma.gameplayUser.findFirst({
         where: {
-            username: username
+            username: (decoded as JwtPayload).username as string
         }
     });
 
     if (user) {
         const lastLocation = await prisma.locations.findFirst({
             where: {
-                username: username
+                username: (decoded as JwtPayload).username as string
             },
             orderBy: {
                 updatedAt: 'desc'
@@ -186,7 +208,7 @@ app.post('/api/dispatch', async (req, res) => {
             // User does not have a location, create a new one
             await prisma.locations.create({
                 data: {
-                    username: username,
+                    username: (decoded as JwtPayload).username as string,
                     latitude: latitude,
                     longitude: longitude,
                     updatedAt: new Date().toISOString() // Convert Date object to string
