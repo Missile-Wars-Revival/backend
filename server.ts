@@ -4,10 +4,21 @@ import { PrismaClient } from '@prisma/client';
 import * as argon2 from "argon2";
 import swaggerUi from 'swagger-ui-express';
 import swaggerJSDoc from 'swagger-jsdoc';
+import expressWs from 'express-ws';
+import { ParamsDictionary } from 'express-serve-static-core';
+import { ParsedQs } from 'qs';
+import * as jwt from 'jsonwebtoken';
+import { JwtPayload } from 'jsonwebtoken';
+import { WebSocketMessage } from 'middle-earth'
+import { URL } from 'url';
 
 const prisma = new PrismaClient();
 
-const app = express();
+
+const wsServer = expressWs(express());
+const app = wsServer.app;
+
+
 app.use(bodyParser.json());
 
 // Swagger definition
@@ -34,6 +45,41 @@ const swaggerSpec = swaggerJSDoc(options);
 if (process.env.NODE_ENV === 'development') {
     app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 }
+function authenticate(ws: import("ws"), req: express.Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>) {
+    const authToken = req.headers['sec-websocket-protocol']
+
+    if (!authToken || authToken !== 'missilewars') {
+        ws.send(JSON.stringify({ error: 'Authentication failed. Disconnecting.' }));
+
+        ws.close();
+        return false;
+    }
+
+    return true;
+}
+
+
+app.ws('/', (ws, req) => {
+    // Perform authentication when a new connection is established
+    if (!authenticate(ws, req)) {
+        return;
+    }
+
+
+    ws.on('message', (message: WebSocketMessage) => {
+        message.messages.forEach((msg) => {
+            console.log('Received message:', msg);
+            ws.send(JSON.stringify({ message: msg }));
+        });
+    });
+
+    ws.send(JSON.stringify({ message: 'Connection established' }));
+
+    ws.on('close', () => {
+        console.log('Connection closed');
+    });
+
+});
 
 
 app.post('/api/login', async (req, res) => {
@@ -47,11 +93,14 @@ app.post('/api/login', async (req, res) => {
 
 
     if (user && await argon2.verify(user.password, password)) {
-        res.status(200).json({ message: 'Login successful' });
+
+        const token = jwt.sign({ username: user.username, password: user.password }, process.env.WS_SECRET || '',);
+        res.status(200).json({ message: 'Login successful', token });
     } else {
         res.status(401).json({ message: 'Invalid username or password' });
     }
 });
+
 
 app.post('/api/register', async (req, res) => {
     const { username, email, password } = req.body;
@@ -112,19 +161,32 @@ app.post('/api/register', async (req, res) => {
 });
 
 app.post('/api/dispatch', async (req, res) => {
-    const { username, latitude, longitude } = req.body;
+    const { token, latitude, longitude } = req.body;
+
+
+    if (!token) {
+        return res.status(401).json({ message: 'Missing token' });
+    }
+
+    const decoded = jwt.verify(token, process.env.WS_SECRET || '')
+
+    if (!decoded) {
+        return res.status(401).json({ message: 'Invalid token' });
+    }
+
+
 
     // Check if the user exists
     const user = await prisma.gameplayUser.findFirst({
         where: {
-            username: username
+            username: (decoded as JwtPayload).username as string
         }
     });
 
     if (user) {
         const lastLocation = await prisma.locations.findFirst({
             where: {
-                username: username
+                username: (decoded as JwtPayload).username as string
             },
             orderBy: {
                 updatedAt: 'desc'
@@ -147,12 +209,12 @@ app.post('/api/dispatch', async (req, res) => {
             // User does not have a location, create a new one
             await prisma.locations.create({
                 data: {
-                    username: username,
+                    username: (decoded as JwtPayload).username as string,
                     latitude: latitude,
                     longitude: longitude,
                     updatedAt: new Date().toISOString() // Convert Date object to string
                 }
-            });        
+            });
         }
 
         res.status(200).json({ message: 'Location dispatched' });
@@ -183,37 +245,37 @@ app.get('/api/playerlocations', async (req, res) => {
 app.get('/api/nearby', async (req, res) => {
     const { username, latitude, longitude } = req.body;
 
-// Approximate conversion factor from kilometers to degrees
-const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
+    // Approximate conversion factor from kilometers to degrees
+    const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
 
-// Convert 15km radius to degrees
-const radiusInDegrees = 15 * kmToDegrees;
+    // Convert 15km radius to degrees
+    const radiusInDegrees = 15 * kmToDegrees;
 
-const nearbyUsers = await prisma.gameplayUser.findMany({
-    where: {
-        username: {
-            not: username
-        },
-        location: {
-            some: {
-                latitude: {
-                    gte: String(latitude - radiusInDegrees),
-                    lte: String(latitude + radiusInDegrees)
-                },
-                longitude: {
-                    gte: String(longitude - radiusInDegrees),
-                    lte: String(longitude + radiusInDegrees)
+    const nearbyUsers = await prisma.gameplayUser.findMany({
+        where: {
+            username: {
+                not: username
+            },
+            location: {
+                some: {
+                    latitude: {
+                        gte: String(latitude - radiusInDegrees),
+                        lte: String(latitude + radiusInDegrees)
+                    },
+                    longitude: {
+                        gte: String(longitude - radiusInDegrees),
+                        lte: String(longitude + radiusInDegrees)
+                    }
                 }
             }
         }
-    }
-});
+    });
 
-if (nearbyUsers.length > 0) {
-    res.status(200).json({ message: 'Nearby users found', nearbyUsers });
-} else {
-    res.status(404).json({ message: 'No nearby users found' });
-}
+    if (nearbyUsers.length > 0) {
+        res.status(200).json({ message: 'Nearby users found', nearbyUsers });
+    } else {
+        res.status(404).json({ message: 'No nearby users found' });
+    }
 
 });
 
