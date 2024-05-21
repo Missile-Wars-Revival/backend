@@ -28,6 +28,11 @@ model Users {
     GameplayUser GameplayUser?
 }
 
+model RefreshTokens {
+    id	 		Int	@id @default(sequence())
+    refreshToken	String  @default("")
+}
+
 model GameplayUser {
     id             Int              @id @default(sequence())
     username       String           @unique @default("")
