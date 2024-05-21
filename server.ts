@@ -62,15 +62,20 @@ function authenticate(ws: import("ws"), req: express.Request<ParamsDictionary, a
 app.ws('/', (ws, req) => {
     // Perform authentication when a new connection is established
     if (!authenticate(ws, req)) {
+	console.log("Connection attempted but authentication failed");
         return;
     }
 
 
-    ws.on('message', (message: WebSocketMessage) => {
+    ws.on('message', (message: String /*: WebSocketMessage*/) => {
+	console.log(message);
+
+	/*
         message.messages.forEach((msg) => {
             console.log('Received message:', msg);
             ws.send(JSON.stringify({ message: msg }));
         });
+	*/
     });
 
     ws.send(JSON.stringify({ message: 'Connection established' }));
@@ -94,8 +99,8 @@ app.post('/api/login', async (req, res) => {
 
     if (user && await argon2.verify(user.password, password)) {
 
-        const token = jwt.sign({ username: user.username, password: user.password }, process.env.WS_SECRET || '',);
-        res.status(200).json({ message: 'Login successful', token });
+        const refresh_token = jwt.sign({ username: user.username, password: user.password }, process.env.WS_SECRET || '',);
+        res.status(200).json({ message: 'Login successful', refresh_token });
     } else {
         res.status(401).json({ message: 'Invalid username or password' });
     }
