@@ -10,7 +10,7 @@ const client = new Client({
   
 
 client.on('ready', async () => {
-    console.log(`Logged in!`);
+    console.log(`Discord Logged in!`);
     if (client.user) {
         client.user.setActivity('Missiles Fly!', { type: ActivityType.Watching });
     } else {
