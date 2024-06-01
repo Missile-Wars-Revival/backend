@@ -9,8 +9,9 @@ import { ParamsDictionary } from 'express-serve-static-core';
 import { ParsedQs } from 'qs';
 import * as jwt from 'jsonwebtoken';
 import { JwtPayload } from 'jsonwebtoken';
-import { WebSocketMessage } from 'middle-earth'
+import * as middleearth from 'middle-earth';
 import { URL } from 'url';
+import { pack, unpack } from 'msgpackr';
 
 const prisma = new PrismaClient();
 
@@ -58,6 +59,54 @@ function authenticate(ws: import("ws"), req: express.Request<ParamsDictionary, a
     return true;
 }
 
+function deserialize(key: string, value: Object) {
+}
+
+function whichMsg(msg: middleearth.Msg) {
+    let msg_str = JSON.stringify(msg);
+    let msg_parsed = JSON.parse(msg_str);
+    let keys = Object.keys(msg);
+    let msg_obj: middleearth.Msg;
+    console.log("Keys: ", keys);
+    if (arraysMatch(keys, [ 'foo', 'test', 'extras' ])) { 
+	console.log("Testing from postman?");
+
+    } else if (arraysMatch(keys, ["username","latitude", "longitude", "updatedAt"])) {
+	console.log("Player");
+	/*msg_obj: middleearth.Player = { 
+		username: msg_parsed.username,
+		latitude: msg_parsed.latitude,
+		longitude: msg_parsed.longitude,
+		updatedAt: msg_parsed.updatedAt};
+	*/
+       msg_obj = msg_parsed as middleearth.Player;
+    } else if (arraysMatch(keys, ["refreshtoken"])) {
+	console.log("Rotating JWTs...");
+	//let msg_obj = middleearth.RotateTokens;
+	//msg_obj.refreshtoken = msg.refreshtoken;
+	//return msg_obj;
+
+    } else if (arraysMatch(keys, ["latitude","longitude"])) {
+	console.log("Location");
+	msg_obj: middleearth.GeoLocation = { 
+		latitude: msg_parsed.latitude, 
+		longitude: msg_parsed.longitude };
+	// let msg_obj: middleearth.Location = msg;
+	
+    } // else if (arraysMatch(keys, 
+
+    return msg_obj;
+
+}
+
+function arraysMatch(first: Array<String>, second: Array<String>) {
+    if (JSON.stringify(first) === JSON.stringify(second)) { 
+	return true;
+    } else {
+	return false;
+    }
+    
+}
 
 app.ws('/', (ws, req) => {
     // Perform authentication when a new connection is established
@@ -65,17 +114,37 @@ app.ws('/', (ws, req) => {
 	console.log("Connection attempted but authentication failed");
         return;
     }
+    console.log("New connection established");
 
-
-    ws.on('message', (message: String /*: WebSocketMessage*/) => {
-	console.log(message);
-
-	/*
-        message.messages.forEach((msg) => {
-            console.log('Received message:', msg);
-            ws.send(JSON.stringify({ message: msg }));
-        });
-	*/
+    ws.on('message', (message: string /*: WebSocketMessage*/) => {
+	// Determine if a message is encoded in MessagePack by trying
+	// to unpack it
+	try {
+	    let unpacked = unpack(Buffer.from(message))
+	    console.log("MessagePack message received and unpacked");
+	    console.log(unpacked);
+	    message = unpacked
+	} catch {
+	    console.log("Not valid MessagePack"); 
+	    // Fall back to JSON if not MessagePack
+	    try {
+	        message = JSON.parse(message);
+	        console.log("Is JSON, ", typeof message);
+	    } catch {
+	        console.log("Not JSON, cannot decode");
+		return;
+   	    }
+	}
+	
+	// Handle main communications here
+	try {
+	    whichMsg(message);
+	    let message_deser = JSON.parse(message/*, deserialize*/);
+	    console.log("Type: ", typeof message_deser);
+	    console.log("Deserialized into:\n", message);
+	} catch {
+	    console.log("Unable to deserialize");
+	}
     });
 
     ws.send(JSON.stringify({ message: 'Connection established' }));
