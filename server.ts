@@ -59,8 +59,6 @@ function authenticate(ws: import("ws"), req: express.Request<ParamsDictionary, a
     return true;
 }
 
-function deserialize(key: string, value: Object) {
-}
 
 function whichMsg(msg: middleearth.Msg) {
     let msg_str = JSON.stringify(msg);
@@ -70,6 +68,10 @@ function whichMsg(msg: middleearth.Msg) {
     console.log("Keys: ", keys);
     if (arraysMatch(keys, [ 'foo', 'test', 'extras' ])) { 
 	console.log("Testing from postman?");
+	let test: middleearth.GeoLocation = { latitude: 314159, longitude: 265358 }
+	console.log(typeof test, "\n", test);
+	// let test2: middleearth.Missile1Type = "";
+	// console.log(typeof test2);
 
     } else if (arraysMatch(keys, ["username","latitude", "longitude", "updatedAt"])) {
 	console.log("Player");
@@ -79,7 +81,7 @@ function whichMsg(msg: middleearth.Msg) {
 		longitude: msg_parsed.longitude,
 		updatedAt: msg_parsed.updatedAt};
 	*/
-       msg_obj = msg_parsed as middleearth.Player;
+       return msg_parsed as middleearth.Player;
     } else if (arraysMatch(keys, ["refreshtoken"])) {
 	console.log("Rotating JWTs...");
 	//let msg_obj = middleearth.RotateTokens;
@@ -88,16 +90,21 @@ function whichMsg(msg: middleearth.Msg) {
 
     } else if (arraysMatch(keys, ["latitude","longitude"])) {
 	console.log("Location");
-	msg_obj: middleearth.GeoLocation = { 
-		latitude: msg_parsed.latitude, 
-		longitude: msg_parsed.longitude };
+	return msg_parsed as middleearth.GeoLocation;
 	// let msg_obj: middleearth.Location = msg;
 	
-    } // else if (arraysMatch(keys, 
+    } 
 
-    return msg_obj;
+    
 
 }
+
+function unwrapMsgs(ws_msg: Object) {
+    let wsm = ws_msg as middleearth.WebSocketMessage;
+    return wsm.messages;
+
+}
+
 
 function arraysMatch(first: Array<String>, second: Array<String>) {
     if (JSON.stringify(first) === JSON.stringify(second)) { 
@@ -138,10 +145,9 @@ app.ws('/', (ws, req) => {
 	
 	// Handle main communications here
 	try {
-	    whichMsg(message);
-	    let message_deser = JSON.parse(message/*, deserialize*/);
+	    let message_deser = whichMsg(message);
 	    console.log("Type: ", typeof message_deser);
-	    console.log("Deserialized into:\n", message);
+	    console.log("Deserialized into:\n", message_deser);
 	} catch {
 	    console.log("Unable to deserialize");
 	}
