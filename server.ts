@@ -88,21 +88,32 @@ const validateSchema =
     }
   };
 
+function logVerbose(...items: any[]) { // Logs an item only if the VERBOSE_MODE env variable is set
+    if (process.env.VERBOSE_MODE === "1") {
+	/*for (let item in items) {
+	    process.stdout.write(item);
+	} */
+	console.log(...items);
+    }
+}
+
+
+
 function whichMsg(msg: middleearth.Msg) {
     let msg_str = JSON.stringify(msg);
     let msg_parsed = JSON.parse(msg_str);
     let keys = Object.keys(msg);
     let msg_obj: middleearth.Msg;
-    console.log("Keys: ", keys);
+    logVerbose("Keys: ", keys);
     if (arraysMatch(keys, [ 'foo', 'test', 'extras' ])) { 
-	console.log("Testing from postman?");
+	logVerbose("Testing from postman?");
 	let test: middleearth.GeoLocation = { latitude: 314159, longitude: 265358 }
-	console.log(typeof test, "\n", test);
+	logVerbose(typeof test, "\n", test);
 	// let test2: middleearth.Missile1Type = "";
 	// console.log(typeof test2);
 
     } else if (arraysMatch(keys, ["username","latitude", "longitude", "updatedAt"])) {
-	console.log("Player");
+	logVerbose("Player");
 	/*msg_obj: middleearth.Player = { 
 		username: msg_parsed.username,
 		latitude: msg_parsed.latitude,
@@ -111,13 +122,13 @@ function whichMsg(msg: middleearth.Msg) {
 	*/
        return msg_parsed as middleearth.Player;
     } else if (arraysMatch(keys, ["refreshtoken"])) {
-	console.log("Rotating JWTs...");
+	logVerbose("Rotating JWTs...");
 	//let msg_obj = middleearth.RotateTokens;
 	//msg_obj.refreshtoken = msg.refreshtoken;
 	//return msg_obj;
 
     } else if (arraysMatch(keys, ["latitude","longitude"])) {
-	console.log("Location");
+	logVerbose("Location");
 	return msg_parsed as middleearth.GeoLocation;
 	// let msg_obj: middleearth.Location = msg;
 	
@@ -146,27 +157,27 @@ function arraysMatch(first: Array<String>, second: Array<String>) {
 app.ws('/', (ws, req) => {
     // Perform authentication when a new connection is established
     if (!authenticate(ws, req)) {
-	console.log("Connection attempted but authentication failed");
+	logVerbose("Connection attempted but authentication failed");
         return;
     }
-    console.log("New connection established");
+    logVerbose("New connection established");
 
     ws.on('message', (message: string /*: WebSocketMessage*/) => {
 	// Determine if a message is encoded in MessagePack by trying
 	// to unpack it
 	try {
 	    let unpacked = unpack(Buffer.from(message))
-	    console.log("MessagePack message received and unpacked");
-	    console.log(unpacked);
+	    logVerbose("MessagePack message received and unpacked");
+	    logVerbose(unpacked);
 	    message = unpacked
 	} catch {
-	    console.log("Not valid MessagePack"); 
+	    logVerbose("Not valid MessagePack"); 
 	    // Fall back to JSON if not MessagePack
 	    try {
 	        message = JSON.parse(message);
-	        console.log("Is JSON, ", typeof message);
+	        logVerbose("Is JSON, ", typeof message);
 	    } catch {
-	        console.log("Not JSON, cannot decode");
+		logVerbose("Not JSON, cannot decode");
 		return;
    	    }
 	}
@@ -174,17 +185,17 @@ app.ws('/', (ws, req) => {
 	// Handle main communications here
 	try {
 	    let message_deser = whichMsg(message);
-	    console.log("Type: ", typeof message_deser);
-	    console.log("Deserialized into:\n", message_deser);
+	    logVerbose("Type: ", typeof message_deser);
+	    logVerbose("Deserialized into:\n", message_deser);
 	} catch {
-	    console.log("Unable to deserialize");
+	    logVerbose("Unable to deserialize");
 	}
     });
 
   ws.send(JSON.stringify({ message: "Connection established" }));
 
   ws.on("close", () => {
-    console.log("Connection closed");
+    logVerbose("Connection closed");
   });
 });
 
