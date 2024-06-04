@@ -36,6 +36,7 @@
     "middle-earth": "file:../middle-earth",
     "msgpackr": "^1.10.2",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.0"
+    "swagger-ui-express": "^5.0.0",
+    "zod": "^3.23.8"
   }
 }
