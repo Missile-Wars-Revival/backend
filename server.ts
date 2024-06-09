@@ -10,14 +10,16 @@ import { ParsedQs } from "qs";
 import * as jwt from "jsonwebtoken";
 import { JwtPayload } from "jsonwebtoken";
 import { WebSocketMessage } from "middle-earth";
+import * as middleearth from "middle-earth";
 import { z, ZodError } from "zod";
+import { pack, unpack } from "msgpackr";
 import {
-  AuthWithLocation,
-  AuthWithLocationSchema,
-  Login,
-  LoginSchema,
-  Register,
-  RegisterSchema,
+    AuthWithLocation,
+    AuthWithLocationSchema,
+    Login,
+    LoginSchema,
+    Register,
+    RegisterSchema,
 } from "./interfaces/api";
 
 const prisma = new PrismaClient();
@@ -51,6 +53,16 @@ const swaggerSpec = swaggerJSDoc(options);
 if (process.env.NODE_ENV === "development") {
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 }
+
+function logVerbose(...items: any[]) { // Logs an item only if the VERBOSE_MODE env variable is set
+    if (process.env.VERBOSE_MODE === "1") {
+	/*for (let item in items) {
+	    process.stdout.write(item);
+	} */
+	console.log(...items);
+    }
+}
+
 function authenticate(
   ws: import("ws"),
   req: express.Request<
@@ -87,24 +99,50 @@ const validateSchema =
     }
   };
 
-app.ws("/", (ws, req) => {
-  // Perform authentication when a new connection is established
-  if (!authenticate(ws, req)) {
-    return;
-  }
+app.ws('/', (ws, req) => {
+    // Perform authentication when a new connection is established
+    if (!authenticate(ws, req)) {
+	      logVerbose("Connection attempted but authentication failed");
+        return;
+    }
+  
+    logVerbose("New connection established");
 
-  ws.on("message", (message: WebSocketMessage) => {
-    message.messages.forEach((msg) => {
-      console.log("Received message:", msg);
-      ws.send(JSON.stringify({ message: msg }));
+    ws.on('message', (message: string /*: WebSocketMessage*/) => {
+	    // Determine if a message is encoded in MessagePack by trying
+	    // to unpack it
+	
+	    let wsm: middleearth.WebSocketMessage;
+	    try {
+	       wsm = middleearth.unzip(Buffer.from(message));
+    	} catch {
+    	    logVerbose("Not valid MessagePack"); 
+	        // Fall back to JSON if not MessagePack
+	        try {
+	            wsm = JSON.parse(message);
+	            logVerbose("Is JSON, ", typeof message);
+    	    } catch {
+	    	logVerbose("Not JSON, cannot decode");
+    		return;
+      	    }
+    	}
+	
+    	// Handle main communications here
+    	wsm.messages.forEach( function (msg) {
+    	    switch (msg.itemType) {
+    		case "Echo":
+    		    ws.send(middleearth.zip_single(msg));
+    		    break;
+
+    		default:
+    	            logVerbose("Msg received, but is not yet implemented and was skipped");
+    	    }
+    	}); 
+      ws.send(JSON.stringify({ message: "Connection established" }));
+
+      ws.on("close", () => {
+        logVerbose("Connection closed");
     });
-  });
-
-  ws.send(JSON.stringify({ message: "Connection established" }));
-
-  ws.on("close", () => {
-    console.log("Connection closed");
-  });
 });
 
 app.post("/api/login", validateSchema(LoginSchema), async (req, res) => {
@@ -461,13 +499,11 @@ app.get("/api/testusers", async (req, res) => {
       },
     },
   });
-
   res.status(200).json({ users });
 });
 
 app.get("/api/getuser", async (req, res) => {
   const { username } = req.query;
-
   const user = await prisma.users.findFirst({
     where: {
       username: username?.toString(),
