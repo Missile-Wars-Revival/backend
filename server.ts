@@ -122,28 +122,29 @@ app.ws('/', (ws, req) => {
 	            wsm = JSON.parse(message);
 	            logVerbose("Is JSON, ", typeof message);
     	    } catch {
-	    	logVerbose("Not JSON, cannot decode");
-    		return;
+	    	    logVerbose("Not JSON, cannot decode");
+    		    return;
       	    }
-    	}
-	
-    	// Handle main communications here
-    	wsm.messages.forEach( function (msg) {
-    	    switch (msg.itemType) {
-    		case "Echo":
-    		    ws.send(middleearth.zip_single(msg));
-    		    break;
+        }
 
-    		default:
+            // Handle main communications here
+        wsm.messages.forEach( function (msg) {
+            switch (msg.itemType) {
+                case "Echo":
+                    ws.send(middleearth.zip_single(msg));
+                    break;
+
+    		    default:
     	            logVerbose("Msg received, but is not yet implemented and was skipped");
     	    }
     	}); 
-      ws.send(JSON.stringify({ message: "Connection established" }));
+        ws.send(JSON.stringify({ message: "Connection established" }));
 
-      ws.on("close", () => {
-        logVerbose("Connection closed");
+        ws.on("close", () => {
+            logVerbose("Connection closed");
+        });
     });
-});
+});   
 
 app.post("/api/login", validateSchema(LoginSchema), async (req, res) => {
   const login: Login = req.body;
