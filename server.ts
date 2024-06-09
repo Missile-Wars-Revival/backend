@@ -96,47 +96,7 @@ function logVerbose(...items: any[]) { // Logs an item only if the VERBOSE_MODE 
 	console.log(...items);
     }
 }
-
-
-
-function whichMsg(msg: middleearth.Msg) {
-    let msg_str = JSON.stringify(msg);
-    let msg_parsed = JSON.parse(msg_str);
-    let keys = Object.keys(msg);
-    let msg_obj: middleearth.Msg;
-    logVerbose("Keys: ", keys);
-    if (arraysMatch(keys, [ 'foo', 'test', 'extras' ])) { 
-	logVerbose("Testing from postman?");
-	let test: middleearth.GeoLocation = { latitude: 314159, longitude: 265358 }
-	logVerbose(typeof test, "\n", test);
-	// let test2: middleearth.Missile1Type = "";
-	// console.log(typeof test2);
-
-    } else if (arraysMatch(keys, ["username","latitude", "longitude", "updatedAt"])) {
-	logVerbose("Player");
-	/*msg_obj: middleearth.Player = { 
-		username: msg_parsed.username,
-		latitude: msg_parsed.latitude,
-		longitude: msg_parsed.longitude,
-		updatedAt: msg_parsed.updatedAt};
-	*/
-       return msg_parsed as middleearth.Player;
-    } else if (arraysMatch(keys, ["refreshtoken"])) {
-	logVerbose("Rotating JWTs...");
-	//let msg_obj = middleearth.RotateTokens;
-	//msg_obj.refreshtoken = msg.refreshtoken;
-	//return msg_obj;
-
-    } else if (arraysMatch(keys, ["latitude","longitude"])) {
-	logVerbose("Location");
-	return msg_parsed as middleearth.GeoLocation;
-	// let msg_obj: middleearth.Location = msg;
-	
-    } 
-
     
-
-}
 
 function unwrapMsgs(ws_msg: Object) {
     let wsm = ws_msg as middleearth.WebSocketMessage;
@@ -154,6 +114,9 @@ function arraysMatch(first: Array<String>, second: Array<String>) {
     
 }
 
+
+
+
 app.ws('/', (ws, req) => {
     // Perform authentication when a new connection is established
     if (!authenticate(ws, req)) {
@@ -165,16 +128,16 @@ app.ws('/', (ws, req) => {
     ws.on('message', (message: string /*: WebSocketMessage*/) => {
 	// Determine if a message is encoded in MessagePack by trying
 	// to unpack it
+	
+	let wsm: middleearth.WebSocketMessage;
+
 	try {
-	    let unpacked = unpack(Buffer.from(message))
-	    logVerbose("MessagePack message received and unpacked");
-	    logVerbose(unpacked);
-	    message = unpacked
+	    wsm = middleearth.unzip(Buffer.from(message));
 	} catch {
 	    logVerbose("Not valid MessagePack"); 
 	    // Fall back to JSON if not MessagePack
 	    try {
-	        message = JSON.parse(message);
+	        wsm = JSON.parse(message);
 	        logVerbose("Is JSON, ", typeof message);
 	    } catch {
 		logVerbose("Not JSON, cannot decode");
@@ -183,13 +146,17 @@ app.ws('/', (ws, req) => {
 	}
 	
 	// Handle main communications here
-	try {
-	    let message_deser = whichMsg(message);
-	    logVerbose("Type: ", typeof message_deser);
-	    logVerbose("Deserialized into:\n", message_deser);
-	} catch {
-	    logVerbose("Unable to deserialize");
-	}
+	wsm.messages.forEach( function (msg) {
+	    switch (msg.itemType) {
+		case "Echo":
+		    ws.send(middleearth.zip_single(msg));
+		    break;
+
+		default:
+	            logVerbose("Msg received, but is not yet implemented and was skipped");
+	    }
+	}); 
+	
     });
 
   ws.send(JSON.stringify({ message: "Connection established" }));
