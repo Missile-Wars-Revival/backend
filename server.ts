@@ -55,7 +55,7 @@ if (process.env.NODE_ENV === "development") {
 }
 
 function logVerbose(...items: any[]) { // Logs an item only if the VERBOSE_MODE env variable is set
-    if (process.env.VERBOSE_MODE === "1") {
+    if (process.env.VERBOSE_MODE === "ON") {
 	/*for (let item in items) {
 	    process.stdout.write(item);
 	} */
@@ -75,7 +75,7 @@ function authenticate(
 ) {
   const authToken = req.headers["sec-websocket-protocol"];
 
-  if (!authToken || authToken !== "missilewars") {
+  if ((!authToken || authToken !== "missilewars") && process.env.DISABLE_AUTH !== "ON") {
     ws.send(JSON.stringify({ error: "Authentication failed. Disconnecting." }));
 
     ws.close();
@@ -525,6 +525,8 @@ app.get("/api/getuser", async (req, res) => {
   }
 });
 
-app.listen(3000, () => {
-  console.log("listening on port 3000");
+let port = process.env.PORT;
+
+app.listen(port, () => {
+  console.log("listening on port", port);
 });
