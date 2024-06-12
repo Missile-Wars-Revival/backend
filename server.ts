@@ -126,25 +126,30 @@ app.ws('/', (ws, req) => {
     		    return;
       	    }
         }
-
+        try {
             // Handle main communications here
-        wsm.messages.forEach( function (msg) {
-            switch (msg.itemType) {
-                case "Echo":
-                    ws.send(middleearth.zip_single(msg));
-                    break;
+            wsm.messages.forEach( function (msg) {
+                switch (msg.itemType) {
+                    case "Echo":
+                        ws.send(middleearth.zip_single(msg));
+                        break;
+    
+        		    default:
+    	                logVerbose("Msg received, but is not yet implemented and was skipped");
+    	        }
+        	}); 
 
-    		    default:
-    	            logVerbose("Msg received, but is not yet implemented and was skipped");
-    	    }
-    	}); 
-        ws.send(JSON.stringify({ message: "Connection established" }));
+        } catch {
+            logVerbose("Unable to handle messages. Please make sure they are being formatted correctly inside a WebSocketMessage.");
+        }
+    }); // </ws.on("message")>
 
-        ws.on("close", () => {
+
+    ws.send(JSON.stringify({ message: "Connection established" }));
+    ws.on("close", () => {
             logVerbose("Connection closed");
-        });
-    });
-});   
+    });   
+}); // </app.ws()>
 
 app.post("/api/login", validateSchema(LoginSchema), async (req, res) => {
   const login: Login = req.body;
