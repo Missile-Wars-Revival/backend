@@ -278,28 +278,37 @@ app.post(
 
       if (lastLocation) {
         // User already has a location, update it
-        await prisma.locations.update({
-          where: {
-            username: lastLocation.username,
-          },
-          data: {
-            latitude: location.latitude,
-            longitude: location.longitude,
-            updatedAt: new Date().toISOString(), // Convert Date object to string
-          },
-        });
+        try {
+          await prisma.locations.update({
+            where: {
+              username: lastLocation.username,
+            },
+            data: {
+              latitude: location.latitude,
+              longitude: location.longitude,
+              updatedAt: new Date().toISOString(), // Convert Date object to string
+            },
+          });
+        } catch (error) {
+          console.error("Failed to update location:", error);
+          return res.status(500).json({ message: "Failed to update location" });
+        }
       } else {
         // User does not have a location, create a new one
-        await prisma.locations.create({
-          data: {
-            username: (decoded as JwtPayload).username as string,
-            latitude: location.latitude,
-            longitude: location.longitude,
-            updatedAt: new Date().toISOString(), // Convert Date object to string
-          },
-        });
+        try {
+          await prisma.locations.create({
+            data: {
+              username: (decoded as JwtPayload).username as string,
+              latitude: location.latitude,
+              longitude: location.longitude,
+              updatedAt: new Date().toISOString(), // Convert Date object to string
+            },
+          });
+        } catch (error) {
+          console.error("Failed to create location:", error);
+          return res.status(500).json({ message: "Failed to create location" });
+        }
       }
-
       res.status(200).json({ message: "Location dispatched" });
     } else {
       res.status(404).json({ message: "User not found" });
