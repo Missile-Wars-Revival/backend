@@ -29,8 +29,8 @@ model Users {
 }
 
 model RefreshTokens {
-    id	 		Int	@id @default(sequence())
-    refreshToken	String  @default("")
+    id           Int    @id @default(sequence())
+    refreshToken String @default("")
 }
 
 model GameplayUser {
@@ -44,6 +44,7 @@ model GameplayUser {
     createdAt      String           @default("")
     updatedAt      String           @default("")
     deletedAt      String           @default("")
+    inventory      String[]         @default([])
     friendRequests FriendRequests[]
     currentSession BattleSessions[]
     defending      BattleSessions[] @relation(name: "DefenderRelation")
