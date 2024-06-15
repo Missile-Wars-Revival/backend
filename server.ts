@@ -14,12 +14,12 @@ import * as middleearth from "middle-earth";
 import { z, ZodError } from "zod";
 import { pack, unpack } from "msgpackr";
 import {
-    AuthWithLocation,
-    AuthWithLocationSchema,
-    Login,
-    LoginSchema,
-    Register,
-    RegisterSchema,
+  AuthWithLocation,
+  AuthWithLocationSchema,
+  Login,
+  LoginSchema,
+  Register,
+  RegisterSchema,
 } from "./interfaces/api";
 
 const prisma = new PrismaClient();
@@ -54,13 +54,14 @@ if (process.env.NODE_ENV === "development") {
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 }
 
-function logVerbose(...items: any[]) { // Logs an item only if the VERBOSE_MODE env variable is set
-    if (process.env.VERBOSE_MODE === "ON") {
-	/*for (let item in items) {
+function logVerbose(...items: any[]) {
+  // Logs an item only if the VERBOSE_MODE env variable is set
+  if (process.env.VERBOSE_MODE === "ON") {
+    /*for (let item in items) {
 	    process.stdout.write(item);
 	} */
-	console.log(...items);
-    }
+    console.log(...items);
+  }
 }
 
 function authenticate(
@@ -75,7 +76,10 @@ function authenticate(
 ) {
   const authToken = req.headers["sec-websocket-protocol"];
 
-  if ((!authToken || authToken !== "missilewars") && process.env.DISABLE_AUTH !== "ON") {
+  if (
+    (!authToken || authToken !== "missilewars") &&
+    process.env.DISABLE_AUTH !== "ON"
+  ) {
     ws.send(JSON.stringify({ error: "Authentication failed. Disconnecting." }));
 
     ws.close();
@@ -99,56 +103,58 @@ const validateSchema =
     }
   };
 
-app.ws('/', (ws, req) => {
-    // Perform authentication when a new connection is established
-    if (!authenticate(ws, req)) {
-	      logVerbose("Connection attempted but authentication failed");
+app.ws("/", (ws, req) => {
+  // Perform authentication when a new connection is established
+  if (!authenticate(ws, req)) {
+    logVerbose("Connection attempted but authentication failed");
+    return;
+  }
+
+  logVerbose("New connection established");
+
+  ws.on("message", (message: string /*: WebSocketMessage*/) => {
+    // Determine if a message is encoded in MessagePack by trying
+    // to unpack it
+
+    let wsm: middleearth.WebSocketMessage;
+    try {
+      wsm = middleearth.unzip(Buffer.from(message));
+    } catch {
+      logVerbose("Not valid MessagePack");
+      // Fall back to JSON if not MessagePack
+      try {
+        wsm = JSON.parse(message);
+        logVerbose("Is JSON, ", typeof message);
+      } catch {
+        logVerbose("Not JSON, cannot decode");
         return;
+      }
     }
-  
-    logVerbose("New connection established");
+    try {
+      // Handle main communications here
+      wsm.messages.forEach(function (msg) {
+        switch (msg.itemType) {
+          case "Echo":
+            ws.send(middleearth.zip_single(msg));
+            break;
 
-    ws.on('message', (message: string /*: WebSocketMessage*/) => {
-	    // Determine if a message is encoded in MessagePack by trying
-	    // to unpack it
-	
-	    let wsm: middleearth.WebSocketMessage;
-	    try {
-	       wsm = middleearth.unzip(Buffer.from(message));
-    	} catch {
-    	    logVerbose("Not valid MessagePack"); 
-	        // Fall back to JSON if not MessagePack
-	        try {
-	            wsm = JSON.parse(message);
-	            logVerbose("Is JSON, ", typeof message);
-    	    } catch {
-	    	    logVerbose("Not JSON, cannot decode");
-    		    return;
-      	    }
+          default:
+            logVerbose(
+              "Msg received, but is not yet implemented and was skipped"
+            );
         }
-        try {
-            // Handle main communications here
-            wsm.messages.forEach( function (msg) {
-                switch (msg.itemType) {
-                    case "Echo":
-                        ws.send(middleearth.zip_single(msg));
-                        break;
-    
-        		    default:
-    	                logVerbose("Msg received, but is not yet implemented and was skipped");
-    	        }
-        	}); 
+      });
+    } catch {
+      logVerbose(
+        "Unable to handle messages. Please make sure they are being formatted correctly inside a WebSocketMessage."
+      );
+    }
+  }); // </ws.on("message")>
 
-        } catch {
-            logVerbose("Unable to handle messages. Please make sure they are being formatted correctly inside a WebSocketMessage.");
-        }
-    }); // </ws.on("message")>
-
-
-    ws.send(JSON.stringify({ message: "Connection established" }));
-    ws.on("close", () => {
-            logVerbose("Connection closed");
-    });   
+  ws.send(JSON.stringify({ message: "Connection established" }));
+  ws.on("close", () => {
+    logVerbose("Connection closed");
+  });
 }); // </app.ws()>
 
 app.post("/api/login", validateSchema(LoginSchema), async (req, res) => {
@@ -543,4 +549,37 @@ let port = process.env.PORT;
 
 app.listen(port, () => {
   console.log("listening on port", port);
+});
+
+app.post("/api/purchaseItem", async (req, res) => {
+  const { token, item } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        inventory: {
+          push: item,
+        },
+      },
+    });
+
+    res.status(200).json({ message: "Item purchased" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
 });
