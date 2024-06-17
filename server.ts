@@ -134,14 +134,18 @@ app.ws("/", (ws, req) => {
       // Handle main communications here
       wsm.messages.forEach(function (msg) {
         switch (msg.itemType) {
-          case "Echo":
-            ws.send(middleearth.zip_single(msg));
-            break;
+            case "Echo":
+                ws.send(middleearth.zip_single(msg));
+                break;
 
-          default:
-            logVerbose(
-              "Msg received, but is not yet implemented and was skipped"
-            );
+            case "FetchMissiles":
+                logVerbose("Fetching Missiles...");
+                let allMissiles = prisma.missile.findMany();
+
+            default:
+                logVerbose(
+                "Msg received, but is not yet implemented and was skipped"
+                );
         }
       });
     } catch {
