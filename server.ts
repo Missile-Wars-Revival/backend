@@ -132,7 +132,7 @@ app.ws("/", (ws, req) => {
     }
     try {
       // Handle main communications here
-      wsm.messages.forEach(function (msg) {
+      wsm.messages.forEach(async function (msg) {
         switch (msg.itemType) {
           case "Echo":
             ws.send(middleearth.zip_single(msg));
@@ -140,7 +140,15 @@ app.ws("/", (ws, req) => {
 
           case "FetchMissiles":
             logVerbose("Fetching Missiles...");
-            let allMissiles = prisma.missile.findMany();
+            let allMissiles = await prisma.missile.findMany();
+                let processedMissiles: middleearth.Missile[] = [];
+                for (let missile in allMissiles) {
+                    processedMissiles.push(middleearth.Missile.from_db(missile));
+                }
+                logVerbose(processedMissiles);
+                let reply = new middleearth.MissileGroup(processedMissiles);
+                ws.send(middleearth.zip_single(reply));
+                break;
 
           default:
             logVerbose(
