@@ -41,6 +41,7 @@ model GameplayUser {
     exp            Int              @default(0)
     money          Int              @default(0)
     health         Int              @default(100)
+    friendsOnly    Boolean          @default(false)
     createdAt      String           @default("")
     updatedAt      String           @default("")
     deletedAt      String           @default("")

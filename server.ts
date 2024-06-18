@@ -134,18 +134,18 @@ app.ws("/", (ws, req) => {
       // Handle main communications here
       wsm.messages.forEach(function (msg) {
         switch (msg.itemType) {
-            case "Echo":
-                ws.send(middleearth.zip_single(msg));
-                break;
+          case "Echo":
+            ws.send(middleearth.zip_single(msg));
+            break;
 
-            case "FetchMissiles":
-                logVerbose("Fetching Missiles...");
-                let allMissiles = prisma.missile.findMany();
+          case "FetchMissiles":
+            logVerbose("Fetching Missiles...");
+            let allMissiles = prisma.missile.findMany();
 
-            default:
-                logVerbose(
-                "Msg received, but is not yet implemented and was skipped"
-                );
+          default:
+            logVerbose(
+              "Msg received, but is not yet implemented and was skipped"
+            );
         }
       });
     } catch {
@@ -549,12 +549,6 @@ app.get("/api/getuser", async (req, res) => {
   }
 });
 
-let port = process.env.PORT;
-
-app.listen(port, () => {
-  console.log("listening on port", port);
-});
-
 app.post("/api/purchaseItem", async (req, res) => {
   const { token, item } = req.body;
 
@@ -586,4 +580,74 @@ app.post("/api/purchaseItem", async (req, res) => {
   } else {
     res.status(404).json({ message: "User not found" });
   }
+});
+
+app.post("/api/addMoney", async (req, res) => {
+  const { token, amount } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        money: user.money + amount,
+      },
+    });
+
+    res.status(200).json({ message: "Money added" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/removeMoney", async (req, res) => {
+  const { token, amount } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        money: user.money - amount,
+      },
+    });
+
+    res.status(200).json({ message: "Money removed" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+////////////////////////
+
+let port = process.env.PORT;
+
+app.listen(port, () => {
+  console.log("listening on port", port);
 });
