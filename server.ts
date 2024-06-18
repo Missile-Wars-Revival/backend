@@ -141,14 +141,14 @@ app.ws("/", (ws, req) => {
           case "FetchMissiles":
             logVerbose("Fetching Missiles...");
             let allMissiles = await prisma.missile.findMany();
-                let processedMissiles: middleearth.Missile[] = [];
-                for (let missile in allMissiles) {
-                    processedMissiles.push(middleearth.Missile.from_db(missile));
-                }
-                logVerbose(processedMissiles);
-                let reply = new middleearth.MissileGroup(processedMissiles);
-                ws.send(middleearth.zip_single(reply));
-                break;
+            let processedMissiles: middleearth.Missile[] = [];
+            for (let missile in allMissiles) {
+              processedMissiles.push(middleearth.Missile.from_db(missile));
+            }
+            logVerbose(processedMissiles);
+            let reply = new middleearth.MissileGroup(processedMissiles);
+            ws.send(middleearth.zip_single(reply));
+            break;
 
           default:
             logVerbose(
@@ -647,6 +647,28 @@ app.post("/api/removeMoney", async (req, res) => {
     });
 
     res.status(200).json({ message: "Money removed" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.get("/api/getMoney", async (req, res) => {
+  const { token } = req.query;
+
+  const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    res.status(200).json({ money: user.money });
   } else {
     res.status(404).json({ message: "User not found" });
   }
