@@ -3,6 +3,7 @@ import { z } from "zod";
 const LoginSchema = z.object({
   username: z.string(),
   password: z.string(),
+  notificationToken: z.string(),
 });
 
 const RegisterSchema = z.object({

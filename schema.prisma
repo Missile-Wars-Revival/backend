@@ -15,17 +15,19 @@ model Sessions {
 }
 
 model Users {
-    id           Int           @id @default(sequence())
-    email        String        @default("")
-    password     String        @default("")
-    username     String        @unique @default("")
-    role         String        @default("user")
-    createdAt    String        @default("")
-    updatedAt    String        @default("")
-    deletedAt    String        @default("")
-    friends      String[]      @default([])
-    avatar       String        @default("")
-    GameplayUser GameplayUser?
+    id                Int           @id @default(sequence())
+    email             String        @default("")
+    password          String        @default("")
+    username          String        @unique @default("")
+    role              String        @default("user")
+    createdAt         String        @default("")
+    updatedAt         String        @default("")
+    deletedAt         String        @default("")
+    friends           String[]      @default([])
+    avatar            String        @default("")
+    notifications     String[]      @default([])
+    notificationToken String        @default("")
+    GameplayUser      GameplayUser?
 }
 
 model RefreshTokens {

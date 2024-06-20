@@ -30,6 +30,7 @@
     "argon2": "^0.40.1",
     "body-parser": "^1.20.2",
     "cross-env": "^7.0.3",
+    "expo-server-sdk": "^3.10.0",
     "express": "^4.19.2",
     "express-ws": "^5.0.2",
     "jsonwebtoken": "^9.0.2",

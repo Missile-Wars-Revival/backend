@@ -183,6 +183,16 @@ app.post("/api/login", validateSchema(LoginSchema), async (req, res) => {
       { username: user.username, password: user.password },
       process.env.JWT_SECRET || ""
     );
+
+    await prisma.users.update({
+      where: {
+        username: login.username,
+      },
+      data: {
+        notificationToken: login.notificationToken,
+      },
+    });
+
     res.status(200).json({ message: "Login successful", token });
   } else {
     res.status(401).json({ message: "Invalid username or password" });
@@ -558,7 +568,7 @@ app.get("/api/getuser", async (req, res) => {
 });
 
 app.post("/api/purchaseItem", async (req, res) => {
-  const { token, item } = req.body;
+  const { token, item, money } = req.body;
 
   const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
@@ -573,18 +583,32 @@ app.post("/api/purchaseItem", async (req, res) => {
   });
 
   if (user) {
-    await prisma.gameplayUser.update({
-      where: {
-        username: (decoded as JwtPayload).username as string,
-      },
-      data: {
-        inventory: {
-          push: item,
+    if (user.money >= money) {
+      await prisma.gameplayUser.update({
+        where: {
+          username: (decoded as JwtPayload).username as string,
         },
-      },
-    });
+        data: {
+          money: user.money - money,
+        },
+      });
 
-    res.status(200).json({ message: "Item purchased" });
+      // add item to user's inventory
+      await prisma.gameplayUser.update({
+        where: {
+          username: (decoded as JwtPayload).username as string,
+        },
+        data: {
+          inventory: {
+            push: item,
+          },
+        },
+      });
+
+      res.status(200).json({ message: "Item purchased" });
+    } else {
+      res.status(400).json({ message: "Insufficient funds" });
+    }
   } else {
     res.status(404).json({ message: "User not found" });
   }
