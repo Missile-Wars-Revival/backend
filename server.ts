@@ -698,6 +698,145 @@ app.get("/api/getMoney", async (req, res) => {
   }
 });
 
+app.post("/api/getRankPoints", async (req, res) => {
+  const { token } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    res.status(200).json({ rankPoints: user.rankPoints });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/addRankPoints", async (req, res) => {
+  const { token, points } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        rankPoints: user.rankPoints + points,
+      },
+    });
+
+    res.status(200).json({ message: "Rank points added" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/removeRankPoints", async (req, res) => {
+  const { token, points } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        rankPoints: user.rankPoints - points,
+      },
+    });
+
+    res.status(200).json({ message: "Rank points removed" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/getRank", async (req, res) => {
+  const { token } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    const rank = user.rank;
+
+    res.status(200).json({ rank });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/setRank", async (req, res) => {
+  const { token, rank } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        rank,
+      },
+    });
+
+    res.status(200).json({ message: "Rank set" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
 ////////////////////////
 
 let port = process.env.PORT;
