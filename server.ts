@@ -361,64 +361,63 @@ app.get("/api/playerlocations", async (req, res) => {
   }
 });
 
-app.get(
-  "/api/nearby",
-  validateSchema(AuthWithLocationSchema),
-  async (req, res) => {
-    const location: AuthWithLocation = req.body;
 
-    if (!location.token) {
-      return res.status(401).json({ message: "Missing token" });
-    }
+// app.get(
+//   "/api/nearby",
+//   validateSchema(AuthWithLocationSchema),
+//   async (req, res) => {
+//     const location: AuthWithLocation = req.body;
 
-    const decoded = jwt.verify(location.token, process.env.JWT_SECRET || "");
+//     if (!location.token) {
+//       return res.status(401).json({ message: "Missing token" });
+//     }
 
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid token" });
-    }
+//     const decoded = jwt.verify(location.token, process.env.JWT_SECRET || "");
 
-    // Check if the user exists
-    const user = await prisma.gameplayUser.findFirst({
-      where: {
-        username: (decoded as JwtPayload).username as string,
-      },
-    });
+//     if (!decoded) {
+//       return res.status(401).json({ message: "Invalid token" });
+//     }
 
-    if (user) {
-      // Approximate conversion factor from kilometers to degrees
-      const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
+//     // Check if the user exists
+//     const user = await prisma.gameplayUser.findFirst({
+//       where: {
+//         username: (decoded as JwtPayload).username as string,
+//       },
+//     });
 
-      // Convert 15km radius to degrees
-      const radiusInDegrees = 15 * kmToDegrees;
+//     if (user) {
+//       // Approximate conversion factor from kilometers to degrees
+//       const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
 
-      const nearbyUsers = await prisma.gameplayUser.findMany({
-        where: {
-          username: {
-            not: (decoded as JwtPayload).username as string,
-          },
-          location: {
-            some: {
-              latitude: {
-                gte: String(parseInt(location.latitude) - radiusInDegrees),
-                lte: String(parseInt(location.latitude) + radiusInDegrees),
-              },
-              longitude: {
-                gte: String(parseInt(location.longitude) - radiusInDegrees),
-                lte: String(parseInt(location.longitude) + radiusInDegrees),
-              },
-            },
-          },
-        },
-      });
+//       // Convert 15km radius to degrees
+//       const radiusInDegrees = 15 * kmToDegrees;
 
-      if (nearbyUsers.length > 0) {
-        res.status(200).json({ message: "Nearby users found", nearbyUsers });
-      } else {
-        res.status(404).json({ message: "No nearby users found" });
-      }
-    }
-  }
-);
+//       const nearbyUsers = await prisma.gameplayUser.findMany({
+//         where: {
+//           username: {
+//             not: (decoded as JwtPayload).username as string,
+//           },
+//           location: {
+//             latitude: {
+//               gte: location.latitude - radiusInDegrees,
+//               lte: location.latitude + radiusInDegrees,
+//             },
+//             longitude: {
+//               gte: location.longitude - radiusInDegrees,
+//               lte: location.longitude + radiusInDegrees,
+//             },
+//           },
+//         },
+//       });
+
+//       if (nearbyUsers.length > 0) {
+//         res.status(200).json({ message: "Nearby users found", nearbyUsers });
+//       } else {
+//         res.status(404).json({ message: "No nearby users found" });
+//       }
+//     }
+//   }
+// );
 
 app.post("/api/friends", async (req, res) => {
   const { username, password } = req.body; // Destructuring timestamp from req.body
