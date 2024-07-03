@@ -98,11 +98,11 @@ model BattleSessions {
 
 model Locations {
   username     String       @id @unique @default("")
-  latitude     String       @default("")
-  longitude    String       @default("")
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @default(now())
   deletedAt    DateTime     @default(now())
+  latitude     String       @default("")
+  longitude    String       @default("")
   GameplayUser GameplayUser @relation(fields: [username], references: [username])
 }
 
