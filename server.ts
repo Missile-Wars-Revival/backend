@@ -362,96 +362,131 @@ app.get("/api/playerlocations", async (req, res) => {
 });
 
 
-// app.get(
-//   "/api/nearby",
-//   validateSchema(AuthWithLocationSchema),
-//   async (req, res) => {
-//     const location: AuthWithLocation = req.body;
+app.get("/api/nearby", async (req, res) => {
+  const token = req.query.token;
+  const latitude = req.query.latitude;
+  const longitude = req.query.longitude;
 
-//     if (!location.token) {
-//       return res.status(401).json({ message: "Missing token" });
-//     }
+  // Validate token presence and type
+  if (typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
 
-//     const decoded = jwt.verify(location.token, process.env.JWT_SECRET || "");
+  // Validate latitude and longitude presence and type
+  if (typeof latitude !== 'string' || typeof longitude !== 'string' || !latitude.trim() || !longitude.trim()) {
+    return res.status(400).json({ message: "Latitude and longitude are required and must be non-empty strings." });
+  }
 
-//     if (!decoded) {
-//       return res.status(401).json({ message: "Invalid token" });
-//     }
+  try {
+    // Verify the token and decode the payload
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-//     // Check if the user exists
-//     const user = await prisma.gameplayUser.findFirst({
-//       where: {
-//         username: (decoded as JwtPayload).username as string,
-//       },
-//     });
-
-//     if (user) {
-//       // Approximate conversion factor from kilometers to degrees
-//       const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
-
-//       // Convert 15km radius to degrees
-//       const radiusInDegrees = 15 * kmToDegrees;
-
-//       const nearbyUsers = await prisma.gameplayUser.findMany({
-//         where: {
-//           username: {
-//             not: (decoded as JwtPayload).username as string,
-//           },
-//           location: {
-//             latitude: {
-//               gte: location.latitude - radiusInDegrees,
-//               lte: location.latitude + radiusInDegrees,
-//             },
-//             longitude: {
-//               gte: location.longitude - radiusInDegrees,
-//               lte: location.longitude + radiusInDegrees,
-//             },
-//           },
-//         },
-//       });
-
-//       if (nearbyUsers.length > 0) {
-//         res.status(200).json({ message: "Nearby users found", nearbyUsers });
-//       } else {
-//         res.status(404).json({ message: "No nearby users found" });
-//       }
-//     }
-//   }
-// );
-
-app.post("/api/friends", async (req, res) => {
-  const { username, password } = req.body; // Destructuring timestamp from req.body
-
-  const user = await prisma.users.findFirst({
-    where: {
-      username: username,
-    },
-  });
-
-  if (user) {
-    if (await argon2.verify(user.password, password)) {
-      const friends = await prisma.users.findMany({
-        where: {
-          username: {
-            in: user.friends,
-          },
-        },
-      });
-
-      const friendUsers = await prisma.users.findMany({
-        where: {
-          username: {
-            in: user.friends,
-          },
-        },
-      });
-
-      if (friends) {
-        res.status(200).json({ message: "Friends found", friendUsers });
-      } else {
-        res.status(404).json({ message: "No friends found" });
-      }
+    // Ensure decoded token contains necessary data
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token. Token must contain a username." });
     }
+
+    // Fetch the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+        where: {
+            username: decoded.username,
+        },
+    });
+
+    if (!user) {
+        return res.status(404).json({ message: "User not found" });
+    }
+
+    // Convert latitude and longitude from string to float and validate
+    const latitudeFloat = parseFloat(latitude);
+    const longitudeFloat = parseFloat(longitude);
+
+    if (isNaN(latitudeFloat) || isNaN(longitudeFloat)) {
+        return res.status(400).json({ message: "Invalid latitude or longitude values" });
+    }
+
+    // Approximate conversion factor from kilometers to degrees
+    const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
+    const radiusInDegrees = 15 * kmToDegrees;
+
+    // Fetch nearby users within the radius
+    const nearbyUsers = await prisma.gameplayUser.findMany({
+        where: {
+            username: { not: decoded.username },
+            location: {
+                latitude: { 
+                    gte: (latitudeFloat - radiusInDegrees).toString(), 
+                    lte: (latitudeFloat + radiusInDegrees).toString() 
+                },
+                longitude: { 
+                    gte: (longitudeFloat - radiusInDegrees).toString(), 
+                    lte: (longitudeFloat + radiusInDegrees).toString() 
+                },
+            },
+        },
+    });
+
+    if (nearbyUsers.length > 0) {
+        res.status(200).json({ message: "Nearby users found", nearbyUsers });
+    } else {
+        res.status(404).json({ message: "No nearby users found" });
+    }
+    
+  } catch (error) {
+    // Specific JWT error handling
+    if (error instanceof jwt.JsonWebTokenError) {
+      return res.status(401).json({ message: "Token is invalid or has expired." });
+    }
+    // General error handling
+    console.error("Error processing request:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
+app.get("/api/friends", async (req, res) => {
+  const token = req.query.token;
+
+  if (typeof token !== 'string') {
+    return res.status(400).json({ message: "Token is required" });
+  }
+
+  try {
+    // Verify the token and ensure it's treated as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Retrieve the user from the database based on the username decoded from the token
+    const user = await prisma.users.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Fetch friends from the database
+    const friends = await prisma.users.findMany({
+      where: {
+        username: {
+          in: user.friends,
+        },
+      },
+    });
+
+    if (friends.length > 0) {
+      res.status(200).json({ message: "Friends found", friends });
+    } else {
+      res.status(404).json({ message: "No friends found" });
+    }
+  } catch (error) {
+    console.error("Error verifying token or fetching friends:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
