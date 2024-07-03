@@ -264,7 +264,7 @@ app.post("/api/register", validateSchema(RegisterSchema), async (req, res) => {
   await prisma.gameplayUser.create({
     data: {
       username: register.username,
-      createdAt: new Date().toDateString(),
+      createdAt: new Date().toISOString(),
     },
   });
 
@@ -567,49 +567,126 @@ app.get("/api/getuser", async (req, res) => {
 });
 
 app.post("/api/purchaseItem", async (req, res) => {
-  const { token, item, money } = req.body;
+  const { token, items, money } = req.body;
 
-  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+  try {
+    // Verify the token and ensure it's treated as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-  if (!decoded) {
-    return res.status(401).json({ message: "Invalid token" });
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.money < money) {
+      return res.status(400).json({ message: "Insufficient funds" });
+    }
+
+    // Ensure items is an array and contains valid objects
+    if (!Array.isArray(items) || !items.every(item => typeof item.product.name === 'string' && typeof item.quantity === 'number' && typeof item.product.category === 'string')) {
+      return res.status(400).json({ message: "Invalid items provided" });
+    }
+
+    // Start a transaction
+    await prisma.$transaction(async (prisma) => {
+      // Update user's money
+      await prisma.gameplayUser.update({
+        where: { username: decoded.username },
+        data: { money: user.money - money },
+      });
+
+      for (const item of items) {
+        const { name, category } = item.product;
+
+        // Check if the item already exists in the user's inventory
+        const existingItem = await prisma.inventoryItem.findFirst({
+          where: {
+            name: name,
+            userId: user.id,
+          },
+        });
+
+        if (existingItem) {
+          // If item exists, update the quantity
+          await prisma.inventoryItem.update({
+            where: { id: existingItem.id },
+            data: { quantity: existingItem.quantity + item.quantity },
+          });
+        } else {
+          // If item does not exist, create a new entry
+          await prisma.inventoryItem.create({
+            data: {
+              name: name,
+              quantity: item.quantity,
+              category: category,
+              userId: user.id,
+            },
+          });
+        }
+      }
+    });
+
+    // Successful purchase response
+    res.status(200).json({ message: "Items purchased" });
+  } catch (error) {
+    console.error("Transaction failed: ", error);
+    res.status(500).json({ message: "Transaction failed" });
+  }
+});
+
+app.get("/api/getInventory", async (req, res) => {
+  const token = req.query.token;
+
+  if (typeof token !== 'string') {
+    return res.status(400).json({ message: "Token is required" });
   }
 
-  const user = await prisma.gameplayUser.findFirst({
-    where: {
-      username: (decoded as JwtPayload).username as string,
-    },
-  });
+  try {
+    // Verify the token and ensure it's treated as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-  if (user) {
-    if (user.money >= money) {
-      await prisma.gameplayUser.update({
-        where: {
-          username: (decoded as JwtPayload).username as string,
-        },
-        data: {
-          money: user.money - money,
-        },
-      });
-
-      // add item to user's inventory
-      await prisma.gameplayUser.update({
-        where: {
-          username: (decoded as JwtPayload).username as string,
-        },
-        data: {
-          inventory: {
-            push: item,
-          },
-        },
-      });
-
-      res.status(200).json({ message: "Item purchased" });
-    } else {
-      res.status(400).json({ message: "Insufficient funds" });
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
     }
-  } else {
-    res.status(404).json({ message: "User not found" });
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Fetch the user's inventory
+    const inventory = await prisma.inventoryItem.findMany({
+      where: {
+        userId: user.id,
+      },
+      select: {
+        name: true,
+        quantity: true,
+        category: true,
+      },
+    });
+
+    // Return the inventory
+    res.status(200).json(inventory);
+  } catch (error) {
+    console.error("Failed to fetch inventory: ", error);
+    res.status(500).json({ message: "Failed to fetch inventory" });
   }
 });
 
