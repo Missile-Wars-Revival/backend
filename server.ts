@@ -117,6 +117,16 @@ app.ws("/", (ws, req) => {
     // to unpack it
 
     let wsm: middleearth.WebSocketMessage;
+    
+    if (message.slice(0, 6) === "devcon") {
+        ws.send("Dev console!");
+        let words = message.split(' ');
+        if (words[1] === "add") {
+            ws.send("Adding missile...");
+        }
+
+    }
+    
     try {
       wsm = middleearth.unzip(Buffer.from(message));
     } catch {
