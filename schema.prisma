@@ -1,109 +1,109 @@
-datasource db {
-    provider = "cockroachdb"
-    url      = env("DATABASE_URL")
+generator client {
+  provider = "prisma-client-js"
 }
 
-generator client {
-    provider = "prisma-client-js"
+datasource db {
+  provider = "cockroachdb"
+  url      = env("DATABASE_URL")
 }
 
 model Sessions {
-    lastIp        String @default("")
-    username      String @id @default("")
-    lastLoginTime String @default("")
-    userAgent     String @default("")
+  lastIp        String @default("")
+  username      String @id @default("")
+  lastLoginTime String @default("")
+  userAgent     String @default("")
 }
 
 model Users {
-    id                Int           @id @default(sequence())
-    email             String        @default("")
-    password          String        @default("")
-    username          String        @unique @default("")
-    role              String        @default("user")
-    createdAt         String        @default("")
-    updatedAt         String        @default("")
-    deletedAt         String        @default("")
-    friends           String[]      @default([])
-    avatar            String        @default("")
-    notifications     String[]      @default([])
-    notificationToken String        @default("")
-    GameplayUser      GameplayUser?
+  id                Int           @id @default(sequence(maxValue: 2147483647))
+  email             String        @default("")
+  password          String        @default("")
+  username          String        @unique @default("")
+  role              String        @default("user")
+  avatar            String        @default("")
+  friends           String[]      @default([])
+  notificationToken String        @default("")
+  notifications     String[]      @default([])
+  createdAt         DateTime      @default(now())
+  deletedAt         DateTime      @default(now())
+  updatedAt         DateTime      @default(now())
+  GameplayUser      GameplayUser?
 }
 
 model RefreshTokens {
-    id           Int    @id @default(sequence())
-    refreshToken String @default("")
+  id           Int    @id @default(sequence(maxValue: 2147483647))
+  refreshToken String @default("")
 }
 
 model GameplayUser {
-    id             Int              @id @default(sequence())
-    username       String           @unique @default("")
-    location       Locations[]
-    level          Int              @default(1)
-    exp            Int              @default(0)
-    money          Int              @default(0)
-    health         Int              @default(100)
-    friendsOnly    Boolean          @default(false)
-    createdAt      String           @default("")
-    updatedAt      String           @default("")
-    deletedAt      String           @default("")
-    inventory      String[]         @default([])
-    friendRequests FriendRequests[]
-    currentSession BattleSessions[]
-    defending      BattleSessions[] @relation(name: "DefenderRelation")
-    attacking      BattleSessions[] @relation(name: "AttackerRelation")
-    user           Users            @relation(fields: [username], references: [username])
+  id             Int              @id @default(sequence(maxValue: 2147483647))
+  username       String           @unique @default("")
+  level          Int              @default(1)
+  exp            Int              @default(0)
+  money          Int              @default(0)
+  health         Int              @default(100)
+  friendsOnly    Boolean          @default(false)
+  rank           String           @default("Private")
+  rankPoints     Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @default(now())
+  deletedAt      DateTime         @default(now())
+  attacking      BattleSessions[] @relation("AttackerRelation")
+  defending      BattleSessions[] @relation("DefenderRelation")
+  currentSession BattleSessions[]
+  friendRequests FriendRequests[]
+  user           Users            @relation(fields: [username], references: [username])
+  InventoryItem  InventoryItem[]
+  location       Locations?
 }
 
 model Messages {
-    id        Int    @id @default(sequence())
-    sender    String @default("")
-    receiver  String @default("")
-    content   String @default("")
-    createdAt String @default("")
-    updatedAt String @default("")
-    deletedAt String @default("")
+  id        Int    @id @default(sequence(maxValue: 2147483647))
+  sender    String @default("")
+  receiver  String @default("")
+  content   String @default("")
+  createdAt String @default("")
+  updatedAt String @default("")
+  deletedAt String @default("")
 }
 
 model FriendRequests {
-    id             Int           @id @default(sequence())
-    username       String        @default("")
-    friend         String        @default("")
-    createdAt      String        @default("")
-    updatedAt      String        @default("")
-    deletedAt      String        @default("")
-    GameplayUser   GameplayUser? @relation(fields: [gameplayUserId], references: [id])
-    gameplayUserId Int?
+  id             Int           @id @default(sequence(maxValue: 2147483647))
+  username       String        @default("")
+  friend         String        @default("")
+  gameplayUserId Int?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @default(now())
+  deletedAt      DateTime      @default(now())
+  GameplayUser   GameplayUser? @relation(fields: [gameplayUserId], references: [id])
 }
 
 model BattleSessions {
-    attacker         GameplayUser  @relation(name: "AttackerRelation", fields: [attackerUsername], references: [username])
-    defender         GameplayUser  @relation(name: "DefenderRelation", fields: [defenderUsername], references: [username])
-    attackerUsername String        @default("")
-    defenderUsername String        @default("")
-    sessionId        String        @default(uuid())
-    createdAt        String        @default("")
-    updatedAt        String        @default("")
-    deletedAt        String        @default("")
-    target           String        @default("")
-    status           String        @default("")
-    result           String        @default("")
-    GameplayUser     GameplayUser? @relation(fields: [gameplayUserId], references: [id])
-    gameplayUserId   Int?
+  sessionId        String        @default(uuid())
+  attackerUsername String        @default("")
+  defenderUsername String        @default("")
+  gameplayUserId   Int?
+  result           String        @default("")
+  status           String        @default("")
+  target           String        @default("")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @default(now())
+  deletedAt        DateTime      @default(now())
+  attacker         GameplayUser  @relation("AttackerRelation", fields: [attackerUsername], references: [username])
+  defender         GameplayUser  @relation("DefenderRelation", fields: [defenderUsername], references: [username])
+  GameplayUser     GameplayUser? @relation(fields: [gameplayUserId], references: [id])
 
-    @@id([attackerUsername, defenderUsername])
+  @@id([attackerUsername, defenderUsername])
 }
 
 model Locations {
-    username     String        @unique @default("")
-    latitude     String        @default("")
-    longitude    String        @default("")
-    createdAt    String        @default("")
-    updatedAt    String        @default("")
-    deletedAt    String        @default("")
-    GameplayUser GameplayUser? @relation(fields: [username], references: [username])
-
-    @@id([username])
+  username     String       @id @unique @default("")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @default(now())
+  deletedAt    DateTime     @default(now())
+  latitude     String       @default("")
+  longitude    String       @default("")
+  GameplayUser GameplayUser @relation(fields: [username], references: [username])
 }
 
 model Missile {
@@ -121,26 +121,35 @@ model Missile {
 }
 
 model Landmine {
-    id         Int    @id @default(sequence())
-    destLat    String @default("")
-    destLong   String @default("")
-    launchLat  String @default("")
-    launchLong String @default("")
-    placedBy   String
-    Type       String
-    Expires    String
+  id         Int    @id @default(sequence(maxValue: 2147483647))
+  destLat    String @default("")
+  destLong   String @default("")
+  launchLat  String @default("")
+  launchLong String @default("")
+  placedBy   String
+  Type       String
+  Expires    String
 }
 
 model Loot {
-    id         Int    @id @default(sequence())
-    longitude  Float
-    latitude   Float
-    rarity     String
-    destLat    String @default("")
-    destLong   String @default("")
-    launchLat  String @default("")
-    launchLong String @default("")
-    radius     Int
-    type       String
-    status     String
+  id         Int    @id @default(sequence(maxValue: 2147483647))
+  longitude  Float
+  latitude   Float
+  rarity     String
+  destLat    String @default("")
+  destLong   String @default("")
+  launchLat  String @default("")
+  launchLong String @default("")
+  radius     Int
+  type       String
+  status     String
+}
+
+model InventoryItem {
+  id           BigInt       @id @default(autoincrement())
+  name         String
+  quantity     Int
+  userId       Int
+  category     String
+  GameplayUser GameplayUser @relation(fields: [userId], references: [id])
 }
