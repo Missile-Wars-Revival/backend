@@ -365,19 +365,55 @@ app.get("/api/playerlocations", async (req, res) => {
 });
 
 app.get("/api/searchplayers", async (req, res) => {
+  const username = req.query.username;
+
+  if (typeof username !== 'string') {
+    return res.status(400).json({ message: "Username is required and must be a single string." });
+  }
   try {
-    const searchusers = await prisma.users.findMany({
+    // Fetching the current user and their friends
+    const currentUser = await prisma.users.findUnique({
+      where: {
+        username: username,
+      },
+      select: {
+        friends: true,  // Assuming friends is an array of usernames
+      }
+    });
+
+    if (!currentUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Fetch all other users excluding the current user
+    const potentialUsers = await prisma.users.findMany({
+      where: {
+        username: {
+          not: username
+        }
+      },
       select: {
         username: true,
+        friends: true,  // Fetch friends to check for mutual friendship
         updatedAt: true,
       },
     });
-    res.status(200).json(searchusers);
+
+    // Enhance potentialUsers with friendship status
+    const enhancedUsers = potentialUsers.map(user => {
+      return {
+        ...user,
+        isFriend: currentUser.friends.includes(user.username) ? "You are already friends with this person." : "Not friends."
+      };
+    });
+
+    res.status(200).json(enhancedUsers);
   } catch (error) {
-    console.error("Error fetching locations:", error);
+    console.error("Error fetching user data:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
 
 app.get("/api/nearby", async (req, res) => {
   const token = req.query.token as string;
