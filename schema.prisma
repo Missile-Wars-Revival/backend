@@ -107,16 +107,17 @@ model Locations {
 }
 
 model Missile {
-  id         Int    @id @default(sequence(maxValue: 2147483647))
-  destLat    String @default("")
-  destLong   String @default("")
-  launchLat  String @default("")
-  launchLong String @default("")
-  radius     Int
-  type       String
-  sentBy     String
-  sentAt     String
-  status     String
+  id           Int    @id @default(sequence(maxValue: 2147483647))
+  destLat      String @default("")
+  destLong     String @default("")
+  radius       Int
+  type         String
+  sentBy       String
+  sentAt       String
+  status       String
+  currentLat   String @default("")
+  currentLong  String @default("")
+  timeToImpact Int
 }
 
 model Landmine {
