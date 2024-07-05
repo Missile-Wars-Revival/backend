@@ -33,6 +33,7 @@
     "expo-server-sdk": "^3.10.0",
     "express": "^4.19.2",
     "express-ws": "^5.0.2",
+    "geolib": "^3.3.4",
     "jsonwebtoken": "^9.0.2",
     "middle-earth": "github:Missile-Wars-Revival/middle-earth",
     "msgpackr": "^1.10.2",
