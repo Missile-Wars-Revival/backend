@@ -274,7 +274,7 @@ app.post("/api/register", validateSchema(RegisterSchema), async (req, res) => {
   await prisma.gameplayUser.create({
     data: {
       username: register.username,
-      createdAt: new Date().toDateString(),
+      createdAt: new Date().toISOString(),
     },
   });
 
@@ -371,98 +371,132 @@ app.get("/api/playerlocations", async (req, res) => {
   }
 });
 
-app.get(
-  "/api/nearby",
-  validateSchema(AuthWithLocationSchema),
-  async (req, res) => {
-    const location: AuthWithLocation = req.body;
 
-    if (!location.token) {
-      return res.status(401).json({ message: "Missing token" });
+app.get("/api/nearby", async (req, res) => {
+  const token = req.query.token;
+  const latitude = req.query.latitude;
+  const longitude = req.query.longitude;
+
+  // Validate token presence and type
+  if (typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
+  // Validate latitude and longitude presence and type
+  if (typeof latitude !== 'string' || typeof longitude !== 'string' || !latitude.trim() || !longitude.trim()) {
+    return res.status(400).json({ message: "Latitude and longitude are required and must be non-empty strings." });
+  }
+
+  try {
+    // Verify the token and decode the payload
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    // Ensure decoded token contains necessary data
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token. Token must contain a username." });
     }
 
-    const decoded = jwt.verify(location.token, process.env.JWT_SECRET || "");
+    // Fetch the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+        where: {
+            username: decoded.username,
+        },
+    });
 
-    if (!decoded) {
+    if (!user) {
+        return res.status(404).json({ message: "User not found" });
+    }
+
+    // Convert latitude and longitude from string to float and validate
+    const latitudeFloat = parseFloat(latitude);
+    const longitudeFloat = parseFloat(longitude);
+
+    if (isNaN(latitudeFloat) || isNaN(longitudeFloat)) {
+        return res.status(400).json({ message: "Invalid latitude or longitude values" });
+    }
+
+    // Approximate conversion factor from kilometers to degrees
+    const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
+    const radiusInDegrees = 15 * kmToDegrees;
+
+    // Fetch nearby users within the radius
+    const nearbyUsers = await prisma.gameplayUser.findMany({
+        where: {
+            username: { not: decoded.username },
+            location: {
+                latitude: { 
+                    gte: (latitudeFloat - radiusInDegrees).toString(), 
+                    lte: (latitudeFloat + radiusInDegrees).toString() 
+                },
+                longitude: { 
+                    gte: (longitudeFloat - radiusInDegrees).toString(), 
+                    lte: (longitudeFloat + radiusInDegrees).toString() 
+                },
+            },
+        },
+    });
+
+    if (nearbyUsers.length > 0) {
+        res.status(200).json({ message: "Nearby users found", nearbyUsers });
+    } else {
+        res.status(404).json({ message: "No nearby users found" });
+    }
+    
+  } catch (error) {
+    // Specific JWT error handling
+    if (error instanceof jwt.JsonWebTokenError) {
+      return res.status(401).json({ message: "Token is invalid or has expired." });
+    }
+    // General error handling
+    console.error("Error processing request:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
+app.get("/api/friends", async (req, res) => {
+  const token = req.query.token;
+
+  if (typeof token !== 'string') {
+    return res.status(400).json({ message: "Token is required" });
+  }
+
+  try {
+    // Verify the token and ensure it's treated as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    if (typeof decoded === 'string' || !decoded.username) {
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    // Check if the user exists
-    const user = await prisma.gameplayUser.findFirst({
+    // Retrieve the user from the database based on the username decoded from the token
+    const user = await prisma.users.findFirst({
       where: {
-        username: (decoded as JwtPayload).username as string,
+        username: decoded.username,
       },
     });
 
-    if (user) {
-      // Approximate conversion factor from kilometers to degrees
-      const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
-
-      // Convert 15km radius to degrees
-      const radiusInDegrees = 15 * kmToDegrees;
-
-      const nearbyUsers = await prisma.gameplayUser.findMany({
-        where: {
-          username: {
-            not: (decoded as JwtPayload).username as string,
-          },
-          location: {
-            some: {
-              latitude: {
-                gte: String(parseInt(location.latitude) - radiusInDegrees),
-                lte: String(parseInt(location.latitude) + radiusInDegrees),
-              },
-              longitude: {
-                gte: String(parseInt(location.longitude) - radiusInDegrees),
-                lte: String(parseInt(location.longitude) + radiusInDegrees),
-              },
-            },
-          },
-        },
-      });
-
-      if (nearbyUsers.length > 0) {
-        res.status(200).json({ message: "Nearby users found", nearbyUsers });
-      } else {
-        res.status(404).json({ message: "No nearby users found" });
-      }
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
-  }
-);
 
-app.post("/api/friends", async (req, res) => {
-  const { username, password } = req.body; // Destructuring timestamp from req.body
-
-  const user = await prisma.users.findFirst({
-    where: {
-      username: username,
-    },
-  });
-
-  if (user) {
-    if (await argon2.verify(user.password, password)) {
-      const friends = await prisma.users.findMany({
-        where: {
-          username: {
-            in: user.friends,
-          },
+    // Fetch friends from the database
+    const friends = await prisma.users.findMany({
+      where: {
+        username: {
+          in: user.friends,
         },
-      });
+      },
+    });
 
-      const friendUsers = await prisma.users.findMany({
-        where: {
-          username: {
-            in: user.friends,
-          },
-        },
-      });
-
-      if (friends) {
-        res.status(200).json({ message: "Friends found", friendUsers });
-      } else {
-        res.status(404).json({ message: "No friends found" });
-      }
+    if (friends.length > 0) {
+      res.status(200).json({ message: "Friends found", friends });
+    } else {
+      res.status(404).json({ message: "No friends found" });
     }
+  } catch (error) {
+    console.error("Error verifying token or fetching friends:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
@@ -578,49 +612,126 @@ app.get("/api/getuser", async (req, res) => {
 });
 
 app.post("/api/purchaseItem", async (req, res) => {
-  const { token, item, money } = req.body;
+  const { token, items, money } = req.body;
 
-  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+  try {
+    // Verify the token and ensure it's treated as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-  if (!decoded) {
-    return res.status(401).json({ message: "Invalid token" });
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.money < money) {
+      return res.status(400).json({ message: "Insufficient funds" });
+    }
+
+    // Ensure items is an array and contains valid objects
+    if (!Array.isArray(items) || !items.every(item => typeof item.product.name === 'string' && typeof item.quantity === 'number' && typeof item.product.category === 'string')) {
+      return res.status(400).json({ message: "Invalid items provided" });
+    }
+
+    // Start a transaction
+    await prisma.$transaction(async (prisma) => {
+      // Update user's money
+      await prisma.gameplayUser.update({
+        where: { username: decoded.username },
+        data: { money: user.money - money },
+      });
+
+      for (const item of items) {
+        const { name, category } = item.product;
+
+        // Check if the item already exists in the user's inventory
+        const existingItem = await prisma.inventoryItem.findFirst({
+          where: {
+            name: name,
+            userId: user.id,
+          },
+        });
+
+        if (existingItem) {
+          // If item exists, update the quantity
+          await prisma.inventoryItem.update({
+            where: { id: existingItem.id },
+            data: { quantity: existingItem.quantity + item.quantity },
+          });
+        } else {
+          // If item does not exist, create a new entry
+          await prisma.inventoryItem.create({
+            data: {
+              name: name,
+              quantity: item.quantity,
+              category: category,
+              userId: user.id,
+            },
+          });
+        }
+      }
+    });
+
+    // Successful purchase response
+    res.status(200).json({ message: "Items purchased" });
+  } catch (error) {
+    console.error("Transaction failed: ", error);
+    res.status(500).json({ message: "Transaction failed" });
+  }
+});
+
+app.get("/api/getInventory", async (req, res) => {
+  const token = req.query.token;
+
+  if (typeof token !== 'string') {
+    return res.status(400).json({ message: "Token is required" });
   }
 
-  const user = await prisma.gameplayUser.findFirst({
-    where: {
-      username: (decoded as JwtPayload).username as string,
-    },
-  });
+  try {
+    // Verify the token and ensure it's treated as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-  if (user) {
-    if (user.money >= money) {
-      await prisma.gameplayUser.update({
-        where: {
-          username: (decoded as JwtPayload).username as string,
-        },
-        data: {
-          money: user.money - money,
-        },
-      });
-
-      // add item to user's inventory
-      await prisma.gameplayUser.update({
-        where: {
-          username: (decoded as JwtPayload).username as string,
-        },
-        data: {
-          inventory: {
-            push: item,
-          },
-        },
-      });
-
-      res.status(200).json({ message: "Item purchased" });
-    } else {
-      res.status(400).json({ message: "Insufficient funds" });
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
     }
-  } else {
-    res.status(404).json({ message: "User not found" });
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Fetch the user's inventory
+    const inventory = await prisma.inventoryItem.findMany({
+      where: {
+        userId: user.id,
+      },
+      select: {
+        name: true,
+        quantity: true,
+        category: true,
+      },
+    });
+
+    // Return the inventory
+    res.status(200).json(inventory);
+  } catch (error) {
+    console.error("Failed to fetch inventory: ", error);
+    res.status(500).json({ message: "Failed to fetch inventory" });
   }
 });
 
@@ -703,6 +814,145 @@ app.get("/api/getMoney", async (req, res) => {
 
   if (user) {
     res.status(200).json({ money: user.money });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/getRankPoints", async (req, res) => {
+  const { token } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    res.status(200).json({ rankPoints: user.rankPoints });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/addRankPoints", async (req, res) => {
+  const { token, points } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        rankPoints: user.rankPoints + points,
+      },
+    });
+
+    res.status(200).json({ message: "Rank points added" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/removeRankPoints", async (req, res) => {
+  const { token, points } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        rankPoints: user.rankPoints - points,
+      },
+    });
+
+    res.status(200).json({ message: "Rank points removed" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/getRank", async (req, res) => {
+  const { token } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    const rank = user.rank;
+
+    res.status(200).json({ rank });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/setRank", async (req, res) => {
+  const { token, rank } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        rank,
+      },
+    });
+
+    res.status(200).json({ message: "Rank set" });
   } else {
     res.status(404).json({ message: "User not found" });
   }
