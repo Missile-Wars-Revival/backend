@@ -7,6 +7,7 @@ import swaggerJSDoc from "swagger-jsdoc";
 import expressWs from "express-ws";
 import { ParamsDictionary } from "express-serve-static-core";
 import { ParsedQs } from "qs";
+import * as geolib from 'geolib';
 import * as jwt from "jsonwebtoken";
 import { JwtPayload } from "jsonwebtoken";
 import { WebSocketMessage } from "middle-earth";
@@ -338,8 +339,10 @@ app.post(
         }
       }
       res.status(200).json({ message: "Location dispatched" });
+      console.log("Location dispatched")
     } else {
       res.status(404).json({ message: "User not found" });
+      console.log("user not found")
     }
   }
 );
@@ -361,27 +364,23 @@ app.get("/api/playerlocations", async (req, res) => {
   }
 });
 
+app.get("/api/nearby", async (req: Request, res: Response) => {
+  const token = req.query.token as string;
+  const latitude = parseFloat(req.query.latitude as string);
+  const longitude = parseFloat(req.query.longitude as string);
 
-app.get("/api/nearby", async (req, res) => {
-  const token = req.query.token;
-  const latitude = req.query.latitude;
-  const longitude = req.query.longitude;
-
-  // Validate token presence and type
-  if (typeof token !== 'string' || !token.trim()) {
-    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  // Validate inputs
+  if (!token || !token.trim()) {
+      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
   }
-
-  // Validate latitude and longitude presence and type
-  if (typeof latitude !== 'string' || typeof longitude !== 'string' || !latitude.trim() || !longitude.trim()) {
-    return res.status(400).json({ message: "Latitude and longitude are required and must be non-empty strings." });
+  if (isNaN(latitude) || isNaN(longitude)) {
+      return res.status(400).json({ message: "Valid latitude and longitude are required." });
   }
 
   try {
-    // Verify the token and decode the payload
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-    // Ensure decoded token contains necessary data
+      // Verify the token and decode the payload
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      // Ensure decoded token contains necessary data
     if (typeof decoded === 'string' || !decoded.username) {
       return res.status(401).json({ message: "Invalid token. Token must contain a username." });
     }
@@ -397,49 +396,33 @@ app.get("/api/nearby", async (req, res) => {
         return res.status(404).json({ message: "User not found" });
     }
 
-    // Convert latitude and longitude from string to float and validate
-    const latitudeFloat = parseFloat(latitude);
-    const longitudeFloat = parseFloat(longitude);
-
-    if (isNaN(latitudeFloat) || isNaN(longitudeFloat)) {
-        return res.status(400).json({ message: "Invalid latitude or longitude values" });
+    const allUsers = await prisma.gameplayUser.findMany({
+      where: {
+          username: { not: decoded.username },
+      },
+    include: {
+      location: true // Include the location data
     }
+  });
 
-    // Approximate conversion factor from kilometers to degrees
-    const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
-    const radiusInDegrees = 15 * kmToDegrees;
+      // Filter nearby users manually
+      const radiusInMeters = 15000; // 15 km
+      const nearbyUsers = allUsers.filter(user => 
+        user.location && geolib.isPointWithinRadius(
+          { latitude: parseFloat(user.location.latitude), longitude: parseFloat(user.location.longitude) },
+          { latitude, longitude },
+          radiusInMeters
+      )
+      );
 
-    // Fetch nearby users within the radius
-    const nearbyUsers = await prisma.gameplayUser.findMany({
-        where: {
-            username: { not: decoded.username },
-            location: {
-                latitude: { 
-                    gte: (latitudeFloat - radiusInDegrees).toString(), 
-                    lte: (latitudeFloat + radiusInDegrees).toString() 
-                },
-                longitude: { 
-                    gte: (longitudeFloat - radiusInDegrees).toString(), 
-                    lte: (longitudeFloat + radiusInDegrees).toString() 
-                },
-            },
-        },
-    });
-
-    if (nearbyUsers.length > 0) {
-        res.status(200).json({ message: "Nearby users found", nearbyUsers });
-    } else {
-        res.status(404).json({ message: "No nearby users found" });
-    }
-    
+      if (nearbyUsers.length > 0) {
+          res.status(200).json({ message: "Nearby users found", nearbyUsers });
+      } else {
+          res.status(404).json({ message: "No nearby users found" });
+      }
   } catch (error) {
-    // Specific JWT error handling
-    if (error instanceof jwt.JsonWebTokenError) {
-      return res.status(401).json({ message: "Token is invalid or has expired." });
-    }
-    // General error handling
-    console.error("Error processing request:", error);
-    return res.status(500).json({ message: "Internal server error" });
+      console.error("Error processing request:", error);
+      return res.status(500).json({ message: "Internal server error" });
   }
 });
 
