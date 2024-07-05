@@ -364,6 +364,21 @@ app.get("/api/playerlocations", async (req, res) => {
   }
 });
 
+app.get("/api/searchplayers", async (req, res) => {
+  try {
+    const searchusers = await prisma.users.findMany({
+      select: {
+        username: true,
+        updatedAt: true,
+      },
+    });
+    res.status(200).json(searchusers);
+  } catch (error) {
+    console.error("Error fetching locations:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 app.get("/api/nearby", async (req, res) => {
   const token = req.query.token as string;
   const latitude = parseFloat(req.query.latitude as string);
