@@ -430,12 +430,16 @@ app.get("/api/nearby", async (req: Request, res: Response) => {
 app.get("/api/friends", async (req, res) => {
   const token = req.query.token;
 
+  //console.log("Received token:", token); // Debugging output
+
   if (typeof token !== 'string' || !token.trim()) {
     return res.status(400).json({ message: "Token is required and must be a non-empty string." });
   }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    //console.log("Decoded token:", decoded); // Debugging output
+
     if (typeof decoded === 'string' || !decoded.username) {
       return res.status(401).json({ message: "Invalid token" });
     }
@@ -445,9 +449,11 @@ app.get("/api/friends", async (req, res) => {
         username: decoded.username,
       },
       select: {
-        friends: true 
+        friends: true // Just retrieve the friends array
       }
     });
+
+    //console.log("User's friends:", user?.friends); // Debugging output
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -462,6 +468,7 @@ app.get("/api/friends", async (req, res) => {
           },
         },
       });
+      //console.log("Friends' profiles:", friendsProfiles); // Debugging output
       res.status(200).json({ friends: friendsProfiles });
     } else {
       res.status(200).json({ friends: [] });
