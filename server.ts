@@ -339,7 +339,7 @@ app.post(
         }
       }
       res.status(200).json({ message: "Location dispatched" });
-      console.log("Location dispatched")
+      //console.log("Location dispatched")
     } else {
       res.status(404).json({ message: "User not found" });
       console.log("user not found")
