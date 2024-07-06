@@ -151,11 +151,13 @@ app.ws("/", (ws, req) => {
           case "FetchMissiles":
             logVerbose("Fetching Missiles...");
             let allMissiles = await prisma.missile.findMany();
+            logVerbose("All Missiles:\n", allMissiles)
             let processedMissiles: middleearth.Missile[] = [];
-            for (let missile in allMissiles) {
-              processedMissiles.push(middleearth.Missile.from_db(missile));
+            for (let missile of allMissiles) {
+                logVerbose("About to parse:\n", missile)
+                processedMissiles.push(middleearth.Missile.from_db(missile));
             }
-            logVerbose(processedMissiles);
+            logVerbose("Processed Missiles:\n", processedMissiles);
             let reply = new middleearth.MissileGroup(processedMissiles);
             ws.send(middleearth.zip_single(reply));
             break;
