@@ -347,6 +347,23 @@ app.post(
   }
 );
 
+async function getMutualFriends(currentUser: { friends: any; username: string; }) {
+  const mutualFriends = [];
+
+  // Fetch each friend and check if they also have currentUser in their friends list
+  for (const friendUsername of currentUser.friends) {
+    const friend = await prisma.users.findUnique({
+      where: { username: friendUsername }
+    });
+
+    if (friend && friend.friends.includes(currentUser.username)) {
+      mutualFriends.push(friendUsername);
+    }
+  }
+
+  return mutualFriends;
+}
+
 app.get("/api/playerlocations", async (req, res) => {
   const token = req.query.token;
 
@@ -361,46 +378,36 @@ app.get("/api/playerlocations", async (req, res) => {
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    // Fetching the current user and friends list from Users model
     const currentUser = await prisma.users.findUnique({
       where: { username: decoded.username },
-      include: {
-        GameplayUser: true  // Include associated GameplayUser data
-      }
+      include: { GameplayUser: true }
     });
-
+  
     if (!currentUser) {
       return res.status(404).json({ message: "User not found" });
     }
-
-    const friendsUsernames = currentUser.friends;  // This assumes that `friends` contains usernames
-
+  
+    const mutualFriendsUsernames = await getMutualFriends(currentUser);
+  
     let whereClause = {};
-
     if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
-      // Fetch locations for mutual friends only plus users who set their location to global
       whereClause = {
         OR: [
-          { username: { in: friendsUsernames } },
-          { friendsOnly: true }
+          { username: { in: mutualFriendsUsernames } },
         ]
       };
     } else {
-      // Fetch locations for all users who have friendsOnly set to false plus all mutual friends
       whereClause = {
         OR: [
           { friendsOnly: false },
-          { username: { in: friendsUsernames } }
+          { username: { in: mutualFriendsUsernames } }
         ]
       };
     }
-
-    // Execute the query on the GameplayUser model
+  
     const allGameplayUsers = await prisma.gameplayUser.findMany({
       where: whereClause,
-      include: {
-        location: true  // Assuming there is a direct relation to a location model
-      }
+      include: { location: true }
     });
 
     // Mapping to format output
