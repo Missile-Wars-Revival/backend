@@ -348,21 +348,126 @@ app.post(
 );
 
 app.get("/api/playerlocations", async (req, res) => {
+  const token = req.query.token;
+
+  if (typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
   try {
-    const allLocations = await prisma.locations.findMany({
-      select: {
-        username: true,
-        latitude: true,
-        longitude: true,
-        updatedAt: true,
-      },
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Fetching the current user and friends list from Users model
+    const currentUser = await prisma.users.findUnique({
+      where: { username: decoded.username },
+      include: {
+        GameplayUser: true  // Include associated GameplayUser data
+      }
     });
-    res.status(200).json(allLocations);
+
+    if (!currentUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const friendsUsernames = currentUser.friends;  // This assumes that `friends` contains usernames
+
+    let whereClause = {};
+
+    if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+      // Fetch locations for mutual friends only plus users who set their location to global
+      whereClause = {
+        OR: [
+          { username: { in: friendsUsernames } },
+          { friendsOnly: true }
+        ]
+      };
+    } else {
+      // Fetch locations for all users who have friendsOnly set to false plus all mutual friends
+      whereClause = {
+        OR: [
+          { friendsOnly: false },
+          { username: { in: friendsUsernames } }
+        ]
+      };
+    }
+
+    // Execute the query on the GameplayUser model
+    const allGameplayUsers = await prisma.gameplayUser.findMany({
+      where: whereClause,
+      include: {
+        location: true  // Assuming there is a direct relation to a location model
+      }
+    });
+
+    // Mapping to format output
+    const locations = allGameplayUsers.map(gpu => ({
+      username: gpu.username,
+      ...gpu.location
+    }));
+
+    res.status(200).json(locations);
   } catch (error) {
     console.error("Error fetching locations:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
+app.patch("/api/friendsOnlyStatus", async (req, res) => {
+  const token = req.query.token;
+
+  // Check if token is provided and is a valid string
+  if (typeof token !== 'string' || !token.trim()) {
+      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
+  try {
+      // Verify the token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+      // Ensure the token contains a username
+      if (typeof decoded === 'string' || !decoded.username) {
+          return res.status(401).json({ message: "Invalid token" });
+      }
+
+      // Check if friendsOnly status is provided in the request body
+      if (typeof req.body.friendsOnly !== 'boolean') {
+          return res.status(400).json({ message: "friendsOnly status must be provided and be a boolean." });
+      }
+
+      // Update the friendsOnly status in the GameplayUser table
+      const updatedUser = await prisma.gameplayUser.update({
+          where: {
+              username: decoded.username
+          },
+          data: {
+              friendsOnly: req.body.friendsOnly
+          }
+      });
+
+      // If no user is found or updated, send a 404 error
+      if (!updatedUser) {
+          return res.status(404).json({ message: "User not found" });
+      }
+
+      // Return the updated user info
+      res.status(200).json({
+          message: "friendsOnly status updated successfully",
+          user: {
+              username: updatedUser.username,
+              friendsOnly: updatedUser.friendsOnly
+          }
+      });
+  } catch (error) {
+      console.error("Error updating friendsOnly status:", error);
+      res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
 
 app.get("/api/searchplayers", async (req, res) => {
   const username = req.query.username;
