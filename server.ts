@@ -866,6 +866,62 @@ app.post("/api/purchaseItem", async (req, res) => {
   }
 });
 
+app.post("/api/addItem", async (req, res) => {
+  const { token, itemName, category } = req.body;
+
+  try {
+    // Verify the token and ensure it's decoded as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check if the item is already in the user's inventory
+    const existingItem = await prisma.inventoryItem.findFirst({
+      where: {
+        name: itemName,
+        userId: user.id,
+      },
+    });
+
+    if (existingItem) {
+      // If item exists, update the quantity
+      await prisma.inventoryItem.update({
+        where: { id: existingItem.id },
+        data: { quantity: existingItem.quantity + 1 },
+      });
+    } else {
+      // If item does not exist, create a new entry
+      await prisma.inventoryItem.create({
+        data: {
+          name: itemName,
+          quantity: 1,
+          category: category,  // Category is directly taken from the request body
+          userId: user.id,
+        },
+      });
+    }
+
+    // Successful add item response
+    res.status(200).json({ message: "Item added successfully" });
+  } catch (error) {
+    console.error("Add item failed: ", error);
+    res.status(500).json({ message: "Add item failed" });
+  }
+});
+
 app.get("/api/getInventory", async (req, res) => {
   const token = req.query.token;
 
@@ -915,31 +971,39 @@ app.get("/api/getInventory", async (req, res) => {
 app.post("/api/addMoney", async (req, res) => {
   const { token, amount } = req.body;
 
-  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-  if (!decoded) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
+    // Ensure decoded is an object and has the username property
+    if (typeof decoded === 'object' && 'username' in decoded) {
+      const username = decoded.username;
 
-  const user = await prisma.gameplayUser.findFirst({
-    where: {
-      username: (decoded as JwtPayload).username as string,
-    },
-  });
+      const user = await prisma.gameplayUser.findFirst({
+        where: {
+          username: username,
+        },
+      });
 
-  if (user) {
-    await prisma.gameplayUser.update({
-      where: {
-        username: (decoded as JwtPayload).username as string,
-      },
-      data: {
-        money: user.money + amount,
-      },
-    });
+      if (user) {
+        // Perform the update if the user is found
+        await prisma.gameplayUser.update({
+          where: {
+            username: username,
+          },
+          data: {
+            money: user.money + amount, // Ensure correct arithmetic operation
+          },
+        });
 
-    res.status(200).json({ message: "Money added" });
-  } else {
-    res.status(404).json({ message: "User not found" });
+        res.status(200).json({ message: "Money added" });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
+    } else {
+      res.status(401).json({ message: "Invalid token" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Error verifying token"});
   }
 });
 
@@ -1021,33 +1085,42 @@ app.post("/api/getRankPoints", async (req, res) => {
 app.post("/api/addRankPoints", async (req, res) => {
   const { token, points } = req.body;
 
-  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-  if (!decoded) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
+    // Check if decoded is of type JwtPayload and has a username property
+    if (typeof decoded === 'object' && 'username' in decoded) {
+      const username = decoded.username;
 
-  const user = await prisma.gameplayUser.findFirst({
-    where: {
-      username: (decoded as JwtPayload).username as string,
-    },
-  });
+      const user = await prisma.gameplayUser.findFirst({
+        where: {
+          username: username,
+        },
+      });
 
-  if (user) {
-    await prisma.gameplayUser.update({
-      where: {
-        username: (decoded as JwtPayload).username as string,
-      },
-      data: {
-        rankPoints: user.rankPoints + points,
-      },
-    });
+      if (user) {
+        await prisma.gameplayUser.update({
+          where: {
+            username: username,
+          },
+          data: {
+            rankPoints: user.rankPoints + points, // Correctly add points to the current rankPoints
+          },
+        });
 
-    res.status(200).json({ message: "Rank points added" });
-  } else {
-    res.status(404).json({ message: "User not found" });
+        res.status(200).json({ message: "Rank points added" });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
+    } else {
+      // If decoded does not have a username property
+      res.status(401).json({ message: "Invalid token" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Error verifying token" });
   }
 });
+
 
 app.post("/api/removeRankPoints", async (req, res) => {
   const { token, points } = req.body;
