@@ -416,6 +416,58 @@ app.get("/api/playerlocations", async (req, res) => {
   }
 });
 
+app.patch("/api/friendsOnlyStatus", async (req, res) => {
+  const token = req.query.token;
+
+  // Check if token is provided and is a valid string
+  if (typeof token !== 'string' || !token.trim()) {
+      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
+  try {
+      // Verify the token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+      // Ensure the token contains a username
+      if (typeof decoded === 'string' || !decoded.username) {
+          return res.status(401).json({ message: "Invalid token" });
+      }
+
+      // Check if friendsOnly status is provided in the request body
+      if (typeof req.body.friendsOnly !== 'boolean') {
+          return res.status(400).json({ message: "friendsOnly status must be provided and be a boolean." });
+      }
+
+      // Update the friendsOnly status in the GameplayUser table
+      const updatedUser = await prisma.gameplayUser.update({
+          where: {
+              username: decoded.username
+          },
+          data: {
+              friendsOnly: req.body.friendsOnly
+          }
+      });
+
+      // If no user is found or updated, send a 404 error
+      if (!updatedUser) {
+          return res.status(404).json({ message: "User not found" });
+      }
+
+      // Return the updated user info
+      res.status(200).json({
+          message: "friendsOnly status updated successfully",
+          user: {
+              username: updatedUser.username,
+              friendsOnly: updatedUser.friendsOnly
+          }
+      });
+  } catch (error) {
+      console.error("Error updating friendsOnly status:", error);
+      res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
 
 app.get("/api/searchplayers", async (req, res) => {
   const username = req.query.username;
