@@ -1208,6 +1208,101 @@ app.post("/api/setRank", async (req, res) => {
   }
 });
 
+//health
+app.post("/api/getHealth", async (req, res) => {
+  const { token } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    res.status(200).json({ health: user.health });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/addHealth", async (req, res) => {
+  const { token, amount } = req.body;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    // Check if decoded is of type JwtPayload and has a username property
+    if (typeof decoded === 'object' && 'username' in decoded) {
+      const username = decoded.username;
+
+      const user = await prisma.gameplayUser.findFirst({
+        where: {
+          username: username,
+        },
+      });
+
+      if (user) {
+        await prisma.gameplayUser.update({
+          where: {
+            username: username,
+          },
+          data: {
+            rankPoints: user.health + amount, // Correctly add points to the current rankPoints
+          },
+        });
+
+        res.status(200).json({ message: "Health added" });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
+    } else {
+      // If decoded does not have a username property
+      res.status(401).json({ message: "Invalid token" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Error verifying token" });
+  }
+});
+
+
+app.post("/api/removeHealth", async (req, res) => {
+  const { token, amount } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        rankPoints: user.health - amount,
+      },
+    });
+
+    res.status(200).json({ message: "Rank points removed" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+
 ////////////////////////
 
 let port = process.env.PORT;
