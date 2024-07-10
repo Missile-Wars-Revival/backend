@@ -411,7 +411,7 @@ app.get("/api/playerlocations", async (req, res) => {
     });
 
     // Mapping to format output
-    const locations = allGameplayUsers.map(gpu => ({
+    const locations = allGameplayUsers.map((gpu: { username: any; location: any; }) => ({
       username: gpu.username,
       ...gpu.location
     }));
@@ -512,7 +512,7 @@ app.get("/api/searchplayers", async (req, res) => {
     });
 
     // Enhance potentialUsers with friendship status
-    const enhancedUsers = potentialUsers.map(user => {
+    const enhancedUsers = potentialUsers.map((user: { username: any; }) => {
       return {
         ...user,
         isFriend: currentUser.friends.includes(user.username) ? "You are already friends with this person." : "Not friends."
@@ -744,7 +744,7 @@ app.delete("/api/removeFriend", async (req: Request, res: Response) => {
       },
       data: {
         friends: {
-          set: user.friends.filter((f) => f !== friend),
+          set: user.friends.filter((f: any) => f !== friend),
         },
       },
     });
@@ -820,7 +820,7 @@ app.post("/api/purchaseItem", async (req, res) => {
     }
 
     // Start a transaction
-    await prisma.$transaction(async (prisma) => {
+    await prisma.$transaction(async (prisma: { gameplayUser: { update: (arg0: { where: { username: any; }; data: { money: number; }; }) => any; }; inventoryItem: { findFirst: (arg0: { where: { name: any; userId: any; }; }) => any; update: (arg0: { where: { id: any; }; data: { quantity: any; }; }) => any; create: (arg0: { data: { name: any; quantity: any; category: any; userId: any; }; }) => any; }; }) => {
       // Update user's money
       await prisma.gameplayUser.update({
         where: { username: decoded.username },
