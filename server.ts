@@ -1292,11 +1292,11 @@ app.post("/api/removeHealth", async (req, res) => {
         username: (decoded as JwtPayload).username as string,
       },
       data: {
-        rankPoints: user.health - amount,
+        health: user.health - amount,
       },
     });
 
-    res.status(200).json({ message: "Rank points removed" });
+    res.status(200).json({ message: "Health removed" });
   } else {
     res.status(404).json({ message: "User not found" });
   }
