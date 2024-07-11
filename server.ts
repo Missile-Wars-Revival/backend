@@ -1309,6 +1309,37 @@ app.post("/api/removeHealth", async (req, res) => {
   }
 });
 
+app.post("/api/setHealth", async (req, res) => {
+  const { token, newHealth } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        health: newHealth,
+      },
+    });
+
+    res.status(200).json({ message: "Health set" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
 //isAlive
 app.patch("/api/isAlive", async (req, res) => {
   const token = req.query.token;
