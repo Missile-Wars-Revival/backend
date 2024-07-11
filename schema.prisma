@@ -42,6 +42,7 @@ model GameplayUser {
     exp            Int              @default(0)
     money          Int              @default(0)
     health         Int              @default(100)
+    isAlive        Boolean          @default(true)
     friendsOnly    Boolean          @default(false)
     rank           String           @default("Private")
     rankPoints     Int              @default(0)
