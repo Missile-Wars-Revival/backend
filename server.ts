@@ -59,8 +59,8 @@ function logVerbose(...items: any[]) {
   // Logs an item only if the VERBOSE_MODE env variable is set
   if (process.env.VERBOSE_MODE === "ON") {
     /*for (let item in items) {
-	    process.stdout.write(item);
-	} */
+      process.stdout.write(item);
+  } */
     console.log(...items);
   }
 }
@@ -92,17 +92,17 @@ function authenticate(
 
 const validateSchema =
   (schema: z.ZodSchema) =>
-  (req: Request, res: Response, next: NextFunction) => {
-    try {
-      schema.parse(req.body);
-      next();
-    } catch (error) {
-      if (error instanceof ZodError) {
-        return res.status(400).json(error.errors);
+    (req: Request, res: Response, next: NextFunction) => {
+      try {
+        schema.parse(req.body);
+        next();
+      } catch (error) {
+        if (error instanceof ZodError) {
+          return res.status(400).json(error.errors);
+        }
+        next(error); // Pass the error to the next error handler
       }
-      next(error); // Pass the error to the next error handler
-    }
-  };
+    };
 
 app.ws("/", (ws, req) => {
   // Perform authentication when a new connection is established
@@ -382,29 +382,38 @@ app.get("/api/playerlocations", async (req, res) => {
       where: { username: decoded.username },
       include: { GameplayUser: true }
     });
-  
+
     if (!currentUser) {
       return res.status(404).json({ message: "User not found" });
     }
-  
+
     const mutualFriendsUsernames = await getMutualFriends(currentUser);
-  
+
     let whereClause = {};
     if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+      // If friendsOnly is enabled, filter by mutual friends and ensure they are alive
       whereClause = {
-        OR: [
+        AND: [
           { username: { in: mutualFriendsUsernames } },
+          { isAlive: true }
         ]
       };
     } else {
+      // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends
       whereClause = {
-        OR: [
-          { friendsOnly: false },
-          { username: { in: mutualFriendsUsernames } }
+        AND: [
+          { isAlive: true },
+          {
+            OR: [
+              { friendsOnly: false },
+              { username: { in: mutualFriendsUsernames } }
+            ]
+          }
         ]
       };
     }
-  
+
+
     const allGameplayUsers = await prisma.gameplayUser.findMany({
       where: whereClause,
       include: { location: true }
@@ -428,49 +437,49 @@ app.patch("/api/friendsOnlyStatus", async (req, res) => {
 
   // Check if token is provided and is a valid string
   if (typeof token !== 'string' || !token.trim()) {
-      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
   }
 
   try {
-      // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    // Verify the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-      // Ensure the token contains a username
-      if (typeof decoded === 'string' || !decoded.username) {
-          return res.status(401).json({ message: "Invalid token" });
+    // Ensure the token contains a username
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Check if friendsOnly status is provided in the request body
+    if (typeof req.body.friendsOnly !== 'boolean') {
+      return res.status(400).json({ message: "friendsOnly status must be provided and be a boolean." });
+    }
+
+    // Update the friendsOnly status in the GameplayUser table
+    const updatedUser = await prisma.gameplayUser.update({
+      where: {
+        username: decoded.username
+      },
+      data: {
+        friendsOnly: req.body.friendsOnly
       }
+    });
 
-      // Check if friendsOnly status is provided in the request body
-      if (typeof req.body.friendsOnly !== 'boolean') {
-          return res.status(400).json({ message: "friendsOnly status must be provided and be a boolean." });
+    // If no user is found or updated, send a 404 error
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Return the updated user info
+    res.status(200).json({
+      message: "friendsOnly status updated successfully",
+      user: {
+        username: updatedUser.username,
+        friendsOnly: updatedUser.friendsOnly
       }
-
-      // Update the friendsOnly status in the GameplayUser table
-      const updatedUser = await prisma.gameplayUser.update({
-          where: {
-              username: decoded.username
-          },
-          data: {
-              friendsOnly: req.body.friendsOnly
-          }
-      });
-
-      // If no user is found or updated, send a 404 error
-      if (!updatedUser) {
-          return res.status(404).json({ message: "User not found" });
-      }
-
-      // Return the updated user info
-      res.status(200).json({
-          message: "friendsOnly status updated successfully",
-          user: {
-              username: updatedUser.username,
-              friendsOnly: updatedUser.friendsOnly
-          }
-      });
+    });
   } catch (error) {
-      console.error("Error updating friendsOnly status:", error);
-      res.status(500).json({ message: "Internal server error" });
+    console.error("Error updating friendsOnly status:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
@@ -570,7 +579,7 @@ app.get("/api/nearby", async (req, res) => {
     });
 
     const radiusInMeters = 15000; // 15 km
-    const nearbyUsers = allUsers.filter(user => 
+    const nearbyUsers = allUsers.filter(user =>
       user.location && geolib.isPointWithinRadius(
         { latitude: parseFloat(user.location.latitude), longitude: parseFloat(user.location.longitude) },
         { latitude, longitude },
@@ -870,7 +879,7 @@ app.post("/api/addItem", async (req, res) => {
   try {
     // Verify the token and ensure it's decoded as an object
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-    
+
     if (typeof decoded === 'string' || !decoded.username) {
       return res.status(401).json({ message: "Invalid token" });
     }
@@ -1001,7 +1010,7 @@ app.post("/api/addMoney", async (req, res) => {
       res.status(401).json({ message: "Invalid token" });
     }
   } catch (error) {
-    res.status(500).json({ message: "Error verifying token"});
+    res.status(500).json({ message: "Error verifying token" });
   }
 });
 
@@ -1306,49 +1315,49 @@ app.patch("/api/isAlive", async (req, res) => {
 
   // Check if token is provided and is a valid string
   if (typeof token !== 'string' || !token.trim()) {
-      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
   }
 
   try {
-      // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    // Verify the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-      // Ensure the token contains a username
-      if (typeof decoded === 'string' || !decoded.username) {
-          return res.status(401).json({ message: "Invalid token" });
+    // Ensure the token contains a username
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Check if friendsOnly status is provided in the request body
+    if (typeof req.body.isAlive !== 'boolean') {
+      return res.status(400).json({ message: "isAlive status must be provided and be a boolean." });
+    }
+
+    // Update the friendsOnly status in the GameplayUser table
+    const updatedUser = await prisma.gameplayUser.update({
+      where: {
+        username: decoded.username
+      },
+      data: {
+        isAlive: req.body.isAlive
       }
+    });
 
-      // Check if friendsOnly status is provided in the request body
-      if (typeof req.body.isAlive !== 'boolean') {
-          return res.status(400).json({ message: "isAlive status must be provided and be a boolean." });
+    // If no user is found or updated, send a 404 error
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Return the updated user info
+    res.status(200).json({
+      message: "isAlive status updated successfully",
+      user: {
+        username: updatedUser.username,
+        isAlive: updatedUser.isAlive
       }
-
-      // Update the friendsOnly status in the GameplayUser table
-      const updatedUser = await prisma.gameplayUser.update({
-          where: {
-              username: decoded.username
-          },
-          data: {
-            isAlive: req.body.isAlive
-          }
-      });
-
-      // If no user is found or updated, send a 404 error
-      if (!updatedUser) {
-          return res.status(404).json({ message: "User not found" });
-      }
-
-      // Return the updated user info
-      res.status(200).json({
-          message: "isAlive status updated successfully",
-          user: {
-              username: updatedUser.username,
-              isAlive: updatedUser.isAlive
-          }
-      });
+    });
   } catch (error) {
-      console.error("Error updating isAlive status:", error);
-      res.status(500).json({ message: "Internal server error" });
+    console.error("Error updating isAlive status:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
