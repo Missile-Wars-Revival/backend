@@ -37,6 +37,7 @@
     "jsonwebtoken": "^9.0.2",
     "middle-earth": "github:Missile-Wars-Revival/middle-earth",
     "msgpackr": "^1.10.2",
+    "stripe": "^16.2.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
     "zod": "^3.23.8"

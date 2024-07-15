@@ -27,6 +27,11 @@ const prisma = new PrismaClient();
 
 const wsServer = expressWs(express());
 const app = wsServer.app;
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2024-06-20'
+});
 
 app.use(bodyParser.json());
 
@@ -792,6 +797,68 @@ app.get("/api/getuser", async (req, res) => {
     res.status(200).json({ ...fmtUser });
   } else {
     res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post('/api/payment-intent', async (req, res) => {
+  const { token, productId, price } = req.body;
+
+  if (!token || typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string; };
+    const username = decoded.username;
+    if (!username) {
+      return res.status(401).json({ message: "Invalid token: Username is missing." });
+    }
+
+    // Fetch user by username
+    const user = await prisma.users.findUnique({
+      where: { username },
+      select: { email: true, stripeCustomerId: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    let customerId = user.stripeCustomerId;
+    if (!customerId) {
+      // Create a new Stripe customer if not existing
+      const newCustomer = await stripe.customers.create({
+        email: user.email,
+      });
+      customerId = newCustomer.id;
+
+      // Store new Stripe customer ID in your database
+      await prisma.users.update({
+        where: { username },
+        data: { stripeCustomerId: customerId }
+      });
+    }
+
+    // Create a payment intent with the Stripe customer ID
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(price * 100), // Convert price to cents
+      currency: 'usd',
+      customer: customerId,
+      description: `Purchase of product ${productId}`,
+      metadata: { productId }
+    });
+
+    res.json({
+      status: 'pending',
+      clientSecret: paymentIntent.client_secret,
+    });
+
+  } catch (error) {
+    console.error('Error during payment initiation:', error);
+    res.status(500).json({
+      status: 'failed',
+      message: "Server error during payment processing."
+    });
   }
 });
 
