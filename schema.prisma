@@ -50,6 +50,7 @@ model GameplayUser {
   updatedAt      DateTime         @default(now())
   deletedAt      DateTime         @default(now())
   isAlive        Boolean          @default(true)
+  badges         String[]         @default([])
   attacking      BattleSessions[] @relation("AttackerRelation")
   defending      BattleSessions[] @relation("DefenderRelation")
   currentSession BattleSessions[]
