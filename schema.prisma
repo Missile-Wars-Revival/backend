@@ -124,28 +124,21 @@ model Missile {
 }
 
 model Landmine {
-  id         Int    @id @default(sequence(maxValue: 2147483647))
-  destLat    String @default("")
-  destLong   String @default("")
-  launchLat  String @default("")
-  launchLong String @default("")
+  id         Int      @id @default(sequence(maxValue: 2147483647))
   placedBy   String
-  Type       String
-  Expires    String
+  locLat     String   @default("")
+  locLong    String   @default("")
+  placedtime DateTime @default(now())
+  type       String
+  Expires    DateTime
 }
 
 model Loot {
-  id         Int    @id @default(sequence(maxValue: 2147483647))
-  longitude  Float
-  latitude   Float
-  rarity     String
-  destLat    String @default("")
-  destLong   String @default("")
-  launchLat  String @default("")
-  launchLong String @default("")
-  radius     Int
-  type       String
-  status     String
+  id      Int      @id @default(sequence(maxValue: 2147483647))
+  rarity  String
+  Expires DateTime
+  locLat  String   @default("")
+  locLong String   @default("")
 }
 
 model InventoryItem {
