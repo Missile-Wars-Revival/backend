@@ -117,6 +117,24 @@ app.ws("/", (ws, req) => {
 
   logVerbose("New connection established");
 
+  const sendPeriodicData = async () => {
+    //console.log("Sending periodic data...");
+    let allMissiles = await prisma.missile.findMany();
+    let processedMissiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
+    ws.send(encode(processedMissiles));
+
+    let allLoot = await prisma.loot.findMany();
+    let processedLoot = allLoot.map(loot => middleearth.Loot.from_db(loot));
+    ws.send(encode(processedLoot));
+
+    let allLandmines = await prisma.landmine.findMany();
+    let processedLandmines = allLandmines.map(landmine => middleearth.Landmine.from_db(landmine));
+    ws.send(encode(processedLandmines));
+  };
+
+  // Start sending data every 1 seconds
+  const intervalId = setInterval(sendPeriodicData, 1000);
+
   ws.on("message", (message: Buffer /*: WebSocketMessage*/) => {
     //logVerbose("Received message:", message);
     // Determine if a message is encoded in MessagePack by trying
@@ -140,45 +158,10 @@ app.ws("/", (ws, req) => {
     try {
       // Handle main communications here
       wsm.messages.forEach(async function (msg) {
+        //for more specifc requests:
         switch (msg.itemType) {
-          case "Echo":
+          case "Echo": 
             ws.send(encode(new middleearth.WebSocketMessage([msg])));
-            break;
-
-          case "FetchMissiles":
-            console.log("Fetching Missiles...");
-            let allMissiles = await prisma.missile.findMany();
-            let processedMissiles: middleearth.Missile[] = [];
-            for (let missile of allMissiles) {
-              processedMissiles.push(middleearth.Missile.from_db(missile));
-            }
-            //console.log(processedMissiles);
-            let missilesreply = processedMissiles;
-            ws.send(encode(missilesreply));
-            break;
-          
-          case "FetchLoot":
-            console.log("Fetching Loot...");
-            let allLoot = await prisma.loot.findMany();
-            let processedLoot: middleearth.Loot[] = [];
-            for (let loot of allLoot) {
-              processedLoot.push(middleearth.Loot.from_db(loot));
-            }
-            //console.log(processedLoot);
-            let lootreply = processedLoot;
-            ws.send(encode(lootreply));
-            break;
-
-          case "FetchLandmines":
-            console.log("Fetching Landmines...");
-            let allLandmine = await prisma.landmine.findMany();
-            let processedLandmine: middleearth.Landmine[] = [];
-            for (let landmine of allLandmine) {
-              processedLandmine.push(middleearth.Landmine.from_db(landmine));
-            }
-            //console.log(processedLandmine);
-            let landminereply = processedLandmine;
-            ws.send(encode(landminereply));
             break;
 
           default:
@@ -194,6 +177,7 @@ app.ws("/", (ws, req) => {
 
   ws.on("close", () => {
     logVerbose("Connection closed");
+    clearInterval(intervalId);
   });
 });
 
