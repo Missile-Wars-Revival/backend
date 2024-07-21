@@ -7,67 +7,22 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Sessions {
-  lastIp        String @default("")
-  username      String @id @default("")
-  lastLoginTime String @default("")
-  userAgent     String @default("")
-}
+model BattleSessions {
+  sessionId                                                  String
+  attackerUsername                                           String        @default("")
+  defenderUsername                                           String        @default("")
+  gameplayUserId                                             Int?
+  result                                                     String        @default("")
+  status                                                     String        @default("")
+  target                                                     String        @default("")
+  createdAt                                                  DateTime      @default(now())
+  updatedAt                                                  DateTime      @default(now())
+  deletedAt                                                  DateTime      @default(now())
+  GameplayUser_BattleSessions_attackerUsernameToGameplayUser GameplayUser  @relation("BattleSessions_attackerUsernameToGameplayUser", fields: [attackerUsername], references: [username])
+  GameplayUser_BattleSessions_defenderUsernameToGameplayUser GameplayUser  @relation("BattleSessions_defenderUsernameToGameplayUser", fields: [defenderUsername], references: [username])
+  GameplayUser_BattleSessions_gameplayUserIdToGameplayUser   GameplayUser? @relation("BattleSessions_gameplayUserIdToGameplayUser", fields: [gameplayUserId], references: [id])
 
-model Users {
-  id                Int           @id @default(sequence(maxValue: 2147483647))
-  email             String        @default("")
-  password          String        @default("")
-  username          String        @unique @default("")
-  role              String        @default("user")
-  avatar            String        @default("")
-  friends           String[]      @default([])
-  notificationToken String        @default("")
-  notifications     String[]      @default([])
-  createdAt         DateTime      @default(now())
-  deletedAt         DateTime      @default(now())
-  updatedAt         DateTime      @default(now())
-  stripeCustomerId  String?       @unique
-  GameplayUser      GameplayUser?
-}
-
-model RefreshTokens {
-  id           Int    @id @default(sequence(maxValue: 2147483647))
-  refreshToken String @default("")
-}
-
-model GameplayUser {
-  id             Int              @id @default(sequence(maxValue: 2147483647))
-  username       String           @unique @default("")
-  level          Int              @default(1)
-  exp            Int              @default(0)
-  money          Int              @default(0)
-  health         Int              @default(100)
-  friendsOnly    Boolean          @default(false)
-  rank           String           @default("Private")
-  rankPoints     Int              @default(0)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @default(now())
-  deletedAt      DateTime         @default(now())
-  isAlive        Boolean          @default(true)
-  badges         String[]         @default([])
-  attacking      BattleSessions[] @relation("AttackerRelation")
-  defending      BattleSessions[] @relation("DefenderRelation")
-  currentSession BattleSessions[]
-  friendRequests FriendRequests[]
-  user           Users            @relation(fields: [username], references: [username])
-  InventoryItem  InventoryItem[]
-  location       Locations?
-}
-
-model Messages {
-  id        Int    @id @default(sequence(maxValue: 2147483647))
-  sender    String @default("")
-  receiver  String @default("")
-  content   String @default("")
-  createdAt String @default("")
-  updatedAt String @default("")
-  deletedAt String @default("")
+  @@id([attackerUsername, defenderUsername])
 }
 
 model FriendRequests {
@@ -81,22 +36,47 @@ model FriendRequests {
   GameplayUser   GameplayUser? @relation(fields: [gameplayUserId], references: [id])
 }
 
-model BattleSessions {
-  sessionId        String        @default(uuid())
-  attackerUsername String        @default("")
-  defenderUsername String        @default("")
-  gameplayUserId   Int?
-  result           String        @default("")
-  status           String        @default("")
-  target           String        @default("")
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @default(now())
-  deletedAt        DateTime      @default(now())
-  attacker         GameplayUser  @relation("AttackerRelation", fields: [attackerUsername], references: [username])
-  defender         GameplayUser  @relation("DefenderRelation", fields: [defenderUsername], references: [username])
-  GameplayUser     GameplayUser? @relation(fields: [gameplayUserId], references: [id])
+model GameplayUser {
+  id                                                           Int              @id @default(sequence(maxValue: 2147483647))
+  username                                                     String           @unique @default("")
+  level                                                        Int              @default(1)
+  exp                                                          Int              @default(0)
+  money                                                        Int              @default(0)
+  health                                                       Int              @default(100)
+  friendsOnly                                                  Boolean          @default(false)
+  rank                                                         String           @default("Private")
+  rankPoints                                                   Int              @default(0)
+  createdAt                                                    DateTime         @default(now())
+  updatedAt                                                    DateTime         @default(now())
+  deletedAt                                                    DateTime         @default(now())
+  isAlive                                                      Boolean          @default(true)
+  badges                                                       String[]         @default([])
+  BattleSessions_BattleSessions_attackerUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_attackerUsernameToGameplayUser")
+  BattleSessions_BattleSessions_defenderUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_defenderUsernameToGameplayUser")
+  BattleSessions_BattleSessions_gameplayUserIdToGameplayUser   BattleSessions[] @relation("BattleSessions_gameplayUserIdToGameplayUser")
+  FriendRequests                                               FriendRequests[]
+  Users                                                        Users            @relation(fields: [username], references: [username])
+  InventoryItem                                                InventoryItem[]
+  Locations                                                    Locations?
+}
 
-  @@id([attackerUsername, defenderUsername])
+model InventoryItem {
+  id           BigInt       @id @default(autoincrement())
+  name         String
+  quantity     Int
+  userId       Int
+  category     String
+  GameplayUser GameplayUser @relation(fields: [userId], references: [id])
+}
+
+model Landmine {
+  id         Int      @id @default(sequence(maxValue: 2147483647))
+  placedBy   String
+  locLat     String   @default("")
+  locLong    String   @default("")
+  placedtime DateTime @default(now())
+  type       String
+  Expires    DateTime
 }
 
 model Locations {
@@ -107,6 +87,24 @@ model Locations {
   latitude     String       @default("")
   longitude    String       @default("")
   GameplayUser GameplayUser @relation(fields: [username], references: [username])
+}
+
+model Loot {
+  id      Int      @id @default(sequence(maxValue: 2147483647))
+  rarity  String
+  Expires DateTime
+  locLat  String   @default("")
+  locLong String   @default("")
+}
+
+model Messages {
+  id        Int    @id @default(sequence(maxValue: 2147483647))
+  sender    String @default("")
+  receiver  String @default("")
+  content   String @default("")
+  createdAt String @default("")
+  updatedAt String @default("")
+  deletedAt String @default("")
 }
 
 model Missile {
@@ -139,13 +137,42 @@ model Loot {
   Expires DateTime
   locLat  String   @default("")
   locLong String   @default("")
+
+model RefreshTokens {
+  id           Int    @id @default(sequence(maxValue: 2147483647))
+  refreshToken String @default("")
 }
 
-model InventoryItem {
-  id           BigInt       @id @default(autoincrement())
-  name         String
-  quantity     Int
-  userId       Int
-  category     String
-  GameplayUser GameplayUser @relation(fields: [userId], references: [id])
+model Sessions {
+  lastIp        String @default("")
+  username      String @id @default("")
+  lastLoginTime String @default("")
+  userAgent     String @default("")
+}
+
+model Users {
+  id                Int           @id @default(sequence(maxValue: 2147483647))
+  email             String        @default("")
+  password          String        @default("")
+  username          String        @unique @default("")
+  role              String        @default("user")
+  avatar            String        @default("")
+  friends           String[]      @default([])
+  notificationToken String        @default("")
+  notifications     String[]      @default([])
+  createdAt         DateTime      @default(now())
+  deletedAt         DateTime      @default(now())
+  updatedAt         DateTime      @default(now())
+  stripeCustomerId  String?       @unique
+  GameplayUser      GameplayUser?
+}
+
+model MissileType {
+    name            String @id @unique
+    description     String
+    price           Int
+    speed           Int
+    radius          Int
+    damage          Int
+    fallout         Int
 }
