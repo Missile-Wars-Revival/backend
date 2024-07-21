@@ -118,19 +118,30 @@ app.ws("/", (ws, req) => {
   logVerbose("New connection established");
 
   const sendPeriodicData = async () => {
-    //console.log("Sending periodic data...");
+    // Fetch all data
     let allMissiles = await prisma.missile.findMany();
     let processedMissiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
-    ws.send(encode(processedMissiles));
 
     let allLoot = await prisma.loot.findMany();
     let processedLoot = allLoot.map(loot => middleearth.Loot.from_db(loot));
-    ws.send(encode(processedLoot));
 
     let allLandmines = await prisma.landmine.findMany();
     let processedLandmines = allLandmines.map(landmine => middleearth.Landmine.from_db(landmine));
-    ws.send(encode(processedLandmines));
-  };
+    console.log(processedLandmines)
+
+    // Prepare the data bundle
+    let dataBundle = new middleearth.WebSocketMessage([
+        new middleearth.WSMsg('loot', processedLoot),
+        new middleearth.WSMsg('landmines', processedLandmines),
+        new middleearth.WSMsg('missiles', processedMissiles),
+    ]);
+
+    // Compress the data bundle
+    let compressedData = middleearth.zip(dataBundle);
+
+    // Send compressed data through WebSocket
+    ws.send(compressedData);
+};
 
   // Start sending data every 1 seconds
   const intervalId = setInterval(sendPeriodicData, 1000);
