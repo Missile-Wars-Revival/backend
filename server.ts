@@ -13,7 +13,6 @@ import { JwtPayload } from "jsonwebtoken";
 import * as middleearth from "middle-earth";
 import { z, ZodError } from "zod";
 import Stripe from 'stripe';
-// import { encode, decode } from "msgpack-lite";
 import {
   AuthWithLocation,
   AuthWithLocationSchema,
@@ -450,13 +449,13 @@ app.get("/api/playerlocations", async (req, res) => {
 
     const allGameplayUsers = await prisma.gameplayUser.findMany({
       where: whereClause,
-      include: { location: true }
+      include: { Locations: true }
     });
 
     // Mapping to format output
-    const locations = allGameplayUsers.map((gpu: { username: any; location: any; }) => ({
+    const locations = allGameplayUsers.map((gpu: { username: any; Locations: any; }) => ({
       username: gpu.username,
-      ...gpu.location
+      ...gpu.Locations
     }));
 
     res.status(200).json(locations);
@@ -608,7 +607,7 @@ app.get("/api/nearby", async (req, res) => {
         }
       },
       include: {
-        location: true // Include the location data
+        Locations: true // Include the location data
       }
     });
 
