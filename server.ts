@@ -7,12 +7,13 @@ import swaggerJSDoc from "swagger-jsdoc";
 import expressWs from "express-ws";
 import { ParamsDictionary } from "express-serve-static-core";
 import { ParsedQs } from "qs";
+import * as geolib from 'geolib';
 import * as jwt from "jsonwebtoken";
 import { JwtPayload } from "jsonwebtoken";
-import { WebSocketMessage } from "middle-earth";
 import * as middleearth from "middle-earth";
 import { z, ZodError } from "zod";
-import { pack, unpack } from "msgpackr";
+import Stripe from 'stripe';
+import { encode, decode } from "msgpack-lite";
 import {
   AuthWithLocation,
   AuthWithLocationSchema,
@@ -25,7 +26,11 @@ import {
 const prisma = new PrismaClient();
 
 const wsServer = expressWs(express());
-const app = wsServer.app;
+const app = wsServer.app;;
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2024-06-20'
+});
 
 app.use(bodyParser.json());
 
@@ -58,8 +63,8 @@ function logVerbose(...items: any[]) {
   // Logs an item only if the VERBOSE_MODE env variable is set
   if (process.env.VERBOSE_MODE === "ON") {
     /*for (let item in items) {
-	    process.stdout.write(item);
-	} */
+      process.stdout.write(item);
+  } */
     console.log(...items);
   }
 }
@@ -91,17 +96,17 @@ function authenticate(
 
 const validateSchema =
   (schema: z.ZodSchema) =>
-  (req: Request, res: Response, next: NextFunction) => {
-    try {
-      schema.parse(req.body);
-      next();
-    } catch (error) {
-      if (error instanceof ZodError) {
-        return res.status(400).json(error.errors);
+    (req: Request, res: Response, next: NextFunction) => {
+      try {
+        schema.parse(req.body);
+        next();
+      } catch (error) {
+        if (error instanceof ZodError) {
+          return res.status(400).json(error.errors);
+        }
+        next(error); // Pass the error to the next error handler
       }
-      next(error); // Pass the error to the next error handler
-    }
-  };
+    };
 
 app.ws("/", (ws, req) => {
   // Perform authentication when a new connection is established
@@ -112,7 +117,36 @@ app.ws("/", (ws, req) => {
 
   logVerbose("New connection established");
 
-  ws.on("message", (message: string /*: WebSocketMessage*/) => {
+  const sendPeriodicData = async () => {
+    // Fetch all data
+    let allMissiles = await prisma.missile.findMany();
+    let processedMissiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
+
+    let allLoot = await prisma.loot.findMany();
+    let processedLoot = allLoot.map(loot => middleearth.Loot.from_db(loot));
+
+    let allLandmines = await prisma.landmine.findMany();
+    let processedLandmines = allLandmines.map(landmine => middleearth.Landmine.from_db(landmine));
+
+    // Prepare the data bundle
+    let dataBundle = new middleearth.WebSocketMessage([
+        new middleearth.WSMsg('loot', processedLoot),
+        new middleearth.WSMsg('landmines', processedLandmines),
+        new middleearth.WSMsg('missiles', processedMissiles),
+    ]);
+
+    // Compress the data bundle
+    let compressedData = middleearth.zip(dataBundle);
+
+    // Send compressed data through WebSocket
+    ws.send(compressedData);
+};
+
+  // Start sending data every 1 seconds
+  const intervalId = setInterval(sendPeriodicData, 1000);
+
+  ws.on("message", (message: Buffer /*: WebSocketMessage*/) => {
+    //logVerbose("Received message:", message);
     // Determine if a message is encoded in MessagePack by trying
     // to unpack it
 
@@ -128,13 +162,14 @@ app.ws("/", (ws, req) => {
     }
     
     try {
-      wsm = middleearth.unzip(Buffer.from(message));
+      wsm = decode(message);
+      logVerbose("Decoded MessagePack:", wsm);
     } catch {
       logVerbose("Not valid MessagePack");
       // Fall back to JSON if not MessagePack
       try {
-        wsm = JSON.parse(message);
-        logVerbose("Is JSON, ", typeof message);
+        wsm = JSON.parse(message.toString());
+        logVerbose("Is JSON:", wsm);
       } catch {
         logVerbose("Not JSON, cannot decode");
         return;
@@ -143,43 +178,28 @@ app.ws("/", (ws, req) => {
     try {
       // Handle main communications here
       wsm.messages.forEach(async function (msg) {
+        //for more specifc requests:
         switch (msg.itemType) {
-          case "Echo":
-            ws.send(middleearth.zip_single(msg));
-            break;
-
-          case "FetchMissiles":
-            logVerbose("Fetching Missiles...");
-            let allMissiles = await prisma.missile.findMany();
-            logVerbose("All Missiles:\n", allMissiles)
-            let processedMissiles: middleearth.Missile[] = [];
-            for (let missile of allMissiles) {
-                logVerbose("About to parse:\n", missile)
-                processedMissiles.push(middleearth.Missile.from_db(missile));
-            }
-            logVerbose("Processed Missiles:\n", processedMissiles);
-            let reply = new middleearth.MissileGroup(processedMissiles);
-            ws.send(middleearth.zip_single(reply));
+          case "Echo": 
+            ws.send(encode(new middleearth.WebSocketMessage([msg])));
             break;
 
           default:
-            logVerbose(
-              "Msg received, but is not yet implemented and was skipped"
-            );
+            logVerbose("Msg received, but is not yet implemented and was skipped");
         }
       });
     } catch {
-      logVerbose(
-        "Unable to handle messages. Please make sure they are being formatted correctly inside a WebSocketMessage."
-      );
+      logVerbose("Unable to handle messages. Please make sure they are being formatted correctly inside a WebSocketMessage.");
     }
-  }); // </ws.on("message")>
+  });
 
   ws.send(JSON.stringify({ message: "Connection established" }));
+
   ws.on("close", () => {
     logVerbose("Connection closed");
+    clearInterval(intervalId);
   });
-}); // </app.ws()>
+});
 
 app.post("/api/login", validateSchema(LoginSchema), async (req, res) => {
   const login: Login = req.body;
@@ -350,106 +370,260 @@ app.post(
         }
       }
       res.status(200).json({ message: "Location dispatched" });
+      //console.log("Location dispatched")
     } else {
       res.status(404).json({ message: "User not found" });
+      console.log("user not found")
     }
   }
 );
 
-app.get("/api/playerlocations", async (req, res) => {
-  try {
-    const allLocations = await prisma.locations.findMany({
-      select: {
-        username: true,
-        latitude: true,
-        longitude: true,
-        updatedAt: true,
-      },
+async function getMutualFriends(currentUser: { friends: any; username: string; }) {
+  const mutualFriends = [];
+
+  // Fetch each friend and check if they also have currentUser in their friends list
+  for (const friendUsername of currentUser.friends) {
+    const friend = await prisma.users.findUnique({
+      where: { username: friendUsername }
     });
-    res.status(200).json(allLocations);
+
+    if (friend && friend.friends.includes(currentUser.username)) {
+      mutualFriends.push(friendUsername);
+    }
+  }
+
+  return mutualFriends;
+}
+
+app.get("/api/playerlocations", async (req, res) => {
+  const token = req.query.token;
+
+  if (typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    const currentUser = await prisma.users.findUnique({
+      where: { username: decoded.username },
+      include: { GameplayUser: true }
+    });
+
+    if (!currentUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const mutualFriendsUsernames = await getMutualFriends(currentUser);
+
+    let whereClause = {};
+    if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+      // If friendsOnly is enabled, filter by mutual friends and ensure they are alive
+      whereClause = {
+        AND: [
+          { username: { in: mutualFriendsUsernames } },
+          { isAlive: true }
+        ]
+      };
+    } else {
+      // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends
+      whereClause = {
+        AND: [
+          { isAlive: true },
+          {
+            OR: [
+              { friendsOnly: false },
+              { username: { in: mutualFriendsUsernames } }
+            ]
+          }
+        ]
+      };
+    }
+
+
+    const allGameplayUsers = await prisma.gameplayUser.findMany({
+      where: whereClause,
+      include: { location: true }
+    });
+
+    // Mapping to format output
+    const locations = allGameplayUsers.map((gpu: { username: any; location: any; }) => ({
+      username: gpu.username,
+      ...gpu.location
+    }));
+
+    res.status(200).json(locations);
   } catch (error) {
     console.error("Error fetching locations:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
 
-
-app.get("/api/nearby", async (req, res) => {
+app.patch("/api/friendsOnlyStatus", async (req, res) => {
   const token = req.query.token;
-  const latitude = req.query.latitude;
-  const longitude = req.query.longitude;
 
-  // Validate token presence and type
+  // Check if token is provided and is a valid string
   if (typeof token !== 'string' || !token.trim()) {
     return res.status(400).json({ message: "Token is required and must be a non-empty string." });
   }
 
-  // Validate latitude and longitude presence and type
-  if (typeof latitude !== 'string' || typeof longitude !== 'string' || !latitude.trim() || !longitude.trim()) {
-    return res.status(400).json({ message: "Latitude and longitude are required and must be non-empty strings." });
+  try {
+    // Verify the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    // Ensure the token contains a username
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Check if friendsOnly status is provided in the request body
+    if (typeof req.body.friendsOnly !== 'boolean') {
+      return res.status(400).json({ message: "friendsOnly status must be provided and be a boolean." });
+    }
+
+    // Update the friendsOnly status in the GameplayUser table
+    const updatedUser = await prisma.gameplayUser.update({
+      where: {
+        username: decoded.username
+      },
+      data: {
+        friendsOnly: req.body.friendsOnly
+      }
+    });
+
+    // If no user is found or updated, send a 404 error
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Return the updated user info
+    res.status(200).json({
+      message: "friendsOnly status updated successfully",
+      user: {
+        username: updatedUser.username,
+        friendsOnly: updatedUser.friendsOnly
+      }
+    });
+  } catch (error) {
+    console.error("Error updating friendsOnly status:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+app.get("/api/searchplayers", async (req, res) => {
+  const username = req.query.username;
+
+  if (typeof username !== 'string') {
+    return res.status(400).json({ message: "Username is required and must be a single string." });
+  }
+  try {
+    // Fetching the current user and their friends
+    const currentUser = await prisma.users.findUnique({
+      where: {
+        username: username,
+      },
+      select: {
+        friends: true,  // Assuming friends is an array of usernames
+      }
+    });
+
+    if (!currentUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Fetch all other users excluding the current user
+    const potentialUsers = await prisma.users.findMany({
+      where: {
+        username: {
+          not: username
+        }
+      },
+      select: {
+        username: true,
+        friends: true,  // Fetch friends to check for mutual friendship
+        updatedAt: true,
+      },
+    });
+
+    // Enhance potentialUsers with friendship status
+    const enhancedUsers = potentialUsers.map((user: { username: any; }) => {
+      return {
+        ...user,
+        isFriend: currentUser.friends.includes(user.username) ? "You are already friends with this person." : "Not friends."
+      };
+    });
+
+    res.status(200).json(enhancedUsers);
+  } catch (error) {
+    console.error("Error fetching user data:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
+app.get("/api/nearby", async (req, res) => {
+  const token = req.query.token as string;
+  const latitude = parseFloat(req.query.latitude as string);
+  const longitude = parseFloat(req.query.longitude as string);
+
+  if (!token || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
+  if (isNaN(latitude) || isNaN(longitude)) {
+    return res.status(400).json({ message: "Valid latitude and longitude are required." });
   }
 
   try {
-    // Verify the token and decode the payload
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-    // Ensure decoded token contains necessary data
     if (typeof decoded === 'string' || !decoded.username) {
       return res.status(401).json({ message: "Invalid token. Token must contain a username." });
     }
 
-    // Fetch the user from the database
-    const user = await prisma.gameplayUser.findFirst({
-        where: {
-            username: decoded.username,
-        },
+    // Fetch the main user object to get access to the friends list
+    const mainUser = await prisma.users.findFirst({
+      where: {
+        username: decoded.username,
+      },
     });
 
-    if (!user) {
-        return res.status(404).json({ message: "User not found" });
+    if (!mainUser) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    // Convert latitude and longitude from string to float and validate
-    const latitudeFloat = parseFloat(latitude);
-    const longitudeFloat = parseFloat(longitude);
-
-    if (isNaN(latitudeFloat) || isNaN(longitudeFloat)) {
-        return res.status(400).json({ message: "Invalid latitude or longitude values" });
-    }
-
-    // Approximate conversion factor from kilometers to degrees
-    const kmToDegrees = 1 / 111.12; // Approximately 1 degree is 111.12 kilometers
-    const radiusInDegrees = 15 * kmToDegrees;
-
-    // Fetch nearby users within the radius
-    const nearbyUsers = await prisma.gameplayUser.findMany({
-        where: {
-            username: { not: decoded.username },
-            location: {
-                latitude: { 
-                    gte: (latitudeFloat - radiusInDegrees).toString(), 
-                    lte: (latitudeFloat + radiusInDegrees).toString() 
-                },
-                longitude: { 
-                    gte: (longitudeFloat - radiusInDegrees).toString(), 
-                    lte: (longitudeFloat + radiusInDegrees).toString() 
-                },
-            },
-        },
+    // Exclude friends from the search
+    const allUsers = await prisma.gameplayUser.findMany({
+      where: {
+        username: {
+          not: {
+            in: [decoded.username, ...mainUser.friends] // Exclude self and friends
+          }
+        }
+      },
+      include: {
+        location: true // Include the location data
+      }
     });
+
+    const radiusInMeters = 15000; // 15 km
+    const nearbyUsers = allUsers.filter(user =>
+      user.location && geolib.isPointWithinRadius(
+        { latitude: parseFloat(user.location.latitude), longitude: parseFloat(user.location.longitude) },
+        { latitude, longitude },
+        radiusInMeters
+      )
+    );
 
     if (nearbyUsers.length > 0) {
-        res.status(200).json({ message: "Nearby users found", nearbyUsers });
+      res.status(200).json({ message: "Nearby users found", nearbyUsers });
     } else {
-        res.status(404).json({ message: "No nearby users found" });
+      res.status(404).json({ message: "No nearby users found" });
     }
-    
   } catch (error) {
-    // Specific JWT error handling
-    if (error instanceof jwt.JsonWebTokenError) {
-      return res.status(401).json({ message: "Token is invalid or has expired." });
-    }
-    // General error handling
     console.error("Error processing request:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
@@ -459,16 +633,65 @@ app.get("/api/nearby", async (req, res) => {
 app.get("/api/friends", async (req, res) => {
   const token = req.query.token;
 
-  if (typeof token !== 'string') {
-    return res.status(400).json({ message: "Token is required" });
+  if (typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
   }
 
   try {
-    // Verify the token and ensure it's treated as an object
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
     if (typeof decoded === 'string' || !decoded.username) {
       return res.status(401).json({ message: "Invalid token" });
+    }
+
+    const user = await prisma.users.findUnique({
+      where: {
+        username: decoded.username,
+      },
+      select: {
+        friends: true // Just retrieve the friends array
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.friends.length > 0) {
+      // Fetch full profiles of friends who also have this user in their friends list
+      const friendsProfiles = await prisma.users.findMany({
+        where: {
+          username: {
+            in: user.friends,
+          },
+          friends: {
+            has: decoded.username // Check if these users also have the current user in their friends list (mutal friends)
+          }
+        },
+      });
+
+      res.status(200).json({ friends: friendsProfiles });
+    } else {
+      res.status(200).json({ friends: [] });
+    }
+  } catch (error) {
+    console.error("Error verifying token or fetching friends:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+app.post("/api/addFriend", async (req: Request, res: Response) => {
+  const { token, friend } = req.body; // Destructuring from req.body
+
+  if (typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
+  try {
+    // Verify the token and ensure it's treated as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string; };
+    if (!decoded.username) {
+      return res.status(401).json({ message: "Invalid token: Username is missing." });
     }
 
     // Retrieve the user from the database based on the username decoded from the token
@@ -479,104 +702,94 @@ app.get("/api/friends", async (req, res) => {
     });
 
     if (!user) {
+      console.log("User not found")
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Fetch friends from the database
-    const friends = await prisma.users.findMany({
+    // Check if the friend exists
+    const friendUser = await prisma.users.findFirst({
       where: {
-        username: {
-          in: user.friends,
-        },
+        username: friend,
       },
     });
 
-    if (friends.length > 0) {
-      res.status(200).json({ message: "Friends found", friends });
-    } else {
-      res.status(404).json({ message: "No friends found" });
+    if (!friendUser) {
+      return res.status(404).json({ message: "Friend not found" });
     }
+
+    // Check if the friend is already added
+    if (user.friends.includes(friend)) {
+      console.log("Friend already added")
+      return res.status(409).json({ message: "Friend already added" });
+    }
+
+    // Add friend
+    await prisma.users.update({
+      where: {
+        username: user.username,
+      },
+      data: {
+        friends: {
+          push: friend,
+        },
+      },
+    });
+    console.log("Friend added")
+    res.status(200).json({ message: "Friend added successfully" });
   } catch (error) {
-    console.error("Error verifying token or fetching friends:", error);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("Error processing request:", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
 });
 
-app.post("/api/addFriend", async (req, res) => {
-  const { username, password, friend } = req.body; // Destructuring timestamp from req.body
+app.delete("/api/removeFriend", async (req: Request, res: Response) => {
+  const { token, friend } = req.body;
 
-  const user = await prisma.users.findFirst({
-    where: {
-      username: username,
-    },
-  });
-
-  const friendUser = await prisma.users.findFirst({
-    where: {
-      username: friend,
-    },
-  });
-
-  if (!friendUser) {
-    return res.status(404).json({ message: "Friend not found" });
+  if (typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
   }
 
-  if (user) {
-    if (await argon2.verify(user.password, password)) {
-      await prisma.users.update({
-        where: {
-          username: username,
-        },
-        data: {
-          friends: {
-            push: friend,
-          },
-        },
-      });
-
-      res.status(200).json({ message: "Friend added" });
-    } else {
-      res.status(404).json({ message: "User not found" });
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string; };
+    if (!decoded.username) {
+      return res.status(401).json({ message: "Invalid token: Username is missing." });
     }
-  }
-});
 
-app.delete("/api/removeFriend", async (req, res) => {
-  const { username, password, friend } = req.body; // Destructuring timestamp from req.body
+    const user = await prisma.users.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
 
-  const user = await prisma.users.findFirst({
-    where: {
-      username: username,
-    },
-  });
-
-  const friendUser = await prisma.users.findFirst({
-    where: {
-      username: friend,
-    },
-  });
-
-  if (!friendUser) {
-    return res.status(404).json({ message: "Friend not found" });
-  }
-
-  if (user) {
-    if (await argon2.verify(user.password, password)) {
-      await prisma.users.update({
-        where: {
-          username: username,
-        },
-        data: {
-          friends: {
-            set: user.friends.filter((f) => f !== friend),
-          },
-        },
-      });
-
-      res.status(204).end();
-    } else {
-      res.status(404).json({ message: "User not found" });
+    if (!user) {
+      console.log("user not found")
+      return res.status(404).json({ message: "User not found" });
     }
+
+    const friendUser = await prisma.users.findFirst({
+      where: {
+        username: friend,
+      },
+    });
+
+    if (!friendUser) {
+      return res.status(404).json({ message: "Friend not found" });
+    }
+
+    await prisma.users.update({
+      where: {
+        username: user.username,
+      },
+      data: {
+        friends: {
+          set: user.friends.filter((f: any) => f !== friend),
+        },
+      },
+    });
+    res.status(200).json({ message: "Friend removed successfully" }); // Corrected response message
+  } catch (error) {
+    console.error("Error processing request:", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
 });
 
@@ -613,6 +826,68 @@ app.get("/api/getuser", async (req, res) => {
   }
 });
 
+app.post('/api/payment-intent', async (req, res) => {
+  const { token, productId, price } = req.body;
+
+  if (!token || typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string; };
+    const username = decoded.username;
+    if (!username) {
+      return res.status(401).json({ message: "Invalid token: Username is missing." });
+    }
+
+    // Fetch user by username
+    const user = await prisma.users.findUnique({
+      where: { username },
+      select: { email: true, stripeCustomerId: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    let customerId = user.stripeCustomerId;
+    if (!customerId) {
+      // Create a new Stripe customer if not existing
+      const newCustomer = await stripe.customers.create({
+        email: user.email,
+      });
+      customerId = newCustomer.id;
+
+      // Store new Stripe customer ID in your database
+      await prisma.users.update({
+        where: { username },
+        data: { stripeCustomerId: customerId }
+      });
+    }
+
+    // Create a payment intent with the Stripe customer ID
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(price * 100), // Convert price to cents
+      currency: 'usd',
+      customer: customerId,
+      description: `Purchase of product ${productId}`,
+      metadata: { productId }
+    });
+
+    res.json({
+      status: 'pending',
+      clientSecret: paymentIntent.client_secret,
+    });
+
+  } catch (error) {
+    console.error('Error during payment initiation:', error);
+    res.status(500).json({
+      status: 'failed',
+      message: "Server error during payment processing."
+    });
+  }
+});
+
 app.post("/api/purchaseItem", async (req, res) => {
   const { token, items, money } = req.body;
 
@@ -645,7 +920,7 @@ app.post("/api/purchaseItem", async (req, res) => {
     }
 
     // Start a transaction
-    await prisma.$transaction(async (prisma) => {
+    await prisma.$transaction(async (prisma: { gameplayUser: { update: (arg0: { where: { username: any; }; data: { money: number; }; }) => any; }; inventoryItem: { findFirst: (arg0: { where: { name: any; userId: any; }; }) => any; update: (arg0: { where: { id: any; }; data: { quantity: any; }; }) => any; create: (arg0: { data: { name: any; quantity: any; category: any; userId: any; }; }) => any; }; }) => {
       // Update user's money
       await prisma.gameplayUser.update({
         where: { username: decoded.username },
@@ -688,6 +963,62 @@ app.post("/api/purchaseItem", async (req, res) => {
   } catch (error) {
     console.error("Transaction failed: ", error);
     res.status(500).json({ message: "Transaction failed" });
+  }
+});
+
+app.post("/api/addItem", async (req, res) => {
+  const { token, itemName, category } = req.body;
+
+  try {
+    // Verify the token and ensure it's decoded as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check if the item is already in the user's inventory
+    const existingItem = await prisma.inventoryItem.findFirst({
+      where: {
+        name: itemName,
+        userId: user.id,
+      },
+    });
+
+    if (existingItem) {
+      // If item exists, update the quantity
+      await prisma.inventoryItem.update({
+        where: { id: existingItem.id },
+        data: { quantity: existingItem.quantity + 1 },
+      });
+    } else {
+      // If item does not exist, create a new entry
+      await prisma.inventoryItem.create({
+        data: {
+          name: itemName,
+          quantity: 1,
+          category: category,  // Category is directly taken from the request body
+          userId: user.id,
+        },
+      });
+    }
+
+    // Successful add item response
+    res.status(200).json({ message: "Item added successfully" });
+  } catch (error) {
+    console.error("Add item failed: ", error);
+    res.status(500).json({ message: "Add item failed" });
   }
 });
 
@@ -740,31 +1071,39 @@ app.get("/api/getInventory", async (req, res) => {
 app.post("/api/addMoney", async (req, res) => {
   const { token, amount } = req.body;
 
-  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-  if (!decoded) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
+    // Ensure decoded is an object and has the username property
+    if (typeof decoded === 'object' && 'username' in decoded) {
+      const username = decoded.username;
 
-  const user = await prisma.gameplayUser.findFirst({
-    where: {
-      username: (decoded as JwtPayload).username as string,
-    },
-  });
+      const user = await prisma.gameplayUser.findFirst({
+        where: {
+          username: username,
+        },
+      });
 
-  if (user) {
-    await prisma.gameplayUser.update({
-      where: {
-        username: (decoded as JwtPayload).username as string,
-      },
-      data: {
-        money: user.money + amount,
-      },
-    });
+      if (user) {
+        // Perform the update if the user is found
+        await prisma.gameplayUser.update({
+          where: {
+            username: username,
+          },
+          data: {
+            money: user.money + amount, // Ensure correct arithmetic operation
+          },
+        });
 
-    res.status(200).json({ message: "Money added" });
-  } else {
-    res.status(404).json({ message: "User not found" });
+        res.status(200).json({ message: "Money added" });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
+    } else {
+      res.status(401).json({ message: "Invalid token" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Error verifying token" });
   }
 });
 
@@ -846,33 +1185,42 @@ app.post("/api/getRankPoints", async (req, res) => {
 app.post("/api/addRankPoints", async (req, res) => {
   const { token, points } = req.body;
 
-  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-  if (!decoded) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
+    // Check if decoded is of type JwtPayload and has a username property
+    if (typeof decoded === 'object' && 'username' in decoded) {
+      const username = decoded.username;
 
-  const user = await prisma.gameplayUser.findFirst({
-    where: {
-      username: (decoded as JwtPayload).username as string,
-    },
-  });
+      const user = await prisma.gameplayUser.findFirst({
+        where: {
+          username: username,
+        },
+      });
 
-  if (user) {
-    await prisma.gameplayUser.update({
-      where: {
-        username: (decoded as JwtPayload).username as string,
-      },
-      data: {
-        rankPoints: user.rankPoints + points,
-      },
-    });
+      if (user) {
+        await prisma.gameplayUser.update({
+          where: {
+            username: username,
+          },
+          data: {
+            rankPoints: user.rankPoints + points, // Correctly add points to the current rankPoints
+          },
+        });
 
-    res.status(200).json({ message: "Rank points added" });
-  } else {
-    res.status(404).json({ message: "User not found" });
+        res.status(200).json({ message: "Rank points added" });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
+    } else {
+      // If decoded does not have a username property
+      res.status(401).json({ message: "Invalid token" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Error verifying token" });
   }
 });
+
 
 app.post("/api/removeRankPoints", async (req, res) => {
   const { token, points } = req.body;
@@ -959,6 +1307,206 @@ app.post("/api/setRank", async (req, res) => {
     res.status(404).json({ message: "User not found" });
   }
 });
+
+//health
+app.post("/api/getHealth", async (req, res) => {
+  const { token } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    res.status(200).json({ health: user.health });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/addHealth", async (req, res) => {
+  const { token, amount } = req.body;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    // Check if decoded is of type JwtPayload and has a username property
+    if (typeof decoded === 'object' && 'username' in decoded) {
+      const username = decoded.username;
+
+      const user = await prisma.gameplayUser.findFirst({
+        where: {
+          username: username,
+        },
+      });
+
+      if (user) {
+        await prisma.gameplayUser.update({
+          where: {
+            username: username,
+          },
+          data: {
+            rankPoints: user.health + amount, // Correctly add points to the current rankPoints
+          },
+        });
+
+        res.status(200).json({ message: "Health added" });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
+    } else {
+      // If decoded does not have a username property
+      res.status(401).json({ message: "Invalid token" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Error verifying token" });
+  }
+});
+
+
+app.post("/api/removeHealth", async (req, res) => {
+  const { token, amount } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        health: user.health - amount,
+      },
+    });
+
+    res.status(200).json({ message: "Health removed" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/setHealth", async (req, res) => {
+  const { token, newHealth } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        health: newHealth,
+      },
+    });
+
+    res.status(200).json({ message: "Health set" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+//isAlive
+app.patch("/api/isAlive", async (req, res) => {
+  const token = req.query.token;
+
+  // Check if token is provided and is a valid string
+  if (typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
+  try {
+    // Verify the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    // Ensure the token contains a username
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Check if friendsOnly status is provided in the request body
+    if (typeof req.body.isAlive !== 'boolean') {
+      return res.status(400).json({ message: "isAlive status must be provided and be a boolean." });
+    }
+
+    // Update the friendsOnly status in the GameplayUser table
+    const updatedUser = await prisma.gameplayUser.update({
+      where: {
+        username: decoded.username
+      },
+      data: {
+        isAlive: req.body.isAlive
+      }
+    });
+
+    // If no user is found or updated, send a 404 error
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Return the updated user info
+    res.status(200).json({
+      message: "isAlive status updated successfully",
+      user: {
+        username: updatedUser.username,
+        isAlive: updatedUser.isAlive
+      }
+    });
+  } catch (error) {
+    console.error("Error updating isAlive status:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+app.post("/api/getisAlive", async (req, res) => {
+  const { token } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    res.status(200).json({ isAlive: user.isAlive });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
 
 ////////////////////////
 
