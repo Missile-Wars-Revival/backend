@@ -120,13 +120,13 @@ app.ws("/", (ws, req) => {
   const sendPeriodicData = async () => {
     // Fetch all data
     let allMissiles = await prisma.missile.findMany();
-    let processedMissiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
+    let processedMissiles = allMissiles.map((missile: any) => middleearth.Missile.from_db(missile));
 
     let allLoot = await prisma.loot.findMany();
-    let processedLoot = allLoot.map(loot => middleearth.Loot.from_db(loot));
+    let processedLoot = allLoot.map((loot: any) => middleearth.Loot.from_db(loot));
 
     let allLandmines = await prisma.landmine.findMany();
-    let processedLandmines = allLandmines.map(landmine => middleearth.Landmine.from_db(landmine));
+    let processedLandmines = allLandmines.map((landmine: any) => middleearth.Landmine.from_db(landmine));
 
     // Prepare the data bundle
     let dataBundle = new middleearth.WebSocketMessage([
@@ -613,7 +613,7 @@ app.get("/api/nearby", async (req, res) => {
     });
 
     const radiusInMeters = 15000; // 15 km
-    const nearbyUsers = allUsers.filter(user =>
+    const nearbyUsers = allUsers.filter((user: any) =>
       user.location && geolib.isPointWithinRadius(
         { latitude: parseFloat(user.location.latitude), longitude: parseFloat(user.location.longitude) },
         { latitude, longitude },
