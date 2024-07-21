@@ -13,7 +13,7 @@ import { JwtPayload } from "jsonwebtoken";
 import * as middleearth from "middle-earth";
 import { z, ZodError } from "zod";
 import Stripe from 'stripe';
-import { encode, decode } from "msgpack-lite";
+// import { encode, decode } from "msgpack-lite";
 import {
   AuthWithLocation,
   AuthWithLocationSchema,
@@ -154,16 +154,18 @@ app.ws("/", (ws, req) => {
     
     if (message.toString().slice(0, 6) === "devcon") {
         let devmsg = message.toString();
-        ws.send("Dev console!");
+        ws.send("Accessing dev console...");
         let words = devmsg.split(' ');
         if (words[1] === "add") {
             ws.send("Adding missile...");
+        } else if (words[1] === "stop") {
+            clearInterval(intervalId);
         }
 
     }
     
     try {
-      wsm = decode(message);
+      wsm = middleearth.unzip(message);
       logVerbose("Decoded MessagePack:", wsm);
     } catch {
       logVerbose("Not valid MessagePack");
@@ -182,7 +184,7 @@ app.ws("/", (ws, req) => {
         //for more specifc requests:
         switch (msg.itemType) {
           case "Echo": 
-            ws.send(encode(new middleearth.WebSocketMessage([msg])));
+            ws.send(middleearth.zip_single(msg));
             break;
 
           default:
