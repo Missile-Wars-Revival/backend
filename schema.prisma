@@ -156,3 +156,13 @@ model InventoryItem {
   category     String
   GameplayUser GameplayUser @relation(fields: [userId], references: [id])
 }
+
+model MissileType {
+    name            String
+    description     String
+    price           Int
+    speed           Int
+    radius          Int
+    damage          Int
+    fallout         Int
+}
