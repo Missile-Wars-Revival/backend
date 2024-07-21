@@ -10,10 +10,10 @@ import { ParsedQs } from "qs";
 import * as geolib from 'geolib';
 import * as jwt from "jsonwebtoken";
 import { JwtPayload } from "jsonwebtoken";
-import { WebSocketMessage } from "middle-earth";
 import * as middleearth from "middle-earth";
 import { z, ZodError } from "zod";
-import { pack, unpack } from "msgpackr";
+import Stripe from 'stripe';
+import { encode, decode } from "msgpack-lite";
 import {
   AuthWithLocation,
   AuthWithLocationSchema,
@@ -26,8 +26,7 @@ import {
 const prisma = new PrismaClient();
 
 const wsServer = expressWs(express());
-const app = wsServer.app;
-import Stripe from 'stripe';
+const app = wsServer.app;;
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2024-06-20'
@@ -118,19 +117,49 @@ app.ws("/", (ws, req) => {
 
   logVerbose("New connection established");
 
-  ws.on("message", (message: string /*: WebSocketMessage*/) => {
+  const sendPeriodicData = async () => {
+    // Fetch all data
+    let allMissiles = await prisma.missile.findMany();
+    let processedMissiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
+
+    let allLoot = await prisma.loot.findMany();
+    let processedLoot = allLoot.map(loot => middleearth.Loot.from_db(loot));
+
+    let allLandmines = await prisma.landmine.findMany();
+    let processedLandmines = allLandmines.map(landmine => middleearth.Landmine.from_db(landmine));
+
+    // Prepare the data bundle
+    let dataBundle = new middleearth.WebSocketMessage([
+        new middleearth.WSMsg('loot', processedLoot),
+        new middleearth.WSMsg('landmines', processedLandmines),
+        new middleearth.WSMsg('missiles', processedMissiles),
+    ]);
+
+    // Compress the data bundle
+    let compressedData = middleearth.zip(dataBundle);
+
+    // Send compressed data through WebSocket
+    ws.send(compressedData);
+};
+
+  // Start sending data every 1 seconds
+  const intervalId = setInterval(sendPeriodicData, 1000);
+
+  ws.on("message", (message: Buffer /*: WebSocketMessage*/) => {
+    //logVerbose("Received message:", message);
     // Determine if a message is encoded in MessagePack by trying
     // to unpack it
 
     let wsm: middleearth.WebSocketMessage;
     try {
-      wsm = middleearth.unzip(Buffer.from(message));
+      wsm = decode(message);
+      logVerbose("Decoded MessagePack:", wsm);
     } catch {
       logVerbose("Not valid MessagePack");
       // Fall back to JSON if not MessagePack
       try {
-        wsm = JSON.parse(message);
-        logVerbose("Is JSON, ", typeof message);
+        wsm = JSON.parse(message.toString());
+        logVerbose("Is JSON:", wsm);
       } catch {
         logVerbose("Not JSON, cannot decode");
         return;
@@ -139,41 +168,28 @@ app.ws("/", (ws, req) => {
     try {
       // Handle main communications here
       wsm.messages.forEach(async function (msg) {
+        //for more specifc requests:
         switch (msg.itemType) {
-          case "Echo":
-            ws.send(middleearth.zip_single(msg));
-            break;
-
-          case "FetchMissiles":
-            logVerbose("Fetching Missiles...");
-            let allMissiles = await prisma.missile.findMany();
-            let processedMissiles: middleearth.Missile[] = [];
-            for (let missile in allMissiles) {
-              processedMissiles.push(middleearth.Missile.from_db(missile));
-            }
-            logVerbose(processedMissiles);
-            let reply = new middleearth.MissileGroup(processedMissiles);
-            ws.send(middleearth.zip_single(reply));
+          case "Echo": 
+            ws.send(encode(new middleearth.WebSocketMessage([msg])));
             break;
 
           default:
-            logVerbose(
-              "Msg received, but is not yet implemented and was skipped"
-            );
+            logVerbose("Msg received, but is not yet implemented and was skipped");
         }
       });
     } catch {
-      logVerbose(
-        "Unable to handle messages. Please make sure they are being formatted correctly inside a WebSocketMessage."
-      );
+      logVerbose("Unable to handle messages. Please make sure they are being formatted correctly inside a WebSocketMessage.");
     }
-  }); // </ws.on("message")>
+  });
 
   ws.send(JSON.stringify({ message: "Connection established" }));
+
   ws.on("close", () => {
     logVerbose("Connection closed");
+    clearInterval(intervalId);
   });
-}); // </app.ws()>
+});
 
 app.post("/api/login", validateSchema(LoginSchema), async (req, res) => {
   const login: Login = req.body;

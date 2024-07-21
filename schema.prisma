@@ -121,6 +121,23 @@ model Missile {
   timeToImpact DateTime
 }
 
+model Landmine {
+  id         Int      @id @default(sequence(maxValue: 2147483647))
+  placedBy   String
+  locLat     String   @default("")
+  locLong    String   @default("")
+  placedtime DateTime @default(now())
+  type       String
+  Expires    DateTime
+}
+
+model Loot {
+  id      Int      @id @default(sequence(maxValue: 2147483647))
+  rarity  String
+  Expires DateTime
+  locLat  String   @default("")
+  locLong String   @default("")
+
 model RefreshTokens {
   id           Int    @id @default(sequence(maxValue: 2147483647))
   refreshToken String @default("")
