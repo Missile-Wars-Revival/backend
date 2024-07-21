@@ -127,7 +127,6 @@ app.ws("/", (ws, req) => {
 
     let allLandmines = await prisma.landmine.findMany();
     let processedLandmines = allLandmines.map(landmine => middleearth.Landmine.from_db(landmine));
-    console.log(processedLandmines)
 
     // Prepare the data bundle
     let dataBundle = new middleearth.WebSocketMessage([
