@@ -152,9 +152,10 @@ app.ws("/", (ws, req) => {
 
     let wsm: middleearth.WebSocketMessage;
     
-    if (message.slice(0, 6) === "devcon") {
+    if (message.toString().slice(0, 6) === "devcon") {
+        let devmsg = message.toString();
         ws.send("Dev console!");
-        let words = message.split(' ');
+        let words = devmsg.split(' ');
         if (words[1] === "add") {
             ws.send("Adding missile...");
         }
