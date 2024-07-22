@@ -70,22 +70,32 @@ function logVerbose(...items: any[]) {
 
 function authenticate(
   ws: import("ws"),
-  req: express.Request<
-    ParamsDictionary,
-    any,
-    any,
-    ParsedQs,
-    Record<string, any>
-  >
-) {
-  const authToken = req.headers["sec-websocket-protocol"];
+  req: Request<ParamsDictionary, any, any, any, Record<string, any>>
+): boolean {
+  // Extract the token from the 'sec-websocket-protocol' header
+  const authToken = req.headers["sec-websocket-protocol"] as string | undefined;
 
-  if (
-    (!authToken || authToken !== "missilewars") &&
-    process.env.DISABLE_AUTH !== "ON"
-  ) {
-    ws.send(JSON.stringify({ error: "Authentication failed. Disconnecting." }));
+  if (!authToken) {
+    ws.send(JSON.stringify({ error: "Authentication failed. Token is required." }));
+    ws.close();
+    return false;
+  }
 
+  try {
+    // Verify the JWT token
+    const decoded = jwt.verify(authToken, process.env.JWT_SECRET || "") as { username: string; };
+    
+    // Check if the token contains the expected claims
+    if (!decoded.username) {
+      ws.send(JSON.stringify({ error: "Invalid token: Username is missing." }));
+      ws.close();
+      return false;
+    }
+    console.log(decoded.username)
+    
+  } catch (error) {
+    // Handle token verification errors
+    ws.send(JSON.stringify({ error: "Authentication failed. Invalid token." }));
     ws.close();
     return false;
   }
