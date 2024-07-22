@@ -68,39 +68,38 @@ function logVerbose(...items: any[]) {
   }
 }
 
+interface AuthResult {
+  success: boolean;
+  username?: string;
+}
+
 function authenticate(
   ws: import("ws"),
   req: Request<ParamsDictionary, any, any, any, Record<string, any>>
-): boolean {
-  // Extract the token from the 'sec-websocket-protocol' header
+): AuthResult {
   const authToken = req.headers["sec-websocket-protocol"] as string | undefined;
 
   if (!authToken) {
     ws.send(JSON.stringify({ error: "Authentication failed. Token is required." }));
     ws.close();
-    return false;
+    return { success: false };
   }
 
   try {
-    // Verify the JWT token
     const decoded = jwt.verify(authToken, process.env.JWT_SECRET || "") as { username: string; };
     
-    // Check if the token contains the expected claims
     if (!decoded.username) {
       ws.send(JSON.stringify({ error: "Invalid token: Username is missing." }));
       ws.close();
-      return false;
+      return { success: false };
     }
-    console.log(decoded.username)
     
+    return { success: true, username: decoded.username };
   } catch (error) {
-    // Handle token verification errors
     ws.send(JSON.stringify({ error: "Authentication failed. Invalid token." }));
     ws.close();
-    return false;
+    return { success: false };
   }
-
-  return true;
 }
 
 const validateSchema =
@@ -119,12 +118,17 @@ const validateSchema =
 
 app.ws("/", (ws, req) => {
   // Perform authentication when a new connection is established
-  if (!authenticate(ws, req)) {
-    logVerbose("Connection attempted but authentication failed");
+
+  const authResult = authenticate(ws, req);
+
+  if (!authResult.success) {
+    console.log("Connection attempted but authentication failed");
     return;
   }
 
-  logVerbose("New connection established");
+  const username = authResult.username; //users username    
+
+  logVerbose("New connection established")
 
   const sendPeriodicData = async () => {
     // Fetch all data
@@ -151,8 +155,51 @@ app.ws("/", (ws, req) => {
     ws.send(compressedData);
 };
 
+const sendLessPeriodicData = async () => {
+
+  //fetch gameplayer user
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: username as string,
+    },
+  });
+
+  if (user) {
+    // get health from gameplay user
+    let userhealth = {health: user.health}
+    
+    //get inventory for that user
+    const inventory = await prisma.inventoryItem.findMany({
+      where: {
+        userId: user.id,
+      },
+      select: {
+        name: true,
+        quantity: true,
+        category: true,
+      },
+    });
+    let userinventory = inventory
+    let dataBundle = new middleearth.WebSocketMessage([
+      new middleearth.WSMsg('health', userhealth),
+      new middleearth.WSMsg('inventory', userinventory),
+    ])
+
+    // Compress the data bundle
+  let compressedData = middleearth.zip(dataBundle);
+
+  // Send compressed data through WebSocket
+  ws.send(compressedData);
+
+  } else {
+    console.log("User items not found :(")
+    return
+  }
+};
+
   // Start sending data every 1 seconds
   const intervalId = setInterval(sendPeriodicData, 1000);
+  const lessintervalId = setInterval(sendLessPeriodicData, 15000);
 
   ws.on("message", (message: Buffer /*: WebSocketMessage*/) => {
     //logVerbose("Received message:", message);
@@ -169,6 +216,7 @@ app.ws("/", (ws, req) => {
             ws.send("Adding missile...");
         } else if (words[1] === "stop") {
             clearInterval(intervalId);
+            clearInterval(lessintervalId);
         }
 
     }
