@@ -179,10 +179,61 @@ const sendLessPeriodicData = async () => {
         category: true,
       },
     });
+
+    //player locations
+    const currentUser = await prisma.users.findUnique({
+      where: { username: username },
+      include: { GameplayUser: true }
+    });
+
+    if (!currentUser) {
+      return console.log("User not found");
+    }
+
+    const mutualFriendsUsernames = await getMutualFriends(currentUser);
+
+    let whereClause = {};
+    if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+      // If friendsOnly is enabled, filter by mutual friends and ensure they are alive
+      whereClause = {
+        AND: [
+          { username: { in: mutualFriendsUsernames } },
+          { isAlive: true }
+        ]
+      };
+    } else {
+      // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends
+      whereClause = {
+        AND: [
+          { isAlive: true },
+          {
+            OR: [
+              { friendsOnly: false },
+              { username: { in: mutualFriendsUsernames } }
+            ]
+          }
+        ]
+      };
+    }
+
+
+    const allGameplayUsers = await prisma.gameplayUser.findMany({
+      where: whereClause,
+      include: { Locations: true }
+    });
+
+    // Mapping to format output
+    const locations = allGameplayUsers.map((gpu: { username: any; Locations: any; }) => ({
+      username: gpu.username,
+      ...gpu.Locations
+    }));
+    //bundle for sending
+    let playerslocations = locations
     let userinventory = inventory
     let dataBundle = new middleearth.WebSocketMessage([
       new middleearth.WSMsg('health', userhealth),
       new middleearth.WSMsg('inventory', userinventory),
+      new middleearth.WSMsg('playerlocations', playerslocations)
     ])
 
     // Compress the data bundle
@@ -198,8 +249,9 @@ const sendLessPeriodicData = async () => {
 };
 
   // Start sending data every 1 seconds
-  const intervalId = setInterval(sendPeriodicData, 1000);
-  const lessintervalId = setInterval(sendLessPeriodicData, 15000);
+  const intervalId = setInterval(sendPeriodicData, 1000); //1 second
+  sendLessPeriodicData()
+  const lessintervalId = setInterval(sendLessPeriodicData, 10000);//10 seconds
 
   ws.on("message", (message: Buffer /*: WebSocketMessage*/) => {
     //logVerbose("Received message:", message);
