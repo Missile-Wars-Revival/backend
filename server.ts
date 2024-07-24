@@ -465,14 +465,152 @@ app.post("/api/firemissile@loc", async (req, res) => {
         data: {
           destLat,
           destLong,
-          radius: 50, //needs to be set here somewhere
+          radius: 50, //needs to be set here somewhere based on missile type
           type: type,
           sentBy: user.username,
           sentAt: new Date().toISOString(),
           status: "Approaching",
           currentLat: userLocation.latitude, 
           currentLong: userLocation.longitude,
-          timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact
+          timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def
+        }
+      });
+
+    } else {
+      // If item does not exist
+    }
+
+    // Successful add item response
+    res.status(200).json({ message: "Item added successfully" });
+  } catch (error) {
+    console.error("Add item failed: ", error);
+    res.status(500).json({ message: "Add item failed" });
+  }
+}); 
+
+app.post("/api/firemissile@player", async (req, res) => {
+  const { token, playerusername, type } = req.body;
+  
+  try {
+    // Verify the token and ensure it's decoded as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+//get users current locaiton
+    const userLocation = await prisma.locations.findUnique({
+      where: {
+        username: decoded.username,
+      },
+    });
+    // gets players current location
+    const playerlocation = await prisma.locations.findUnique({
+      where: {
+        username: playerusername
+      }
+    })
+
+    if (!userLocation) {
+      return res.status(404).json({ message: "User location not found" });
+    }
+
+    // Check if the item is in the user's inventory
+    const existingItem = await prisma.inventoryItem.findFirst({
+      where: {
+        name: type,
+        userId: user.id,
+      },
+    });
+
+    if (existingItem && playerlocation) {
+      // If item exists, update the quantity -1
+      await prisma.inventoryItem.update({
+        where: { id: existingItem.id },
+        data: { quantity: existingItem.quantity - 1 },
+      });
+      await prisma.missile.create({
+        data: {
+          destLat: playerlocation.latitude,
+          destLong: playerlocation.longitude,
+          radius: 50, //needs to be set here somewhere based on missile type
+          type: type,
+          sentBy: user.username,
+          sentAt: new Date().toISOString(),
+          status: "Approaching",
+          currentLat: userLocation.latitude, 
+          currentLong: userLocation.longitude,
+          timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def
+        }
+      });
+
+    } else {
+      // If item does not exist
+    }
+
+    // Successful add item response
+    res.status(200).json({ message: "Item added successfully" });
+  } catch (error) {
+    console.error("Add item failed: ", error);
+    res.status(500).json({ message: "Add item failed" });
+  }
+}); 
+
+app.post("/api/placelandmine", async (req, res) => {
+  const { token, locLat, locLong, type } = req.body;
+  
+  try {
+    // Verify the token and ensure it's decoded as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check if the item is in the user's inventory
+    const existingItem = await prisma.inventoryItem.findFirst({
+      where: {
+        name: type,
+        userId: user.id,
+      },
+    });
+
+    if (existingItem) {
+      // If item exists, update the quantity -1
+      await prisma.inventoryItem.update({
+        where: { id: existingItem.id },
+        data: { quantity: existingItem.quantity - 1 },
+      });
+      await prisma.landmine.create({
+        data: {
+          placedBy: user.username,
+          locLat,
+          locLong,
+          placedtime: new Date().toISOString(),
+          type: type,
+          Expires: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def
         }
       });
 
