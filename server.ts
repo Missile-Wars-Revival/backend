@@ -570,34 +570,52 @@ app.post("/api/firemissile@player", async (req, res) => {
 const updateMissilePositions = async () => {
   try {
     const missiles = await prisma.missile.findMany({
-      where: { status: 'Incoming' },
-      select: { id: true, sentAt: true, timeToImpact: true, currentLat: true, currentLong: true, destLat: true, destLong: true }
-    });
-
-    const updates = missiles.map(missile => {
-      const timeNow = new Date();
-      const timeLaunched = new Date(missile.sentAt);
-      const impactTime = new Date(missile.timeToImpact);
-      const totalTime = (impactTime.getTime() - timeLaunched.getTime()) / 3600000;
-      const timeElapsed = (timeNow.getTime() - timeLaunched.getTime()) / 3600000;
-
-      if (timeElapsed >= totalTime) {
-        return { id: missile.id, lat: missile.destLat, long: missile.destLong, status: 'Hit' };
-      } else {
-        const fractionOfTimeElapsed = timeElapsed / totalTime;
-        const distance = geolib.getDistance({ latitude: missile.currentLat, longitude: missile.currentLong }, { latitude: missile.destLat, longitude: missile.destLong });
-        const bearing = geolib.getRhumbLineBearing({ latitude: missile.currentLat, longitude: missile.currentLong }, { latitude: missile.destLat, longitude: missile.destLong });
-        const newLocation = geolib.computeDestinationPoint({ latitude: missile.currentLat, longitude: missile.currentLong }, fractionOfTimeElapsed * distance, bearing);
-
-        return { id: missile.id, lat: newLocation.latitude, long: newLocation.longitude };
+      where: {
+        status: 'Incoming'
       }
     });
 
-    // Batch update the missile statuses and positions
-    await Promise.all(updates.map(update => prisma.missile.update({
-      where: { id: update.id },
-      data: { currentLat: update.lat.toString(), currentLong: update.long.toString(), status: update.status || 'Incoming' }
-    })));
+    for (const missile of missiles) {
+      const timeNow = new Date();
+      const timeLaunched = new Date(missile.sentAt);
+      const impactTime = new Date(missile.timeToImpact);
+
+      if (isNaN(timeLaunched.getTime()) || isNaN(impactTime.getTime())) {
+        console.error('Invalid date found:', missile.sentAt, missile.timeToImpact);
+        continue; // Skip to next iteration
+      }
+
+      const totalTime = (impactTime.getTime() - timeLaunched.getTime()) / 3600000; // Total flight time in hours
+      const timeElapsed = (timeNow.getTime() - timeLaunched.getTime()) / 3600000; // Hours elapsed since launch
+
+      const startPosition = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
+      const destinationPosition = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
+
+      const fractionOfTimeElapsed = timeElapsed / totalTime;
+
+      if (fractionOfTimeElapsed >= 1) {
+        // If the missile is supposed to have hit
+        await prisma.missile.update({
+          where: { id: missile.id },
+          data: {
+            currentLat: missile.destLat,
+            currentLong: missile.destLong,
+            status: 'Hit'
+          }
+        });
+      } else {
+        // Update position along the trajectory based on the time fraction
+        const newLocation = geolib.computeDestinationPoint(startPosition, fractionOfTimeElapsed * geolib.getDistance(startPosition, destinationPosition), geolib.getRhumbLineBearing(startPosition, destinationPosition));
+
+        await prisma.missile.update({
+          where: { id: missile.id },
+          data: {
+            currentLat: newLocation.latitude.toString(),
+            currentLong: newLocation.longitude.toString()
+          }
+        });
+      }
+    }
   } catch (error) {
     console.error('Failed to update missile positions:', error);
   }
