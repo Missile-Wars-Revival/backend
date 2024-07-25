@@ -469,7 +469,7 @@ app.post("/api/firemissile@loc", async (req, res) => {
           type: type,
           sentBy: user.username,
           sentAt: new Date().toISOString(),
-          status: "Approaching",
+          status: "Incoming",
           currentLat: userLocation.latitude, 
           currentLong: userLocation.longitude,
           timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def
@@ -548,7 +548,7 @@ app.post("/api/firemissile@player", async (req, res) => {
           type: type,
           sentBy: user.username,
           sentAt: new Date().toISOString(),
-          status: "Approaching",
+          status: "Incoming",
           currentLat: userLocation.latitude, 
           currentLong: userLocation.longitude,
           timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def
