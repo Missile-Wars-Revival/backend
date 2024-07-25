@@ -87,13 +87,13 @@ function authenticate(
 
   try {
     const decoded = jwt.verify(authToken, process.env.JWT_SECRET || "") as { username: string; };
-    
+
     if (!decoded.username) {
       ws.send(JSON.stringify({ error: "Invalid token: Username is missing." }));
       ws.close();
       return { success: false };
     }
-    
+
     return { success: true, username: decoded.username };
   } catch (error) {
     ws.send(JSON.stringify({ error: "Authentication failed. Invalid token." }));
@@ -143,9 +143,9 @@ app.ws("/", (ws, req) => {
 
     // Prepare the data bundle
     let dataBundle = new middleearth.WebSocketMessage([
-        new middleearth.WSMsg('loot', processedLoot),
-        new middleearth.WSMsg('landmines', processedLandmines),
-        new middleearth.WSMsg('missiles', processedMissiles),
+      new middleearth.WSMsg('loot', processedLoot),
+      new middleearth.WSMsg('landmines', processedLandmines),
+      new middleearth.WSMsg('missiles', processedMissiles),
     ]);
 
     // Compress the data bundle
@@ -153,100 +153,100 @@ app.ws("/", (ws, req) => {
 
     // Send compressed data through WebSocket
     ws.send(compressedData);
-};
+  };
 
-const sendLessPeriodicData = async () => {
+  const sendLessPeriodicData = async () => {
 
-  //fetch gameplayer user
-  const user = await prisma.gameplayUser.findFirst({
-    where: {
-      username: username as string,
-    },
-  });
-
-  if (user) {
-    // get health from gameplay user
-    let userhealth = {health: user.health}
-    
-    //get inventory for that user
-    const inventory = await prisma.inventoryItem.findMany({
+    //fetch gameplayer user
+    const user = await prisma.gameplayUser.findFirst({
       where: {
-        userId: user.id,
-      },
-      select: {
-        name: true,
-        quantity: true,
-        category: true,
+        username: username as string,
       },
     });
 
-    //player locations
-    const currentUser = await prisma.users.findUnique({
-      where: { username: username },
-      include: { GameplayUser: true }
-    });
+    if (user) {
+      // get health from gameplay user
+      let userhealth = { health: user.health }
 
-    if (!currentUser) {
-      return console.log("User not found");
-    }
+      //get inventory for that user
+      const inventory = await prisma.inventoryItem.findMany({
+        where: {
+          userId: user.id,
+        },
+        select: {
+          name: true,
+          quantity: true,
+          category: true,
+        },
+      });
 
-    const mutualFriendsUsernames = await getMutualFriends(currentUser);
+      //player locations
+      const currentUser = await prisma.users.findUnique({
+        where: { username: username },
+        include: { GameplayUser: true }
+      });
 
-    let whereClause = {};
-    if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
-      // If friendsOnly is enabled, filter by mutual friends and ensure they are alive
-      whereClause = {
-        AND: [
-          { username: { in: mutualFriendsUsernames } },
-          { isAlive: true }
-        ]
-      };
+      if (!currentUser) {
+        return console.log("User not found");
+      }
+
+      const mutualFriendsUsernames = await getMutualFriends(currentUser);
+
+      let whereClause = {};
+      if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+        // If friendsOnly is enabled, filter by mutual friends and ensure they are alive
+        whereClause = {
+          AND: [
+            { username: { in: mutualFriendsUsernames } },
+            { isAlive: true }
+          ]
+        };
+      } else {
+        // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends
+        whereClause = {
+          AND: [
+            { isAlive: true },
+            {
+              OR: [
+                { friendsOnly: false },
+                { username: { in: mutualFriendsUsernames } }
+              ]
+            }
+          ]
+        };
+      }
+
+
+      const allGameplayUsers = await prisma.gameplayUser.findMany({
+        where: whereClause,
+        include: { Locations: true }
+      });
+
+      // Mapping to format output
+      const locations = allGameplayUsers.map((gpu: { username: any; Locations: any; }) => ({
+        username: gpu.username,
+        ...gpu.Locations
+      }));
+      //bundle for sending
+      let playerslocations = locations
+      let userinventory = inventory
+      let dataBundle = new middleearth.WebSocketMessage([
+        new middleearth.WSMsg('health', userhealth),
+        new middleearth.WSMsg('inventory', userinventory),
+        new middleearth.WSMsg('playerlocations', playerslocations)
+      ])
+
+      // Compress the data bundle
+      let compressedData = middleearth.zip(dataBundle);
+
+      // Send compressed data through WebSocket
+      ws.send(compressedData);
+
     } else {
-      // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends
-      whereClause = {
-        AND: [
-          { isAlive: true },
-          {
-            OR: [
-              { friendsOnly: false },
-              { username: { in: mutualFriendsUsernames } }
-            ]
-          }
-        ]
-      };
+      console.log("User items not found :(")
+      return
     }
-
-
-    const allGameplayUsers = await prisma.gameplayUser.findMany({
-      where: whereClause,
-      include: { Locations: true }
-    });
-
-    // Mapping to format output
-    const locations = allGameplayUsers.map((gpu: { username: any; Locations: any; }) => ({
-      username: gpu.username,
-      ...gpu.Locations
-    }));
-    //bundle for sending
-    let playerslocations = locations
-    let userinventory = inventory
-    let dataBundle = new middleearth.WebSocketMessage([
-      new middleearth.WSMsg('health', userhealth),
-      new middleearth.WSMsg('inventory', userinventory),
-      new middleearth.WSMsg('playerlocations', playerslocations)
-    ])
-
-    // Compress the data bundle
-  let compressedData = middleearth.zip(dataBundle);
-
-  // Send compressed data through WebSocket
-  ws.send(compressedData);
-
-  } else {
-    console.log("User items not found :(")
-    return
-  }
-};
+  };
 
   // Start sending data every 1 seconds
   const intervalId = setInterval(sendPeriodicData, 1000); //1 second
@@ -259,20 +259,20 @@ const sendLessPeriodicData = async () => {
     // to unpack it
 
     let wsm: middleearth.WebSocketMessage;
-    
+
     if (message.toString().slice(0, 6) === "devcon") {
-        let devmsg = message.toString();
-        ws.send("Accessing dev console...");
-        let words = devmsg.split(' ');
-        if (words[1] === "add") {
-            ws.send("Adding missile...");
-        } else if (words[1] === "stop") {
-            clearInterval(intervalId);
-            clearInterval(lessintervalId);
-        }
+      let devmsg = message.toString();
+      ws.send("Accessing dev console...");
+      let words = devmsg.split(' ');
+      if (words[1] === "add") {
+        ws.send("Adding missile...");
+      } else if (words[1] === "stop") {
+        clearInterval(intervalId);
+        clearInterval(lessintervalId);
+      }
 
     }
-    
+
     try {
       wsm = middleearth.unzip(message);
       logVerbose("Decoded MessagePack:", wsm);
@@ -292,7 +292,7 @@ const sendLessPeriodicData = async () => {
       wsm.messages.forEach(async function (msg) {
         //for more specifc requests:
         switch (msg.itemType) {
-          case "Echo": 
+          case "Echo":
             ws.send(middleearth.zip_single(msg));
             break;
 
@@ -417,7 +417,7 @@ app.post("/api/register", validateSchema(RegisterSchema), async (req, res) => {
 
 app.post("/api/firemissile@loc", async (req, res) => {
   const { token, destLat, destLong, type } = req.body;
-  
+
   try {
     // Verify the token and ensure it's decoded as an object
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
@@ -436,7 +436,7 @@ app.post("/api/firemissile@loc", async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-//get users current locaiton
+    //get users current locaiton
     const userLocation = await prisma.locations.findUnique({
       where: {
         username: decoded.username,
@@ -470,9 +470,9 @@ app.post("/api/firemissile@loc", async (req, res) => {
           sentBy: user.username,
           sentAt: new Date().toISOString(),
           status: "Incoming",
-          currentLat: userLocation.latitude, 
+          currentLat: userLocation.latitude,
           currentLong: userLocation.longitude,
-          timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def
+          timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def - this is used to calculate missile speed as well!!!
         }
       });
 
@@ -486,11 +486,11 @@ app.post("/api/firemissile@loc", async (req, res) => {
     console.error("Add item failed: ", error);
     res.status(500).json({ message: "Add item failed" });
   }
-}); 
+});
 
 app.post("/api/firemissile@player", async (req, res) => {
   const { token, playerusername, type } = req.body;
-  
+
   try {
     // Verify the token and ensure it's decoded as an object
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
@@ -509,7 +509,7 @@ app.post("/api/firemissile@player", async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-//get users current locaiton
+    //get users current locaiton
     const userLocation = await prisma.locations.findUnique({
       where: {
         username: decoded.username,
@@ -549,9 +549,9 @@ app.post("/api/firemissile@player", async (req, res) => {
           sentBy: user.username,
           sentAt: new Date().toISOString(),
           status: "Incoming",
-          currentLat: userLocation.latitude, 
+          currentLat: userLocation.latitude,
           currentLong: userLocation.longitude,
-          timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def
+          timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def - this is used to calculate missile speed as well!!!
         }
       });
 
@@ -565,11 +565,74 @@ app.post("/api/firemissile@player", async (req, res) => {
     console.error("Add item failed: ", error);
     res.status(500).json({ message: "Add item failed" });
   }
-}); 
+});
+
+const updateMissilePositions = async () => {
+  try {
+    const missiles = await prisma.missile.findMany({
+      where: { status: 'Incoming' },
+      select: { id: true, sentAt: true, timeToImpact: true, currentLat: true, currentLong: true, destLat: true, destLong: true }
+    });
+
+    const updates = missiles.map(missile => {
+      const timeNow = new Date();
+      const timeLaunched = new Date(missile.sentAt);
+      const impactTime = new Date(missile.timeToImpact);
+      const totalTime = (impactTime.getTime() - timeLaunched.getTime()) / 3600000;
+      const timeElapsed = (timeNow.getTime() - timeLaunched.getTime()) / 3600000;
+
+      if (timeElapsed >= totalTime) {
+        return { id: missile.id, lat: missile.destLat, long: missile.destLong, status: 'Hit' };
+      } else {
+        const fractionOfTimeElapsed = timeElapsed / totalTime;
+        const distance = geolib.getDistance({ latitude: missile.currentLat, longitude: missile.currentLong }, { latitude: missile.destLat, longitude: missile.destLong });
+        const bearing = geolib.getRhumbLineBearing({ latitude: missile.currentLat, longitude: missile.currentLong }, { latitude: missile.destLat, longitude: missile.destLong });
+        const newLocation = geolib.computeDestinationPoint({ latitude: missile.currentLat, longitude: missile.currentLong }, fractionOfTimeElapsed * distance, bearing);
+
+        return { id: missile.id, lat: newLocation.latitude, long: newLocation.longitude };
+      }
+    });
+
+    // Batch update the missile statuses and positions
+    await Promise.all(updates.map(update => prisma.missile.update({
+      where: { id: update.id },
+      data: { currentLat: update.lat.toString(), currentLong: update.long.toString(), status: update.status || 'Incoming' }
+    })));
+  } catch (error) {
+    console.error('Failed to update missile positions:', error);
+  }
+};
+
+// Schedule this function to run every 15 seconds
+setInterval(updateMissilePositions, 15000);
+
+const deleteExpiredMissiles = async () => {
+  try {
+    // Current time
+    const now = new Date();
+
+    // Find and delete missiles where status is 'Hit' and fallout time has elapsed
+    const result = await prisma.missile.deleteMany({
+      where: {
+        status: 'Hit',
+        timeToImpact: {
+          lt: new Date(now.getTime() - 5000) // Missiles that impacted more than 5 seconds ago
+        }
+      }
+    });
+
+    console.log(`${result.count} missiles deleted.`);
+  } catch (error) {
+    console.error('Failed to delete expired missiles:', error);
+  }
+};
+
+// Schedule this function to run every 15seconds
+setInterval(deleteExpiredMissiles, 15000);
 
 app.post("/api/placelandmine", async (req, res) => {
   const { token, locLat, locLong, type } = req.body;
-  
+
   try {
     // Verify the token and ensure it's decoded as an object
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
@@ -624,7 +687,7 @@ app.post("/api/placelandmine", async (req, res) => {
     console.error("Add item failed: ", error);
     res.status(500).json({ message: "Add item failed" });
   }
-}); 
+});
 
 app.post(
   "/api/dispatch",
