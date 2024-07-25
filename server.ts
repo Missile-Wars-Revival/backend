@@ -1664,23 +1664,26 @@ app.post("/api/addHealth", async (req, res) => {
     if (typeof decoded === 'object' && 'username' in decoded) {
       const username = decoded.username;
 
-      const user = await prisma.gameplayUser.findFirst({
+      const user = await prisma.gameplayUser.findUnique({
         where: {
           username: username,
         },
       });
 
       if (user) {
+        // Calculate new health without exceeding 100
+        const newHealth = Math.min(user.health + amount, 100);
+
         await prisma.gameplayUser.update({
           where: {
             username: username,
           },
           data: {
-            rankPoints: user.health + amount, // Correctly add points to the current rankPoints
+            health: newHealth,
           },
         });
 
-        res.status(200).json({ message: "Health added" });
+        res.status(200).json({ message: "Health added", health: newHealth });
       } else {
         res.status(404).json({ message: "User not found" });
       }
@@ -1692,7 +1695,6 @@ app.post("/api/addHealth", async (req, res) => {
     res.status(500).json({ message: "Error verifying token" });
   }
 });
-
 
 app.post("/api/removeHealth", async (req, res) => {
   const { token, amount } = req.body;
