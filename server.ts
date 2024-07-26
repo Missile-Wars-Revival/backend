@@ -415,76 +415,90 @@ app.post("/api/register", validateSchema(RegisterSchema), async (req, res) => {
   res.status(200).json({ message: "User created" });
 });
 
+const haversine = (lat1: string, lon1: string, lat2: string, lon2: string) => {
+  const R = 6371e3; // meters
+  const φ1 = parseFloat(lat1) * Math.PI / 180;
+  const φ2 = parseFloat(lat2) * Math.PI / 180;
+  const Δφ = (parseFloat(lat2) - parseFloat(lat1)) * Math.PI / 180;
+  const Δλ = (parseFloat(lon2) - parseFloat(lon1)) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return Math.round(R * c); // in meters, rounded to the nearest integer
+};
+
+
 app.post("/api/firemissile@loc", async (req, res) => {
   const { token, destLat, destLong, type } = req.body;
 
   try {
-    // Verify the token and ensure it's decoded as an object
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
     if (typeof decoded === 'string' || !decoded.username) {
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    // Retrieve the user from the database
     const user = await prisma.gameplayUser.findFirst({
-      where: {
-        username: decoded.username,
-      },
+      where: { username: decoded.username }
     });
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    //get users current locaiton
+
     const userLocation = await prisma.locations.findUnique({
-      where: {
-        username: decoded.username,
-      },
+      where: { username: decoded.username }
     });
 
     if (!userLocation) {
       return res.status(404).json({ message: "User location not found" });
     }
 
-    // Check if the item is in the user's inventory
+    const missileType = await prisma.missileType.findUnique({
+      where: { name: type }
+    });
+
+    if (!missileType) {
+      return res.status(404).json({ message: "Missile type not found" });
+    }
+
+    const distance = haversine(userLocation.latitude, userLocation.longitude, destLat, destLong);
+    const timeToImpact = Math.round(distance / missileType.speed * 1000); // time in milliseconds
+
     const existingItem = await prisma.inventoryItem.findFirst({
-      where: {
-        name: type,
-        userId: user.id,
-      },
+      where: { name: type, userId: user.id }
     });
 
     if (existingItem) {
-      // If item exists, update the quantity -1
       await prisma.inventoryItem.update({
         where: { id: existingItem.id },
-        data: { quantity: existingItem.quantity - 1 },
+        data: { quantity: existingItem.quantity - 1 }
       });
+
       await prisma.missile.create({
         data: {
           destLat,
           destLong,
-          radius: 50, //needs to be set here somewhere based on missile type
+          radius: missileType.radius,
           type: type,
           sentBy: user.username,
           sentAt: new Date().toISOString(),
           status: "Incoming",
           currentLat: userLocation.latitude,
           currentLong: userLocation.longitude,
-          timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def - this is used to calculate missile speed as well!!!
+          timeToImpact: new Date(new Date().getTime() + timeToImpact)
         }
       });
 
+      res.status(200).json({ message: "Missile fired successfully" });
     } else {
-      // If item does not exist
+      res.status(404).json({ message: "Missile not found in inventory" });
     }
-
-    // Successful add item response
-    res.status(200).json({ message: "Item added successfully" });
   } catch (error) {
-    console.error("Add item failed: ", error);
-    res.status(500).json({ message: "Add item failed" });
+    console.error("Operation failed: ", error);
+    res.status(500).json({ message: "Operation failed" });
   }
 });
 
@@ -494,73 +508,60 @@ app.post("/api/firemissile@player", async (req, res) => {
   try {
     // Verify the token and ensure it's decoded as an object
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
     if (typeof decoded === 'string' || !decoded.username) {
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    // Retrieve the user from the database
-    const user = await prisma.gameplayUser.findFirst({
-      where: {
-        username: decoded.username,
-      },
+    // Ensure user and their location are found
+    const [user, userLocation, playerlocation] = await Promise.all([
+      prisma.gameplayUser.findFirst({ where: { username: decoded.username }}),
+      prisma.locations.findUnique({ where: { username: decoded.username }}),
+      prisma.locations.findUnique({ where: { username: playerusername }})
+    ]);
+
+    if (!user || !userLocation || !playerlocation) {
+      return res.status(404).json({ message: "Relevant data not found" });
+    }
+
+    // Get missile data and check inventory
+    const [missileType, existingItem] = await Promise.all([
+      prisma.missileType.findUnique({ where: { name: type }}),
+      prisma.inventoryItem.findFirst({
+        where: { name: type, userId: user.id }
+      })
+    ]);
+
+    if (!existingItem || !missileType) {
+      return res.status(404).json({ message: "Missile type or inventory item not found" });
+    }
+
+    // Calculate distance and time to impact
+    const distance = haversine(userLocation.latitude, userLocation.longitude,
+                               playerlocation.latitude, playerlocation.longitude);
+    const timeToImpact = distance / missileType.speed * 1000; // time in milliseconds
+
+    // Update inventory and create missile entry
+    await prisma.inventoryItem.update({
+      where: { id: existingItem.id },
+      data: { quantity: existingItem.quantity - 1 }
     });
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-    //get users current locaiton
-    const userLocation = await prisma.locations.findUnique({
-      where: {
-        username: decoded.username,
-      },
-    });
-    // gets players current location
-    const playerlocation = await prisma.locations.findUnique({
-      where: {
-        username: playerusername
+    await prisma.missile.create({
+      data: {
+        destLat: playerlocation.latitude,
+        destLong: playerlocation.longitude,
+        radius: missileType.radius,
+        type: type,
+        sentBy: user.username,
+        sentAt: new Date().toISOString(),
+        status: "Incoming",
+        currentLat: userLocation.latitude,
+        currentLong: userLocation.longitude,
+        timeToImpact: new Date(new Date().getTime() + timeToImpact)
       }
-    })
-
-    if (!userLocation) {
-      return res.status(404).json({ message: "User location not found" });
-    }
-
-    // Check if the item is in the user's inventory
-    const existingItem = await prisma.inventoryItem.findFirst({
-      where: {
-        name: type,
-        userId: user.id,
-      },
     });
 
-    if (existingItem && playerlocation) {
-      // If item exists, update the quantity -1
-      await prisma.inventoryItem.update({
-        where: { id: existingItem.id },
-        data: { quantity: existingItem.quantity - 1 },
-      });
-      await prisma.missile.create({
-        data: {
-          destLat: playerlocation.latitude,
-          destLong: playerlocation.longitude,
-          radius: 50, //needs to be set here somewhere based on missile type
-          type: type,
-          sentBy: user.username,
-          sentAt: new Date().toISOString(),
-          status: "Incoming",
-          currentLat: userLocation.latitude,
-          currentLong: userLocation.longitude,
-          timeToImpact: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def - this is used to calculate missile speed as well!!!
-        }
-      });
-
-    } else {
-      // If item does not exist
-    }
-
-    // Successful add item response
-    res.status(200).json({ message: "Item added successfully" });
+    res.status(200).json({ message: "Missile fired successfully" });
   } catch (error) {
     console.error("Add item failed: ", error);
     res.status(500).json({ message: "Add item failed" });
@@ -569,6 +570,7 @@ app.post("/api/firemissile@player", async (req, res) => {
 
 const updateMissilePositions = async () => {
   try {
+    // Fetch only 'Incoming' missiles to process
     const missiles = await prisma.missile.findMany({
       where: {
         status: 'Incoming'
@@ -580,21 +582,25 @@ const updateMissilePositions = async () => {
       const timeLaunched = new Date(missile.sentAt);
       const impactTime = new Date(missile.timeToImpact);
 
+      // Error handling for invalid dates
       if (isNaN(timeLaunched.getTime()) || isNaN(impactTime.getTime())) {
         console.error('Invalid date found:', missile.sentAt, missile.timeToImpact);
-        continue; // Skip to next iteration
+        continue; // Skip this missile and continue with the next
       }
 
-      const totalTime = (impactTime.getTime() - timeLaunched.getTime()) / 3600000; // Total flight time in hours
-      const timeElapsed = (timeNow.getTime() - timeLaunched.getTime()) / 3600000; // Hours elapsed since launch
+      // Calculate the total and elapsed time in milliseconds
+      const totalTime = impactTime.getTime() - timeLaunched.getTime();
+      const timeElapsed = timeNow.getTime() - timeLaunched.getTime();
 
+      // Calculate start and destination positions
       const startPosition = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
       const destinationPosition = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
 
+      // Determine the fraction of the journey that has elapsed
       const fractionOfTimeElapsed = timeElapsed / totalTime;
 
       if (fractionOfTimeElapsed >= 1) {
-        // If the missile is supposed to have hit
+        // Update missile status to 'Hit' if the time has elapsed
         await prisma.missile.update({
           where: { id: missile.id },
           data: {
@@ -604,8 +610,10 @@ const updateMissilePositions = async () => {
           }
         });
       } else {
-        // Update position along the trajectory based on the time fraction
-        const newLocation = geolib.computeDestinationPoint(startPosition, fractionOfTimeElapsed * geolib.getDistance(startPosition, destinationPosition), geolib.getRhumbLineBearing(startPosition, destinationPosition));
+        // Calculate new position based on the fraction of the journey completed
+        const distance = geolib.getDistance(startPosition, destinationPosition);
+        const bearing = geolib.getRhumbLineBearing(startPosition, destinationPosition);
+        const newLocation = geolib.computeDestinationPoint(startPosition, fractionOfTimeElapsed * distance, bearing);
 
         await prisma.missile.update({
           where: { id: missile.id },
@@ -624,6 +632,7 @@ const updateMissilePositions = async () => {
 // Schedule this function to run every 15 seconds
 setInterval(updateMissilePositions, 15000);
 
+// Delete items:
 const deleteExpiredMissiles = async () => {
   try {
     // Current time
@@ -645,11 +654,32 @@ const deleteExpiredMissiles = async () => {
   }
 };
 
+const deleteExpiredLandmines = async () => {
+  try {
+    // Current time
+    const now = new Date();
+
+    // Find and delete missiles where status is 'Hit' and fallout time has elapsed
+    const result = await prisma.landmine.deleteMany({
+      where: {
+        Expires: {
+          lt: new Date(now.getTime()) // Missiles that impacted more than 5 seconds ago
+        }
+      }
+    });
+
+    console.log(`${result.count} landmines deleted.`);
+  } catch (error) {
+    console.error('Failed to delete expired landmines:', error);
+  }
+};
+
 // Schedule this function to run every 15seconds
 setInterval(deleteExpiredMissiles, 15000);
+setInterval(deleteExpiredLandmines, 15000);
 
 app.post("/api/placelandmine", async (req, res) => {
-  const { token, locLat, locLong, type } = req.body;
+  const { token, locLat, locLong, landminetype } = req.body;
 
   try {
     // Verify the token and ensure it's decoded as an object
@@ -673,7 +703,7 @@ app.post("/api/placelandmine", async (req, res) => {
     // Check if the item is in the user's inventory
     const existingItem = await prisma.inventoryItem.findFirst({
       where: {
-        name: type,
+        name: landminetype,
         userId: user.id,
       },
     });
@@ -690,7 +720,7 @@ app.post("/api/placelandmine", async (req, res) => {
           locLat,
           locLong,
           placedtime: new Date().toISOString(),
-          type: type,
+          type: landminetype,
           Expires: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def
         }
       });
@@ -704,6 +734,58 @@ app.post("/api/placelandmine", async (req, res) => {
   } catch (error) {
     console.error("Add item failed: ", error);
     res.status(500).json({ message: "Add item failed" });
+  }
+});
+
+app.post("/api/steppedonlandmine", async (req, res) => {
+  const { token, landmineid } = req.body;
+
+  try {
+    // Verify the token and ensure it's decoded as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    const amount = 20;
+
+    if (user) {
+      await prisma.gameplayUser.update({
+        where: {
+          username: (decoded as JwtPayload).username as string,
+        },
+        data: {
+          health: user.health - amount,
+        },
+      });
+    }
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    //Logic to alert user and reward that placed landmine here!!
+
+//delete landmine
+    const result = await prisma.landmine.delete({
+      where: {
+        id: landmineid,
+      }
+    });
+
+    // Successful add item response
+    res.status(200).json({ message: `${result} Landmine removed successfully with id ${landmineid}` });
+  } catch (error) {
+    console.error("Add item failed: ", error);
+    res.status(500).json({ message: "Landmine removed failed" });
   }
 });
 
