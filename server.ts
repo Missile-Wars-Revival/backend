@@ -21,8 +21,9 @@ import {
   Register,
   RegisterSchema,
 } from "./interfaces/api";
+import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions } from "./entitymanagment";
 
-const prisma = new PrismaClient();
+export const prisma = new PrismaClient();
 
 const wsServer = expressWs(express());
 const app = wsServer.app;;
@@ -415,21 +416,7 @@ app.post("/api/register", validateSchema(RegisterSchema), async (req, res) => {
   res.status(200).json({ message: "User created" });
 });
 
-const haversine = (lat1: string, lon1: string, lat2: string, lon2: string) => {
-  const R = 6371e3; // meters
-  const φ1 = parseFloat(lat1) * Math.PI / 180;
-  const φ2 = parseFloat(lat2) * Math.PI / 180;
-  const Δφ = (parseFloat(lat2) - parseFloat(lat1)) * Math.PI / 180;
-  const Δλ = (parseFloat(lon2) - parseFloat(lon1)) * Math.PI / 180;
-
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-            Math.cos(φ1) * Math.cos(φ2) *
-            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return Math.round(R * c); // in meters, rounded to the nearest integer
-};
-
+//Entering missiles and landmines into DB
 
 app.post("/api/firemissile@loc", async (req, res) => {
   const { token, destLat, destLong, type } = req.body;
@@ -568,115 +555,13 @@ app.post("/api/firemissile@player", async (req, res) => {
   }
 });
 
-const updateMissilePositions = async () => {
-  try {
-    // Fetch only 'Incoming' missiles to process
-    const missiles = await prisma.missile.findMany({
-      where: {
-        status: 'Incoming'
-      }
-    });
-
-    for (const missile of missiles) {
-      const timeNow = new Date();
-      const timeLaunched = new Date(missile.sentAt);
-      const impactTime = new Date(missile.timeToImpact);
-
-      // Error handling for invalid dates
-      if (isNaN(timeLaunched.getTime()) || isNaN(impactTime.getTime())) {
-        console.error('Invalid date found:', missile.sentAt, missile.timeToImpact);
-        continue; // Skip this missile and continue with the next
-      }
-
-      // Calculate the total and elapsed time in milliseconds
-      const totalTime = impactTime.getTime() - timeLaunched.getTime();
-      const timeElapsed = timeNow.getTime() - timeLaunched.getTime();
-
-      // Calculate start and destination positions
-      const startPosition = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
-      const destinationPosition = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
-
-      // Determine the fraction of the journey that has elapsed
-      const fractionOfTimeElapsed = timeElapsed / totalTime;
-
-      if (fractionOfTimeElapsed >= 1) {
-        // Update missile status to 'Hit' if the time has elapsed
-        await prisma.missile.update({
-          where: { id: missile.id },
-          data: {
-            currentLat: missile.destLat,
-            currentLong: missile.destLong,
-            status: 'Hit'
-          }
-        });
-      } else {
-        // Calculate new position based on the fraction of the journey completed
-        const distance = geolib.getDistance(startPosition, destinationPosition);
-        const bearing = geolib.getRhumbLineBearing(startPosition, destinationPosition);
-        const newLocation = geolib.computeDestinationPoint(startPosition, fractionOfTimeElapsed * distance, bearing);
-
-        await prisma.missile.update({
-          where: { id: missile.id },
-          data: {
-            currentLat: newLocation.latitude.toString(),
-            currentLong: newLocation.longitude.toString()
-          }
-        });
-      }
-    }
-  } catch (error) {
-    console.error('Failed to update missile positions:', error);
-  }
-};
-
-// Schedule this function to run every 15 seconds
-setInterval(updateMissilePositions, 15000);
-
-// Delete items:
-const deleteExpiredMissiles = async () => {
-  try {
-    // Current time
-    const now = new Date();
-
-    // Find and delete missiles where status is 'Hit' and fallout time has elapsed
-    const result = await prisma.missile.deleteMany({
-      where: {
-        status: 'Hit',
-        timeToImpact: {
-          lt: new Date(now.getTime() - 5000) // Missiles that impacted more than 5 seconds ago
-        }
-      }
-    });
-
-    console.log(`${result.count} missiles deleted.`);
-  } catch (error) {
-    console.error('Failed to delete expired missiles:', error);
-  }
-};
-
-const deleteExpiredLandmines = async () => {
-  try {
-    // Current time
-    const now = new Date();
-
-    // Find and delete missiles where status is 'Hit' and fallout time has elapsed
-    const result = await prisma.landmine.deleteMany({
-      where: {
-        Expires: {
-          lt: new Date(now.getTime()) // Missiles that impacted more than 5 seconds ago
-        }
-      }
-    });
-
-    console.log(`${result.count} landmines deleted.`);
-  } catch (error) {
-    console.error('Failed to delete expired landmines:', error);
-  }
-};
-
 // Schedule this function to run every 15seconds
+//this function manages entities on the map
 setInterval(deleteExpiredMissiles, 15000);
 setInterval(deleteExpiredLandmines, 15000);
+setInterval(deleteExpiredLoot, 15000);
+setInterval(updateMissilePositions, 15000);
+
 
 app.post("/api/placelandmine", async (req, res) => {
   const { token, locLat, locLong, landminetype } = req.body;
@@ -730,10 +615,10 @@ app.post("/api/placelandmine", async (req, res) => {
     }
 
     // Successful add item response
-    res.status(200).json({ message: "Item added successfully" });
+    res.status(200).json({ message: "Landmine added to map successfully" });
   } catch (error) {
     console.error("Add item failed: ", error);
-    res.status(500).json({ message: "Add item failed" });
+    res.status(500).json({ message: "Add landmine to map failed" });
   }
 });
 
@@ -786,6 +671,92 @@ app.post("/api/steppedonlandmine", async (req, res) => {
   } catch (error) {
     console.error("Add item failed: ", error);
     res.status(500).json({ message: "Landmine removed failed" });
+  }
+});
+
+//place loot
+function getRandomCoordinates(latitude: number, longitude: number, radiusInMeters: number) {
+  // Generate a random point within the given radius
+  const randomPoint = geolib.computeDestinationPoint(
+    { latitude, longitude },
+    Math.random() * radiusInMeters,
+    Math.random() * 360
+  );
+  return randomPoint;
+}
+const { random } = require('lodash');
+
+
+//this will take a location, item name
+app.post("/api/placeloot", async (req, res) => {
+  const { token, locLat, locLong } = req.body;
+
+  console.log("placing loot")
+
+  try {
+    // Verify the token and ensure it's decoded as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
+    // Randomly choose a rarity
+    const rarities = ['Common', 'Uncommon', 'Rare'];
+    const rarity = rarities[random(0, rarities.length - 1)];
+
+    // Generate random coordinates within 100m radius
+    const randomCoordinates = getRandomCoordinates(parseFloat(locLat), parseFloat(locLong), 100);
+
+    const randomlocLat = randomCoordinates.latitude.toFixed(6); 
+    const randomlocLong = randomCoordinates.longitude.toFixed(6); 
+
+    // Check if the item is in the user's inventory
+    const existingItem = await prisma.inventoryItem.findFirst({
+      where: {
+        category: "Loot Drops",
+        userId: user.id,
+      },
+    });
+
+    if (existingItem) {
+      // If item exists, update the quantity -1
+      await prisma.inventoryItem.update({
+        where: { id: existingItem.id },
+        data: { quantity: existingItem.quantity - 1 },
+      });
+      
+      // Create a new loot entry
+      console.log(`placing loot with locaiton: ${randomlocLat} ${randomlocLong}, rarity: ${rarity}`)
+      await prisma.loot.create({
+        data: {
+          locLat: randomlocLat,
+          locLong: randomlocLong,
+          rarity,
+          Expires: new Date(new Date().getTime() + 86400000) // Expires in 24 hours
+        }
+      });
+
+    } else {
+      // If item does not exist
+    }
+
+    // Successful add item response
+    res.status(200).json({ message: "Loot placed successfully" });
+  } catch (error) {
+    console.error("Add item failed: ", error);
+    res.status(500).json({ message: "Add loot to map failed" });
   }
 });
 

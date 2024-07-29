@@ -36,6 +36,7 @@
     "express-ws": "^5.0.2",
     "geolib": "^3.3.4",
     "jsonwebtoken": "^9.0.2",
+    "lodash": "^4.17.21",
     "middle-earth": "github:Missile-Wars-Revival/middle-earth#upd/zip_unzip",
     "msgpack-lite": "^0.1.26",
     "stripe": "^16.2.0",
