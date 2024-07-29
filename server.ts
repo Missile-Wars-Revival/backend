@@ -760,6 +760,39 @@ app.post("/api/placeloot", async (req, res) => {
   }
 });
 
+app.post("/api/lootpickup", async (req, res) => {
+  const { token, lootid } = req.body;
+
+  try {
+    // Verify the token and ensure it's decoded as an object
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: decoded.username,
+      },
+    });
+
+//delete landmine
+    const result = await prisma.loot.delete({
+      where: {
+        id: lootid,
+      }
+    });
+
+    // Successful add item response
+    res.status(200).json({ message: `${result} Landmine removed successfully with id ${lootid}` });
+  } catch (error) {
+    console.error("Add item failed: ", error);
+    res.status(500).json({ message: "Landmine removed failed" });
+  }
+});
+
 app.post(
   "/api/dispatch",
   validateSchema(AuthWithLocationSchema),
