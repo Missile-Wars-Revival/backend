@@ -912,7 +912,6 @@ app.get("/api/playerlocations", async (req, res) => {
 
     let whereClause = {};
     if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
-      // If friendsOnly is enabled, filter by mutual friends and ensure they are alive
       whereClause = {
         AND: [
           { username: { in: mutualFriendsUsernames } },
@@ -920,7 +919,6 @@ app.get("/api/playerlocations", async (req, res) => {
         ]
       };
     } else {
-      // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends
       whereClause = {
         AND: [
           { isAlive: true },
@@ -934,12 +932,12 @@ app.get("/api/playerlocations", async (req, res) => {
       };
     }
 
-
     const allGameplayUsers = await prisma.gameplayUser.findMany({
       where: whereClause,
       include: { Locations: true }
     });
 
+    // Use a Map to filter out duplicates based on username
     const uniqueUsers = new Map();
     allGameplayUsers.forEach((user) => {
       if (!uniqueUsers.has(user.username)) {
@@ -955,6 +953,7 @@ app.get("/api/playerlocations", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
 
 app.patch("/api/friendsOnlyStatus", async (req, res) => {
   const token = req.query.token;
