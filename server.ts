@@ -910,17 +910,24 @@ app.get("/api/playerlocations", async (req, res) => {
 
     const mutualFriendsUsernames = await getMutualFriends(currentUser);
 
+    // Ensure the current user's location is not included
+    mutualFriendsUsernames.push(currentUser.username); // Add current user's username to filter it out
+
     let whereClause = {};
     if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+      // If friendsOnly is enabled, filter by mutual friends (excluding current user) and ensure they are alive
       whereClause = {
         AND: [
-          { username: { in: mutualFriendsUsernames } },
-          { isAlive: true }
+          { username: { not: { equals: currentUser.username } } }, // Exclude current user
+          { username: { in: mutualFriendsUsernames } }, // Filter by mutual friends
+          { isAlive: true } // Only include alive users
         ]
       };
     } else {
+      // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends (excluding current user)
       whereClause = {
         AND: [
+          { username: { not: { equals: currentUser.username } } }, // Exclude current user
           { isAlive: true },
           {
             OR: [
@@ -937,15 +944,11 @@ app.get("/api/playerlocations", async (req, res) => {
       include: { Locations: true }
     });
 
-    // Use a Map to filter out duplicates based on username
-    const uniqueUsers = new Map();
-    allGameplayUsers.forEach((user) => {
-      if (!uniqueUsers.has(user.username)) {
-        uniqueUsers.set(user.username, { username: user.username, ...user.Locations });
-      }
-    });
-
-    const locations = Array.from(uniqueUsers.values());
+    // Mapping to format output
+    const locations = allGameplayUsers.map((gpu) => ({
+      username: gpu.username,
+      ...gpu.Locations
+    }));
 
     res.status(200).json(locations);
   } catch (error) {
@@ -953,7 +956,6 @@ app.get("/api/playerlocations", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 app.patch("/api/friendsOnlyStatus", async (req, res) => {
   const token = req.query.token;
