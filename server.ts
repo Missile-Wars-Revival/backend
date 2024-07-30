@@ -183,51 +183,55 @@ app.ws("/", (ws, req) => {
 
       //player locations
       const currentUser = await prisma.users.findUnique({
-        where: { username: username },
-        include: { GameplayUser: true }
-      });
+      where: { username: username },
+      include: { GameplayUser: true }
+    });
 
-      if (!currentUser) {
-        return console.log("User not found");
-      }
+    if (!currentUser) {
+      return
+    }
 
-      const mutualFriendsUsernames = await getMutualFriends(currentUser);
+    const mutualFriendsUsernames = await getMutualFriends(currentUser);
 
-      let whereClause = {};
-      if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
-        // If friendsOnly is enabled, filter by mutual friends and ensure they are alive
-        whereClause = {
-          AND: [
-            { username: { in: mutualFriendsUsernames } },
-            { isAlive: true }
-          ]
-        };
-      } else {
-        // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends
-        whereClause = {
-          AND: [
-            { isAlive: true },
-            {
-              OR: [
-                { friendsOnly: false },
-                { username: { in: mutualFriendsUsernames } }
-              ]
-            }
-          ]
-        };
-      }
+    // Ensure the current user's location is not included
+    mutualFriendsUsernames.push(currentUser.username); // Add current user's username to filter it out
 
+    let whereClause = {};
+    if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+      // If friendsOnly is enabled, filter by mutual friends (excluding current user) and ensure they are alive
+      whereClause = {
+        AND: [
+          { username: { not: { equals: currentUser.username } } }, // Exclude current user
+          { username: { in: mutualFriendsUsernames } }, // Filter by mutual friends
+          { isAlive: true } // Only include alive users
+        ]
+      };
+    } else {
+      // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends (excluding current user)
+      whereClause = {
+        AND: [
+          { username: { not: { equals: currentUser.username } } }, // Exclude current user
+          { isAlive: true },
+          {
+            OR: [
+              { friendsOnly: false },
+              { username: { in: mutualFriendsUsernames } }
+            ]
+          }
+        ]
+      };
+    }
 
-      const allGameplayUsers = await prisma.gameplayUser.findMany({
-        where: whereClause,
-        include: { Locations: true }
-      });
+    const allGameplayUsers = await prisma.gameplayUser.findMany({
+      where: whereClause,
+      include: { Locations: true }
+    });
 
-      // Mapping to format output
-      const locations = allGameplayUsers.map((gpu: { username: any; Locations: any; }) => ({
-        username: gpu.username,
-        ...gpu.Locations
-      }));
+    // Mapping to format output
+    const locations = allGameplayUsers.map((gpu) => ({
+      username: gpu.username,
+      ...gpu.Locations
+    }));
       //bundle for sending
       let playerslocations = locations
       let userinventory = inventory
