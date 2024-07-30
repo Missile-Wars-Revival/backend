@@ -782,7 +782,7 @@ app.post("/api/lootpickup", async (req, res) => {
       },
     });
 
-//delete landmine
+//delete loot
     const result = await prisma.loot.delete({
       where: {
         id: lootid,
