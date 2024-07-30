@@ -73,7 +73,7 @@ export const deleteExpiredMissiles = async () => {
       where: {
         status: 'Hit',
         timeToImpact: {
-          lt: new Date(now.getTime() - 5000) // Missiles that impacted more than 5 seconds ago
+          lt: new Date(now.getTime() - 30000) // Missiles that impacted more than 5 seconds ago
         }
       }
     });

@@ -114,7 +114,7 @@ model Missile {
   radius       Int
   type         String
   sentBy       String
-  sentAt       String
+  sentAt       DateTime
   status       String
   currentLat   String   @default("")
   currentLong  String   @default("")
