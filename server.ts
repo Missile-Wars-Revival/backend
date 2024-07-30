@@ -940,11 +940,14 @@ app.get("/api/playerlocations", async (req, res) => {
       include: { Locations: true }
     });
 
-    // Mapping to format output
-    const locations = allGameplayUsers.map((gpu: { username: any; Locations: any; }) => ({
-      username: gpu.username,
-      ...gpu.Locations
-    }));
+    const uniqueUsers = new Map();
+    allGameplayUsers.forEach((user) => {
+      if (!uniqueUsers.has(user.username)) {
+        uniqueUsers.set(user.username, { username: user.username, ...user.Locations });
+      }
+    });
+
+    const locations = Array.from(uniqueUsers.values());
 
     res.status(200).json(locations);
   } catch (error) {
