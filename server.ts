@@ -765,7 +765,7 @@ app.post("/api/placeloot", async (req, res) => {
 });
 
 app.post("/api/lootpickup", async (req, res) => {
-  const { token, lootid } = req.body;
+  const { token, lootid, amount } = req.body;
 
   try {
     // Verify the token and ensure it's decoded as an object
@@ -781,6 +781,23 @@ app.post("/api/lootpickup", async (req, res) => {
         username: decoded.username,
       },
     });
+
+    if (user) {
+      // Perform the update if the user is found
+      await prisma.gameplayUser.update({
+        where: {
+          username: decoded.username,
+        },
+        data: {
+          money: user.money + amount, //adds money 
+          rankPoints: user.rankPoints + 200, //adds 200 rank points
+        },
+      });
+
+      res.status(200).json({ message: "Money added" });
+    } else {
+      res.status(404).json({ message: "User not found" });
+    }
 
 //delete loot
     const result = await prisma.loot.delete({
