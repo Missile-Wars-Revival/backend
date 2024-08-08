@@ -13,6 +13,8 @@ import { JwtPayload } from "jsonwebtoken";
 import * as middleearth from "middle-earth";
 import { z, ZodError } from "zod";
 import Stripe from 'stripe';
+import { encode, decode } from "msgpack-lite";
+import Expo from "expo-server-sdk";
 import {
   AuthWithLocation,
   AuthWithLocationSchema,
@@ -24,6 +26,7 @@ import {
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions } from "./entitymanagment";
 
 export const prisma = new PrismaClient();
+const expo = new Expo();
 
 const wsServer = expressWs(express());
 const app = wsServer.app;;
@@ -2019,6 +2022,34 @@ app.post("/api/getisAlive", async (req, res) => {
 
   if (user) {
     res.status(200).json({ isAlive: user.isAlive });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+app.post("/api/notification", async (req, res) => {
+  const { token,title,message } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.users.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+  if (user) {
+    expo.sendPushNotificationsAsync([
+      {
+        to: user.notificationToken,
+        sound: 'default',
+        title: title,
+        body: message,
+      }])
+    // Send the notification to the user
+    res.status(200).json({ message: "Notification sent" });
   } else {
     res.status(404).json({ message: "User not found" });
   }
