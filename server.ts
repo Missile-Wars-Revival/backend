@@ -473,6 +473,15 @@ app.post("/api/firemissile@loc", async (req, res) => {
           userId: user.id,
         },
       });
+
+      if (!existingMissilePlace) {
+        await prisma.statistics.create({
+          data: {
+            userId: user.id,
+            numMissilesPlaced: 1, 
+          },
+        });
+      }
       
       if (existingMissilePlace) {
         await prisma.statistics.update({
@@ -557,6 +566,15 @@ app.post("/api/firemissile@player", async (req, res) => {
         userId: user.id,
       },
     });
+
+    if (!existingMissilePlace) {
+      await prisma.statistics.create({
+        data: {
+          userId: user.id,
+          numMissilesPlaced: 1,
+        },
+      });
+    }
     
     if (existingMissilePlace) {
       await prisma.statistics.update({
@@ -633,12 +651,21 @@ app.post("/api/placelandmine", async (req, res) => {
         where: { id: existingItem.id },
         data: { quantity: existingItem.quantity - 1 },
       });
+
       //update landmine statistic
       const existingLandminePlace = await prisma.statistics.findFirst({
         where: {
           userId: user.id,
         },
       });
+      if (!existingLandminePlace) {
+        await prisma.statistics.create({
+          data: {
+            userId: user.id,
+            numLandminesPlaced: 1,
+          },
+        });
+      }
       
       if (existingLandminePlace) {
         await prisma.statistics.update({
@@ -796,6 +823,15 @@ app.post("/api/placeloot", async (req, res) => {
           userId: user.id,
         },
       });
+
+      if (!existingLootPlace) {
+        await prisma.statistics.create({
+          data: {
+            userId: user.id,
+            numLootPlaced: 1,
+          },
+        });
+      }
       
       if (existingLootPlace) {
         await prisma.statistics.update({
@@ -863,6 +899,15 @@ app.post("/api/lootpickup", async (req, res) => {
         userId: user.id,
       },
     });
+
+    if (!existingLootPickup) {
+      await prisma.statistics.create({
+        data: {
+          userId: user.id,
+          numLootPickups: 1,
+        },
+      });
+    }
     
     if (existingLootPickup) {
       await prisma.statistics.update({
@@ -2066,6 +2111,15 @@ app.patch("/api/isAlive", async (req, res) => {
         userId: decoded.id,
       },
     });
+
+    if (!existingDeaths) {
+      await prisma.statistics.create({
+        data: {
+          userId: decoded.id,
+          numDeaths: 1,
+        },
+      });
+    }
     
     if (existingDeaths) {
       await prisma.statistics.update({
