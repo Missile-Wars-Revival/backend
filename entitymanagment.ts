@@ -40,7 +40,7 @@ export const updateMissilePositions = async () => {
       const timeElapsed = timeNow.getTime() - timeLaunched.getTime();
       const distanceTraveled = speed * (timeElapsed / 1000); // Distance traveled till now
 
-      if (distanceTraveled >= totalDistance || timeNow >= impactTime) {
+      if (distanceTraveled >= totalDistance && timeNow >= impactTime) {
         return prisma.missile.update({
           where: { id: missile.id },
           data: { currentLat: missile.destLat, currentLong: missile.destLong, status: 'Hit' }
