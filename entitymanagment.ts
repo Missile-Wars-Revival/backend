@@ -22,8 +22,8 @@ export const updateMissilePositions = async () => {
 
     const updates = missiles.map(async (missile) => {
       const timeNow = new Date();
-      const timeLaunched = new Date(missile.sentAt); // assuming missile.sentAt is a valid DateTime string
-      const impactTime = new Date(missile.timeToImpact); // assuming it's a valid DateTime string
+      const timeLaunched = missile.sentAt; 
+      const impactTime = missile.timeToImpact; 
 
       if (isNaN(timeLaunched.getTime()) || isNaN(impactTime.getTime())) {
         console.error('Invalid date found for missile ID:', missile.id);
@@ -40,7 +40,7 @@ export const updateMissilePositions = async () => {
       const timeElapsed = timeNow.getTime() - timeLaunched.getTime();
       const distanceTraveled = speed * (timeElapsed / 1000); // Distance traveled till now
 
-      if (distanceTraveled >= totalDistance) {
+      if (distanceTraveled >= totalDistance || timeNow >= impactTime) {
         return prisma.missile.update({
           where: { id: missile.id },
           data: { currentLat: missile.destLat, currentLong: missile.destLong, status: 'Hit' }
