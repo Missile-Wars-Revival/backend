@@ -50,7 +50,6 @@ model GameplayUser {
   updatedAt                                                    DateTime         @default(now())
   deletedAt                                                    DateTime         @default(now())
   isAlive                                                      Boolean          @default(true)
-  badges                                                       String[]         @default([])
   BattleSessions_BattleSessions_attackerUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_attackerUsernameToGameplayUser")
   BattleSessions_BattleSessions_defenderUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_defenderUsernameToGameplayUser")
   BattleSessions_BattleSessions_gameplayUserIdToGameplayUser   BattleSessions[] @relation("BattleSessions_gameplayUserIdToGameplayUser")
@@ -58,6 +57,7 @@ model GameplayUser {
   Users                                                        Users            @relation(fields: [username], references: [username])
   InventoryItem                                                InventoryItem[]
   Locations                                                    Locations?
+  Statistics                                                   Statistics[]
 }
 
 model InventoryItem {
@@ -67,6 +67,18 @@ model InventoryItem {
   userId       Int
   category     String
   GameplayUser GameplayUser @relation(fields: [userId], references: [id])
+}
+
+model Statistics {
+  id                 BigInt       @id @default(autoincrement())
+  userId             Int
+  badges             String[]     @default([])
+  numDeaths          Int          @default(0)
+  numLootPlaced      Int          @default(0)
+  numLandminesPlaced Int          @default(0)
+  numMissilesPlaced  Int          @default(0)
+  numLootPickups     Int          @default(0)
+  GameplayUser       GameplayUser @relation(fields: [userId], references: [id])
 }
 
 model Landmine {
