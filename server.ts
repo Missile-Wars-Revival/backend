@@ -183,55 +183,55 @@ app.ws("/", (ws, req) => {
 
       //player locations
       const currentUser = await prisma.users.findUnique({
-      where: { username: username },
-      include: { GameplayUser: true }
-    });
+        where: { username: username },
+        include: { GameplayUser: true }
+      });
 
-    if (!currentUser) {
-      return
-    }
+      if (!currentUser) {
+        return
+      }
 
-    const mutualFriendsUsernames = await getMutualFriends(currentUser);
+      const mutualFriendsUsernames = await getMutualFriends(currentUser);
 
-    // Ensure the current user's location is not included
-    mutualFriendsUsernames.push(currentUser.username); // Add current user's username to filter it out
+      // Ensure the current user's location is not included
+      mutualFriendsUsernames.push(currentUser.username); // Add current user's username to filter it out
 
-    let whereClause = {};
-    if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
-      // If friendsOnly is enabled, filter by mutual friends (excluding current user) and ensure they are alive
-      whereClause = {
-        AND: [
-          { username: { not: { equals: currentUser.username } } }, // Exclude current user
-          { username: { in: mutualFriendsUsernames } }, // Filter by mutual friends
-          { isAlive: true } // Only include alive users
-        ]
-      };
-    } else {
-      // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends (excluding current user)
-      whereClause = {
-        AND: [
-          { username: { not: { equals: currentUser.username } } }, // Exclude current user
-          { isAlive: true },
-          {
-            OR: [
-              { friendsOnly: false },
-              { username: { in: mutualFriendsUsernames } }
-            ]
-          }
-        ]
-      };
-    }
+      let whereClause = {};
+      if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+        // If friendsOnly is enabled, filter by mutual friends (excluding current user) and ensure they are alive
+        whereClause = {
+          AND: [
+            { username: { not: { equals: currentUser.username } } }, // Exclude current user
+            { username: { in: mutualFriendsUsernames } }, // Filter by mutual friends
+            { isAlive: true } // Only include alive users
+          ]
+        };
+      } else {
+        // If friendsOnly is not enabled, get users who are alive and either are not friendsOnly or are in mutual friends (excluding current user)
+        whereClause = {
+          AND: [
+            { username: { not: { equals: currentUser.username } } }, // Exclude current user
+            { isAlive: true },
+            {
+              OR: [
+                { friendsOnly: false },
+                { username: { in: mutualFriendsUsernames } }
+              ]
+            }
+          ]
+        };
+      }
 
-    const allGameplayUsers = await prisma.gameplayUser.findMany({
-      where: whereClause,
-      include: { Locations: true }
-    });
+      const allGameplayUsers = await prisma.gameplayUser.findMany({
+        where: whereClause,
+        include: { Locations: true }
+      });
 
-    // Mapping to format output
-    const locations = allGameplayUsers.map((gpu) => ({
-      username: gpu.username,
-      ...gpu.Locations
-    }));
+      // Mapping to format output
+      const locations = allGameplayUsers.map((gpu) => ({
+        username: gpu.username,
+        ...gpu.Locations
+      }));
       //bundle for sending
       let playerslocations = locations
       let userinventory = inventory
@@ -467,7 +467,7 @@ app.post("/api/firemissile@loc", async (req, res) => {
         where: { id: existingItem.id },
         data: { quantity: existingItem.quantity - 1 }
       });
-//to update user statistic
+      //to update user statistic
       const existingMissilePlace = await prisma.statistics.findFirst({
         where: {
           userId: user.id,
@@ -478,11 +478,11 @@ app.post("/api/firemissile@loc", async (req, res) => {
         await prisma.statistics.create({
           data: {
             userId: user.id,
-            numMissilesPlaced: 1, 
+            numMissilesPlaced: 1,
           },
         });
       }
-      
+
       if (existingMissilePlace) {
         await prisma.statistics.update({
           where: { id: existingMissilePlace.id },
@@ -490,7 +490,7 @@ app.post("/api/firemissile@loc", async (req, res) => {
         });
       } else {
         //console.error("Error: No statistics record found for the user.");
-      }    
+      }
 
       await prisma.missile.create({
         data: {
@@ -529,9 +529,9 @@ app.post("/api/firemissile@player", async (req, res) => {
 
     // Ensure user and their location are found
     const [user, userLocation, playerlocation] = await Promise.all([
-      prisma.gameplayUser.findFirst({ where: { username: decoded.username }}),
-      prisma.locations.findUnique({ where: { username: decoded.username }}),
-      prisma.locations.findUnique({ where: { username: playerusername }})
+      prisma.gameplayUser.findFirst({ where: { username: decoded.username } }),
+      prisma.locations.findUnique({ where: { username: decoded.username } }),
+      prisma.locations.findUnique({ where: { username: playerusername } })
     ]);
 
     if (!user || !userLocation || !playerlocation) {
@@ -540,7 +540,7 @@ app.post("/api/firemissile@player", async (req, res) => {
 
     // Get missile data and check inventory
     const [missileType, existingItem] = await Promise.all([
-      prisma.missileType.findUnique({ where: { name: type }}),
+      prisma.missileType.findUnique({ where: { name: type } }),
       prisma.inventoryItem.findFirst({
         where: { name: type, userId: user.id }
       })
@@ -552,7 +552,7 @@ app.post("/api/firemissile@player", async (req, res) => {
 
     // Calculate distance and time to impact
     const distance = haversine(userLocation.latitude, userLocation.longitude,
-                               playerlocation.latitude, playerlocation.longitude);
+      playerlocation.latitude, playerlocation.longitude);
     const timeToImpact = distance / missileType.speed * 1000; // time in milliseconds
 
     // Update inventory and create missile entry
@@ -575,7 +575,7 @@ app.post("/api/firemissile@player", async (req, res) => {
         },
       });
     }
-    
+
     if (existingMissilePlace) {
       await prisma.statistics.update({
         where: { id: existingMissilePlace.id },
@@ -583,8 +583,8 @@ app.post("/api/firemissile@player", async (req, res) => {
       });
     } else {
       //console.error("Error: No statistics record found for the user.");
-    }    
-    
+    }
+
     await prisma.missile.create({
       data: {
         destLat: playerlocation.latitude,
@@ -666,7 +666,7 @@ app.post("/api/placelandmine", async (req, res) => {
           },
         });
       }
-      
+
       if (existingLandminePlace) {
         await prisma.statistics.update({
           where: { id: existingLandminePlace.id },
@@ -674,7 +674,7 @@ app.post("/api/placelandmine", async (req, res) => {
         });
       } else {
         //console.error("Error: No statistics record found for the user.");
-      }    
+      }
 
       await prisma.landmine.create({
         data: {
@@ -736,7 +736,7 @@ app.post("/api/steppedonlandmine", async (req, res) => {
 
     //Logic to alert user and reward that placed landmine here!!
 
-//delete landmine
+    //delete landmine
     const result = await prisma.landmine.delete({
       where: {
         id: landmineid,
@@ -788,7 +788,7 @@ app.post("/api/placeloot", async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    
+
     // Randomly choose a rarity
     const rarities = ['Common', 'Uncommon', 'Rare'];
     const rarity = rarities[random(0, rarities.length - 1)];
@@ -796,8 +796,8 @@ app.post("/api/placeloot", async (req, res) => {
     // Generate random coordinates within 100m radius
     const randomCoordinates = getRandomCoordinates(parseFloat(locLat), parseFloat(locLong), 100);
 
-    const randomlocLat = randomCoordinates.latitude.toFixed(6); 
-    const randomlocLong = randomCoordinates.longitude.toFixed(6); 
+    const randomlocLat = randomCoordinates.latitude.toFixed(6);
+    const randomlocLong = randomCoordinates.longitude.toFixed(6);
 
     // Check if the item is in the user's inventory
     const existingItem = await prisma.inventoryItem.findFirst({
@@ -813,7 +813,7 @@ app.post("/api/placeloot", async (req, res) => {
         where: { id: existingItem.id },
         data: { quantity: existingItem.quantity - 1 },
       });
-      
+
       // Create a new loot entry
       //console.log(`placing loot with locaiton: ${randomlocLat} ${randomlocLong}, rarity: ${rarity}`)
 
@@ -832,15 +832,15 @@ app.post("/api/placeloot", async (req, res) => {
           },
         });
       }
-      
+
       if (existingLootPlace) {
         await prisma.statistics.update({
           where: { id: existingLootPlace.id },
           data: { numLootPlaced: existingLootPlace.numLootPlaced + 1 },
         });
       } else {
-       //console.error("Error: No statistics record found for the user.");
-      }    
+        //console.error("Error: No statistics record found for the user.");
+      }
 
       await prisma.loot.create({
         data: {
@@ -867,74 +867,67 @@ app.post("/api/lootpickup", async (req, res) => {
   const { token, lootid, amount } = req.body;
 
   try {
-    // Verify the token and ensure it's decoded as an object
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
     if (typeof decoded === 'string' || !decoded.username) {
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    // Retrieve the user from the database
     const user = await prisma.gameplayUser.findFirst({
       where: {
         username: decoded.username,
       },
     });
 
-    if (user) {
-      // Perform the update if the user is found
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Start a transaction
+    const result = await prisma.$transaction(async (prisma) => {
+      // Update user
       await prisma.gameplayUser.update({
         where: {
           username: decoded.username,
         },
         data: {
-          money: user.money + amount, //adds money 
-          rankPoints: user.rankPoints + 200, //adds 200 rank points
+          money: user.money + amount,
+          rankPoints: user.rankPoints + 200,
         },
       });
 
-      //update loot statistic
-    const existingLootPickup = await prisma.statistics.findFirst({
-      where: {
-        userId: user.id,
-      },
-    });
-
-    if (!existingLootPickup) {
-      await prisma.statistics.create({
-        data: {
-          userId: user.id,
-          numLootPickups: 1,
-        },
+      // Update or create statistics
+      let existingLootPickup = await prisma.statistics.findFirst({
+        where: { userId: user.id },
       });
-    }
-    
-    if (existingLootPickup) {
-      await prisma.statistics.update({
-        where: { id: existingLootPickup.id },
-        data: { numLootPickups: existingLootPickup.numLootPickups + 1 },
-      });
-    } else {
-      //console.error("Error: No statistics record found for the user.");
-    }    
 
-      res.status(200).json({ message: "Money added" });
-    } else {
-      res.status(404).json({ message: "User not found" });
-    }
-
-//delete loot
-    const result = await prisma.loot.delete({
-      where: {
-        id: lootid,
+      if (existingLootPickup) {
+        await prisma.statistics.update({
+          where: { id: existingLootPickup.id },
+          data: { numLootPickups: existingLootPickup.numLootPickups + 1 },
+        });
+      } else {
+        await prisma.statistics.create({
+          data: {
+            userId: user.id,
+            numLootPickups: 1,
+          },
+        });
       }
+
+      // Delete loot
+      return prisma.loot.delete({
+        where: {
+          id: parseInt(lootid),
+        }
+      });
     });
 
-    // Successful add item response
-    res.status(200).json({ message: `${result} Landmine removed successfully with id ${lootid}` });
+    // Respond after successful transaction
+    res.status(200).json({ message: "Transaction completed successfully", details: result });
   } catch (error) {
-    console.error("Add item failed: ", error);
-    res.status(500).json({ message: "Landmine removed failed" });
+    console.error("Transaction failed: ", error);
+    res.status(500).json({ message: "Transaction failed" });
   }
 });
 
@@ -2120,7 +2113,7 @@ app.patch("/api/isAlive", async (req, res) => {
         },
       });
     }
-    
+
     if (existingDeaths) {
       await prisma.statistics.update({
         where: { id: existingDeaths.id },
@@ -2128,7 +2121,7 @@ app.patch("/api/isAlive", async (req, res) => {
       });
     } else {
       //console.error("Error: No statistics record found for the user.");
-    }    
+    }
 
     // If no user is found or updated, send a 404 error
     if (!updatedUser) {
