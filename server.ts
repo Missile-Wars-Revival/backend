@@ -489,7 +489,7 @@ app.post("/api/firemissile@loc", async (req, res) => {
           data: { numMissilesPlaced: existingMissilePlace.numMissilesPlaced + 1 },
         });
       } else {
-        console.error("Error: No statistics record found for the user.");
+        //console.error("Error: No statistics record found for the user.");
       }    
 
       await prisma.missile.create({
@@ -582,7 +582,7 @@ app.post("/api/firemissile@player", async (req, res) => {
         data: { numMissilesPlaced: existingMissilePlace.numMissilesPlaced + 1 },
       });
     } else {
-      console.error("Error: No statistics record found for the user.");
+      //console.error("Error: No statistics record found for the user.");
     }    
     
     await prisma.missile.create({
@@ -673,7 +673,7 @@ app.post("/api/placelandmine", async (req, res) => {
           data: { numLandminesPlaced: existingLandminePlace.numLandminesPlaced + 1 },
         });
       } else {
-        console.error("Error: No statistics record found for the user.");
+        //console.error("Error: No statistics record found for the user.");
       }    
 
       await prisma.landmine.create({
@@ -839,7 +839,7 @@ app.post("/api/placeloot", async (req, res) => {
           data: { numLootPlaced: existingLootPlace.numLootPlaced + 1 },
         });
       } else {
-        console.error("Error: No statistics record found for the user.");
+       //console.error("Error: No statistics record found for the user.");
       }    
 
       await prisma.loot.create({
@@ -915,7 +915,7 @@ app.post("/api/lootpickup", async (req, res) => {
         data: { numLootPickups: existingLootPickup.numLootPickups + 1 },
       });
     } else {
-      console.error("Error: No statistics record found for the user.");
+      //console.error("Error: No statistics record found for the user.");
     }    
 
       res.status(200).json({ message: "Money added" });
@@ -2127,7 +2127,7 @@ app.patch("/api/isAlive", async (req, res) => {
         data: { numDeaths: existingDeaths.numDeaths + 1 },
       });
     } else {
-      console.error("Error: No statistics record found for the user.");
+      //console.error("Error: No statistics record found for the user.");
     }    
 
     // If no user is found or updated, send a 404 error
