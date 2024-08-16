@@ -610,7 +610,7 @@ app.post("/api/firemissile@player", async (req, res) => {
 // Schedule this function to run every 15seconds
 //this function manages entities on the map
 setInterval(deleteExpiredMissiles, 15000);
-//setInterval(addRandomLoot, 15000);
+setInterval(addRandomLoot, 15000);
 setInterval(deleteExpiredLandmines, 15000);
 setInterval(deleteExpiredLoot, 15000);
 setInterval(updateMissilePositions, 15000);
