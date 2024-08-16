@@ -171,30 +171,31 @@ export const addRandomLoot = async () => {
     const baseLat = parseFloat(user.latitude);
     const baseLong = parseFloat(user.longitude);
 
+    // Ensure the coordinate range check is directly within the query
     const nearbyLoot = await prisma.loot.findMany({
       where: {
         AND: [
           {
             locLat: {
-              gte: (baseLat - 0.045).toString(), // Approximately 5km in latitude
-              lte: (baseLat + 0.045).toString(),
-            },
+              gte: (baseLat - 0.045).toFixed(6),
+              lte: (baseLat + 0.045).toFixed(6)
+            }
           },
           {
             locLong: {
-              gte: (baseLong - 0.045).toString(), // Approximately 5km in longitude
-              lte: (baseLong + 0.045).toString(),
-            },
+              gte: (baseLong - 0.045).toFixed(6),
+              lte: (baseLong + 0.045).toFixed(6)
+            }
           }
         ]
       }
     });
 
-    const neededLoot = 2 - nearbyLoot.length; // Determine how many more loot items are needed
+    const neededLoot = Math.max(0, 2 - nearbyLoot.length); // Ensure non-negative number
 
     for (let i = 0; i < neededLoot; i++) {
-      // Generate random coordinates near the user's location
-      const randomCoordinates = getRandomCoordinatesLoot(baseLat, baseLong, 100);
+      // Generate random coordinates within a reasonable distance from the user's location
+      const randomCoordinates = getRandomCoordinatesLoot(baseLat, baseLong, 0.045); // 5km range
       const randomlocLat = randomCoordinates.latitude.toFixed(6);
       const randomlocLong = randomCoordinates.longitude.toFixed(6);
 
@@ -203,7 +204,7 @@ export const addRandomLoot = async () => {
       const rarity = rarities[Math.floor(Math.random() * rarities.length)];
 
       try {
-        // Create loot
+        // Create and log the loot
         await prisma.loot.create({
           data: {
             locLat: randomlocLat,
@@ -212,7 +213,7 @@ export const addRandomLoot = async () => {
             Expires: new Date(new Date().getTime() + 86400000) // Expires in 24 hours
           }
         });
-        console.log(`Loot added near ${user.username}.`);
+        console.log(`Loot added near ${user.username}: ${rarity} at (${randomlocLat}, ${randomlocLong})`);
       } catch (error) {
         console.error('Failed to add loot:', error);
       }
