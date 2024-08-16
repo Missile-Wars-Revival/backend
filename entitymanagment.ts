@@ -147,14 +147,28 @@ interface Cluster {
 }
 
 // Function to generate random coordinates within a certain radius (in meters)
-function getRandomCoordinatesLoot(baseLat: number, baseLong: number, radius: number) {
-    const earthRadius = 6378137; // Radius of the Earth in meters
-    const offsetLat = radius * (Math.random() - 0.5) / earthRadius * (180 / Math.PI);
-    const offsetLong = radius * (Math.random() - 0.5) / (earthRadius * Math.cos(Math.PI * baseLat / 180)) * (180 / Math.PI);
-    return {
-        latitude: baseLat + offsetLat,
-        longitude: baseLong + offsetLong
-    };
+function getRandomCoordinatesLoot(baseLat: number, baseLong: number, radiusInKm: number) {
+  const earthRadiusKm = 6371;
+  // Convert radius from kilometers to degrees
+  const radiusInDegrees = radiusInKm / earthRadiusKm;
+
+  const u = Math.random();
+  const v = Math.random();
+  const w = radiusInDegrees * Math.sqrt(u);
+  const t = 2 * Math.PI * v;
+  const x = w * Math.cos(t);
+  const y = w * Math.sin(t);
+
+  // Adjust the x-coordinate for the shrinking of the east-west distances
+  const new_x = x / Math.cos(baseLat * Math.PI / 180);
+
+  const foundLatitude = baseLat + y;
+  const foundLongitude = baseLong + new_x;
+
+  return {
+    latitude: foundLatitude,
+    longitude: foundLongitude
+  };
 }
 
 export const addRandomLoot = async () => {
@@ -171,7 +185,6 @@ export const addRandomLoot = async () => {
     const baseLat = parseFloat(user.latitude);
     const baseLong = parseFloat(user.longitude);
 
-    // Ensure the coordinate range check is directly within the query
     const nearbyLoot = await prisma.loot.findMany({
       where: {
         AND: [
@@ -191,32 +204,45 @@ export const addRandomLoot = async () => {
       }
     });
 
-    const neededLoot = Math.max(0, 2 - nearbyLoot.length); // Ensure non-negative number
+    const neededLoot = Math.max(0, 2 - nearbyLoot.length);
 
     for (let i = 0; i < neededLoot; i++) {
-      // Generate random coordinates within a reasonable distance from the user's location
-      const randomCoordinates = getRandomCoordinatesLoot(baseLat, baseLong, 0.045); // 5km range
-      const randomlocLat = randomCoordinates.latitude.toFixed(6);
-      const randomlocLong = randomCoordinates.longitude.toFixed(6);
+      let attempts = 0;
+      let clash;
+      do {
+        const randomCoordinates = getRandomCoordinatesLoot(baseLat, baseLong, 0.045); // 5km range
+        const randomlocLat = parseFloat(randomCoordinates.latitude.toFixed(6));
+        const randomlocLong = parseFloat(randomCoordinates.longitude.toFixed(6));
 
-      // Randomly choose a rarity
-      const rarities = ['Common', 'Uncommon', 'Rare'];
-      const rarity = rarities[Math.floor(Math.random() * rarities.length)];
+        // Check for clash within 10 meters
+        clash = nearbyLoot.some(loot => {
+          // Ensure coordinates from database are treated as numbers
+          const lootLat = parseFloat(loot.locLat);
+          const lootLong = parseFloat(loot.locLong);
 
-      try {
-        // Create and log the loot
-        await prisma.loot.create({
-          data: {
-            locLat: randomlocLat,
-            locLong: randomlocLong,
-            rarity,
-            Expires: new Date(new Date().getTime() + 86400000) // Expires in 24 hours
-          }
+          return Math.abs(lootLat - randomlocLat) < 0.00009 && Math.abs(lootLong - randomlocLong) < 0.00009;
         });
-        console.log(`Loot added near ${user.username}: ${rarity} at (${randomlocLat}, ${randomlocLong})`);
-      } catch (error) {
-        console.error('Failed to add loot:', error);
-      }
+
+        if (!clash) {
+          const rarities = ['Common', 'Uncommon', 'Rare'];
+          const rarity = rarities[Math.floor(Math.random() * rarities.length)];
+
+          try {
+            await prisma.loot.create({
+              data: {
+                locLat: randomlocLat.toString(),
+                locLong: randomlocLong.toString(),
+                rarity,
+                Expires: new Date(new Date().getTime() + 86400000) // Expires in 24 hours
+              }
+            });
+            console.log(`Loot added near ${user.username}: ${rarity} at (${randomlocLat}, ${randomlocLong})`);
+          } catch (error) {
+            console.error('Failed to add loot:', error);
+          }
+        }
+        attempts++;
+      } while (clash && attempts < 10); // Try up to 10 times to find a non-clashing location
     }
   }
 };
