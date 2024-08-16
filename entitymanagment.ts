@@ -1,5 +1,6 @@
 import { prisma } from "./server";
 import * as geolib from 'geolib';
+const { random } = require('lodash');
 
 export const haversine = (lat1: string, lon1: string, lat2: string, lon2: string) => {
   const R = 6371e3; // meters
@@ -15,6 +16,16 @@ export const haversine = (lat1: string, lon1: string, lat2: string, lon2: string
 
   return Math.round(R * c); // in meters, rounded to the nearest integer
 };
+
+export function getRandomCoordinates(latitude: number, longitude: number, radiusInMeters: number) {
+  // Generate a random point within the given radius
+  const randomPoint = geolib.computeDestinationPoint(
+    { latitude, longitude },
+    Math.random() * radiusInMeters,
+    Math.random() * 360
+  );
+  return randomPoint;
+}
 
 export const updateMissilePositions = async () => {
   try {
@@ -121,5 +132,81 @@ export const deleteExpiredLoot = async () => {
     console.log(`${result.count} loot deleted.`);
   } catch (error) {
     console.error('Failed to delete expired loot:', error);
+  }
+};
+// Function to generate random coordinates within a certain radius (in meters)
+function getRandomCoordinatesLoot(baseLat: number, baseLong: number, radius: number) {
+    const earthRadius = 6378137; // Radius of the Earth in meters
+    const offsetLat = radius * (Math.random() - 0.5) / earthRadius * (180 / Math.PI);
+    const offsetLong = radius * (Math.random() - 0.5) / (earthRadius * Math.cos(Math.PI * baseLat / 180)) * (180 / Math.PI);
+
+    return {
+        latitude: baseLat + offsetLat,
+        longitude: baseLong + offsetLong
+    };
+}
+
+export const addRandomLoot = async () => {
+  // Fetch all user locations
+  const userLocations = await prisma.locations.findMany();
+  if (userLocations.length === 0) {
+    console.log('No user locations available to place loot.');
+    return;
+  }
+
+  // Randomly select a user location
+  const randomUserLocation = userLocations[Math.floor(Math.random() * userLocations.length)];
+  const baseLat = parseFloat(randomUserLocation.latitude);
+  const baseLong = parseFloat(randomUserLocation.longitude);
+
+  // Check if there's already loot within 5km of this user's location
+  const nearbyLoot = await prisma.loot.findMany({
+    where: {
+      AND: [
+        {
+          locLat: {
+            gte: (baseLat - 0.045).toString(), // Approximately 5km in latitude
+            lte: (baseLat + 0.045).toString(),
+          },
+        },
+        {
+          locLong: {
+            gte: (baseLong - 0.045).toString(), // Approximately 5km in longitude
+            lte: (baseLong + 0.045).toString(),
+          },
+        }
+      ]
+    }
+  });
+
+  if (nearbyLoot.length > 0) {
+    console.log('Loot not added, as there is already loot nearby.');
+    return;
+  }
+
+  // Generate random coordinates near the selected user's location
+  const randomCoordinates = getRandomCoordinatesLoot(baseLat, baseLong, 100);
+
+  const randomlocLat = randomCoordinates.latitude.toFixed(6);
+  const randomlocLong = randomCoordinates.longitude.toFixed(6);
+
+  // Randomly choose a rarity
+  const rarities = ['Common', 'Uncommon', 'Rare'];
+  const rarity = rarities[Math.floor(Math.random() * rarities.length)];
+
+  try {
+    // Create loot
+    const result = await prisma.loot.create({
+      data: {
+        locLat: randomlocLat,
+        locLong: randomlocLong,
+        rarity,
+        Expires: new Date(new Date().getTime() + 86400000) // Expires in 24 hours
+      }
+    });
+
+    console.log('Loot added.');
+  } catch (error) {
+    console.error('Failed to add loot:', error);
   }
 };

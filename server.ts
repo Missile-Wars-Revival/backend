@@ -21,7 +21,7 @@ import {
   Register,
   RegisterSchema,
 } from "./interfaces/api";
-import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions } from "./entitymanagment";
+import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates} from "./entitymanagment";
 
 export const prisma = new PrismaClient();
 
@@ -610,6 +610,7 @@ app.post("/api/firemissile@player", async (req, res) => {
 // Schedule this function to run every 15seconds
 //this function manages entities on the map
 setInterval(deleteExpiredMissiles, 15000);
+setInterval(addRandomLoot, 15000);
 setInterval(deleteExpiredLandmines, 15000);
 setInterval(deleteExpiredLoot, 15000);
 setInterval(updateMissilePositions, 15000);
@@ -752,15 +753,6 @@ app.post("/api/steppedonlandmine", async (req, res) => {
 });
 
 //place loot
-function getRandomCoordinates(latitude: number, longitude: number, radiusInMeters: number) {
-  // Generate a random point within the given radius
-  const randomPoint = geolib.computeDestinationPoint(
-    { latitude, longitude },
-    Math.random() * radiusInMeters,
-    Math.random() * 360
-  );
-  return randomPoint;
-}
 const { random } = require('lodash');
 
 

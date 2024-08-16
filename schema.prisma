@@ -41,7 +41,7 @@ model GameplayUser {
   username                                                     String           @unique @default("")
   level                                                        Int              @default(1)
   exp                                                          Int              @default(0)
-  money                                                        Int              @default(0)
+  money                                                        Int              @default(2000)
   health                                                       Int              @default(100)
   friendsOnly                                                  Boolean          @default(false)
   rank                                                         String           @default("Private")
