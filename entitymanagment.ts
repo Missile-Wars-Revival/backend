@@ -134,79 +134,122 @@ export const deleteExpiredLoot = async () => {
     console.error('Failed to delete expired loot:', error);
   }
 };
+
+interface UserLocation {
+  username: string;
+  latitude: string;
+  longitude: string;
+  updatedAt: Date;
+}
+
+interface Cluster {
+  [key: string]: UserLocation[];
+}
+
 // Function to generate random coordinates within a certain radius (in meters)
 function getRandomCoordinatesLoot(baseLat: number, baseLong: number, radius: number) {
     const earthRadius = 6378137; // Radius of the Earth in meters
     const offsetLat = radius * (Math.random() - 0.5) / earthRadius * (180 / Math.PI);
     const offsetLong = radius * (Math.random() - 0.5) / (earthRadius * Math.cos(Math.PI * baseLat / 180)) * (180 / Math.PI);
-
     return {
         latitude: baseLat + offsetLat,
         longitude: baseLong + offsetLong
     };
 }
 
+// Simple function to determine if two points are within a specified distance (5 km)
+function isWithinDistance(lat1: number, long1: number, lat2: number, long2: number, distanceKm: number) {
+    const R = 6371; // Radius of the Earth in kilometers
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (long2 - long1) * (Math.PI / 180);
+    const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c; // Distance in kilometers
+    return distance <= distanceKm;
+}
+
 export const addRandomLoot = async () => {
-  // Fetch all user locations
-  const userLocations = await prisma.locations.findMany();
-  if (userLocations.length === 0) {
-    console.log('No user locations available to place loot.');
-    return;
-  }
-
-  // Randomly select a user location
-  const randomUserLocation = userLocations[Math.floor(Math.random() * userLocations.length)];
-  const baseLat = parseFloat(randomUserLocation.latitude);
-  const baseLong = parseFloat(randomUserLocation.longitude);
-
-  // Check if there's already loot within 5km of this user's location
-  const nearbyLoot = await prisma.loot.findMany({
+  const twoDaysAgo = new Date(new Date().getTime() - 48 * 60 * 60 * 1000);
+  const users = await prisma.locations.findMany({
     where: {
-      AND: [
-        {
-          locLat: {
-            gte: (baseLat - 0.045).toString(), // Approximately 5km in latitude
-            lte: (baseLat + 0.045).toString(),
-          },
-        },
-        {
-          locLong: {
-            gte: (baseLong - 0.045).toString(), // Approximately 5km in longitude
-            lte: (baseLong + 0.045).toString(),
-          },
-        }
-      ]
+      updatedAt: {
+        gte: twoDaysAgo
+      }
     }
   });
 
-  if (nearbyLoot.length > 0) {
-    console.log('Loot not added, as there is already loot nearby.');
-    return;
-  }
+  const clusters: Cluster = {}; // This will store clusters of users by proximity
+  const maxDistance = 5; // Max distance for clustering users (5 km)
 
-  // Generate random coordinates near the selected user's location
-  const randomCoordinates = getRandomCoordinatesLoot(baseLat, baseLong, 100);
+  // Cluster users by proximity
+  users.forEach(user => {
+    let added = false;
+    for (const key in clusters) {
+      const clusterCenter = clusters[key][0]; // Use first user in cluster as the center
+      if (isWithinDistance(parseFloat(user.latitude), parseFloat(user.longitude), parseFloat(clusterCenter.latitude), parseFloat(clusterCenter.longitude), maxDistance)) {
+        clusters[key].push(user);
+        added = true;
+        break;
+      }
+    }
+    if (!added) {
+      clusters[user.username] = [user]; // Start a new cluster
+    }
+  });
 
-  const randomlocLat = randomCoordinates.latitude.toFixed(6);
-  const randomlocLong = randomCoordinates.longitude.toFixed(6);
+  // Check and add loot to each cluster
+  for (const key in clusters) {
+    const cluster = clusters[key];
+    const centralUser = cluster[0]; // Using the first user in the cluster as the central point for loot
+    const baseLat = parseFloat(centralUser.latitude);
+    const baseLong = parseFloat(centralUser.longitude);
 
-  // Randomly choose a rarity
-  const rarities = ['Common', 'Uncommon', 'Rare'];
-  const rarity = rarities[Math.floor(Math.random() * rarities.length)];
-
-  try {
-    // Create loot
-    const result = await prisma.loot.create({
-      data: {
-        locLat: randomlocLat,
-        locLong: randomlocLong,
-        rarity,
-        Expires: new Date(new Date().getTime() + 86400000) // Expires in 24 hours
+    const nearbyLoot = await prisma.loot.findMany({
+      where: {
+        AND: [
+          {
+            locLat: {
+              gte: (baseLat - 0.045).toString(), // Approximately 5km in latitude
+              lte: (baseLat + 0.045).toString(),
+            },
+          },
+          {
+            locLong: {
+              gte: (baseLong - 0.045).toString(), // Approximately 5km in longitude
+              lte: (baseLong + 0.045).toString(),
+            },
+          }
+        ]
       }
     });
 
-    console.log('Loot added.');
-  } catch (error) {
-    console.error('Failed to add loot:', error);
+    if (nearbyLoot.length === 0) {
+      // Generate random coordinates near the central user's location
+      const randomCoordinates = getRandomCoordinatesLoot(baseLat, baseLong, 100);
+      const randomlocLat = randomCoordinates.latitude.toFixed(6);
+      const randomlocLong = randomCoordinates.longitude.toFixed(6);
+
+      // Randomly choose a rarity
+      const rarities = ['Common', 'Uncommon', 'Rare'];
+      const rarity = rarities[Math.floor(Math.random() * rarities.length)];
+
+      try {
+        // Create loot
+        await prisma.loot.create({
+          data: {
+            locLat: randomlocLat,
+            locLong: randomlocLong,
+            rarity,
+            Expires: new Date(new Date().getTime() + 86400000) // Expires in 24 hours
+          }
+        });
+        console.log(`Loot added near ${centralUser.username}.`);
+      } catch (error) {
+        console.error('Failed to add loot:', error);
+      }
+    }
   }
 };
