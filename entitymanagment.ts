@@ -178,7 +178,7 @@ export const addRandomLoot = async () => {
     return;
   }
 
-  const { latitude, longitude } = getRandomCoordinatesLoot(baseLat, baseLong, 100);
+  const { latitude, longitude } = getRandomCoordinatesLoot(baseLat, baseLong, 5000);
   const locLat = latitude.toFixed(6);
   const locLong = longitude.toFixed(6);
 
