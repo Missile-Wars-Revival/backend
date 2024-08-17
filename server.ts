@@ -132,8 +132,26 @@ app.ws("/", (ws, req) => {
   logVerbose("New connection established")
 
   const sendPeriodicData = async () => {
+
+    const currentUser = await prisma.users.findUnique({
+      where: { username: username },
+      include: { GameplayUser: true }
+    });
+
+    if (!currentUser) {
+      return
+    }
+
+    const mutualFriendsUsernames = await getMutualFriends(currentUser);
+
     // Fetch all data
-    let allMissiles = await prisma.missile.findMany();
+    let allMissiles = await prisma.missile.findMany({
+      where: {
+        sentBy: {
+          in: mutualFriendsUsernames,
+        },
+      },
+    });    
     let processedMissiles = allMissiles.map((missile: any) => middleearth.Missile.from_db(missile));
 
     let allLoot = await prisma.loot.findMany();
@@ -612,7 +630,6 @@ app.post("/api/firemissile@player", async (req, res) => {
   }
 });
 
-// Schedule this function to run every 15seconds
 //this function manages entities on the map
 setInterval(deleteExpiredMissiles, 30000);
 setInterval(addRandomLoot, 60000);
