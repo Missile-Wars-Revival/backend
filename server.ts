@@ -143,6 +143,7 @@ app.ws("/", (ws, req) => {
     }
 
     const mutualFriendsUsernames = await getMutualFriends(currentUser);
+    mutualFriendsUsernames.push(currentUser.username);
 
     // Fetch all data
     let allMissiles = await prisma.missile.findMany({
@@ -157,7 +158,13 @@ app.ws("/", (ws, req) => {
     let allLoot = await prisma.loot.findMany();
     let processedLoot = allLoot.map((loot: any) => middleearth.Loot.from_db(loot));
 
-    let allLandmines = await prisma.landmine.findMany();
+    let allLandmines = await prisma.landmine.findMany({
+      where: {
+        placedBy: {
+          in: mutualFriendsUsernames,
+        },
+      },
+    });    
     let processedLandmines = allLandmines.map((landmine: any) => middleearth.Landmine.from_db(landmine));
 
     // Prepare the data bundle
