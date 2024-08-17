@@ -137,33 +137,44 @@ app.ws("/", (ws, req) => {
       where: { username: username },
       include: { GameplayUser: true }
     });
-
+    
     if (!currentUser) {
-      return
+      return;
     }
-
+    //filtering:
     const mutualFriendsUsernames = await getMutualFriends(currentUser);
-    mutualFriendsUsernames.push(currentUser.username);
-
-    // Fetch all data
-    let allMissiles = await prisma.missile.findMany({
-      where: {
+    mutualFriendsUsernames.push(currentUser.username); // Ensure not to include the current user
+    
+    let whereClause = {};
+    if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+      // Fetch entities sent by mutual friends
+      whereClause = {
         sentBy: {
-          in: mutualFriendsUsernames,
-        },
-      },
-    });    
-    let processedMissiles = allMissiles.map((missile: any) => middleearth.Missile.from_db(missile));
+          in: mutualFriendsUsernames
+        }
+      };
+    } else {
+      // Fetch entities from mutual friends and all other users who are not in friendsOnly mode
+      whereClause = {
+        OR: [
+          { sentBy: { in: mutualFriendsUsernames } },
+          { sentBy: { not: { in: mutualFriendsUsernames } }, friendsOnly: false }
+        ]
+      };
+    }
+    
+    const allMissiles = await prisma.missile.findMany({
+      where: whereClause
+    });
+    
+    const processedMissiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
+    
 
     let allLoot = await prisma.loot.findMany();
     let processedLoot = allLoot.map((loot: any) => middleearth.Loot.from_db(loot));
 
     let allLandmines = await prisma.landmine.findMany({
-      where: {
-        placedBy: {
-          in: mutualFriendsUsernames,
-        },
-      },
+      where: whereClause
     });    
     let processedLandmines = allLandmines.map((landmine: any) => middleearth.Landmine.from_db(landmine));
 
