@@ -91,6 +91,14 @@ model Landmine {
   Expires    DateTime
 }
 
+model LandmineType {
+  name        String @id @unique
+  description String
+  price       Int
+  damage      Int
+  duration    Int
+}
+
 model Locations {
   username     String       @id @unique @default("")
   createdAt    DateTime     @default(now())
