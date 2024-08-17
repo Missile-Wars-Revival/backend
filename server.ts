@@ -417,7 +417,12 @@ app.post("/api/register", validateSchema(RegisterSchema), async (req, res) => {
     },
   });
 
-  res.status(200).json({ message: "User created" });
+  const token = jwt.sign(
+    { username: register.username, password: register.password },
+    process.env.JWT_SECRET || ""
+  );
+
+  res.status(200).json({ message: "User created", token });
 });
 
 //Entering missiles and landmines into DB
