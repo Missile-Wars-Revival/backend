@@ -730,6 +730,14 @@ app.post("/api/placelandmine", async (req, res) => {
         //console.error("Error: No statistics record found for the user.");
       }
 
+      const landmineType = await prisma.landmineType.findUnique({
+        where: { name: landminetype }
+      });
+  
+      if (!landmineType) {
+        return res.status(404).json({ message: "Missile type not found" });
+      }
+
       await prisma.landmine.create({
         data: {
           placedBy: user.username,
@@ -737,7 +745,7 @@ app.post("/api/placelandmine", async (req, res) => {
           locLong,
           placedtime: new Date().toISOString(),
           type: landminetype,
-          Expires: new Date(new Date().getTime() + 600000)  // example 600 seconds to impact - also needs to be calc based on missle def
+          Expires: new Date(new Date().getTime() + landmineType.duration)
         }
       });
 
