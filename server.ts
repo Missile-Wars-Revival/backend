@@ -142,30 +142,40 @@ app.ws("/", (ws, req) => {
       return;
     }
     //filtering:
-    const mutualFriendsUsernames = await getMutualFriends(currentUser);
-    mutualFriendsUsernames.push(currentUser.username); // Ensure not to include the current user
-    
-    let whereClause = {};
-    if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
-      // Fetch entities sent by mutual friends
-      whereClause = {
-        sentBy: {
-          in: mutualFriendsUsernames
-        }
-      };
-    } else {
-      // Fetch entities from mutual friends and all other users who are not in friendsOnly mode
-      whereClause = {
-        OR: [
-          { sentBy: { in: mutualFriendsUsernames } },
-          { sentBy: { not: { in: mutualFriendsUsernames } }, friendsOnly: false }
-        ]
-      };
+    // Fetch mutual friends usernames and include the current user's username
+const mutualFriendsUsernames = await getMutualFriends(currentUser);
+mutualFriendsUsernames.push(currentUser.username); // Ensure not to include the current user
+
+let usernamesToFetchMissilesFrom = [];
+
+if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+  // If friendsOnly is enabled, only fetch missiles from mutual friends
+  usernamesToFetchMissilesFrom = mutualFriendsUsernames;
+} else {
+  // Fetch all usernames who are not in friendsOnly mode or are mutual friends
+  const nonFriendsOnlyUsers = await prisma.gameplayUser.findMany({
+    where: {
+      OR: [
+        { username: { notIn: mutualFriendsUsernames }, friendsOnly: false },
+        { username: { in: mutualFriendsUsernames } }
+      ]
+    },
+    select: {
+      username: true // We only need the username for the missile query
     }
+  });
+
+  usernamesToFetchMissilesFrom = nonFriendsOnlyUsers.map(u => u.username);
+}
+
     
-    const allMissiles = await prisma.missile.findMany({
-      where: whereClause
-    });
+const allMissiles = await prisma.missile.findMany({
+  where: {
+    sentBy: {
+      in: usernamesToFetchMissilesFrom
+    }
+  }
+});
     
     const processedMissiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
     
@@ -173,9 +183,9 @@ app.ws("/", (ws, req) => {
     let allLoot = await prisma.loot.findMany();
     let processedLoot = allLoot.map((loot: any) => middleearth.Loot.from_db(loot));
 
-    let allLandmines = await prisma.landmine.findMany({
-      where: whereClause
-    });    
+    let allLandmines = await prisma.landmine.findMany(
+      
+    );    
     let processedLandmines = allLandmines.map((landmine: any) => middleearth.Landmine.from_db(landmine));
 
     // Prepare the data bundle
