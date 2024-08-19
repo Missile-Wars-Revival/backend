@@ -1,5 +1,5 @@
 {
-  "name": "missile-wars-alpha",
+  "name": "missile-wars-beta",
   "version": "1.0.0",
   "description": "��\r\u0000 \u0000#\u0000 \u0000M\u0000i\u0000s\u0000s\u0000i\u0000l\u0000e\u0000 \u0000W\u0000a\u0000r\u0000s\u0000 \u0000B\u0000a\u0000c\u0000k\u0000e\u0000n\u0000d\u0000\r\u0000 \u0000\r\u0000 \u0000T\u0000h\u0000e\u0000 \u0000o\u0000f\u0000f\u0000f\u0000i\u0000c\u0000i\u0000a\u0000l\u0000 \u0000b\u0000a\u0000c\u0000k\u0000e\u0000n\u0000d\u0000 \u0000f\u0000o\u0000r\u0000 \u0000M\u0000i\u0000s\u0000s\u0000i\u0000l\u0000e\u0000 \u0000W\u0000a\u0000r\u0000s\u0000 \u0000",
   "main": "server.ts",
@@ -36,6 +36,7 @@
     "express-ws": "^5.0.2",
     "geolib": "^3.3.4",
     "jsonwebtoken": "^9.0.2",
+    "lodash": "^4.17.21",
     "middle-earth": "github:Missile-Wars-Revival/middle-earth#upd/zip_unzip",
     "msgpack-lite": "^0.1.26",
     "stripe": "^16.2.0",
