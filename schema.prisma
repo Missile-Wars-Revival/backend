@@ -131,6 +131,7 @@ model Missile {
   id           Int      @id @default(sequence(maxValue: 2147483647))
   destLat      String   @default("")
   destLong     String   @default("")
+  damage       Int      @default(1)
   radius       Int
   type         String
   sentBy       String

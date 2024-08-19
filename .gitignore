@@ -7,7 +7,6 @@
 .yarn/install-state.gz
 /.fleet/
 /.idea/
-/migrations/
 /dist/
 # testing
 
