@@ -41,7 +41,7 @@ model GameplayUser {
   username                                                     String           @unique @default("")
   level                                                        Int              @default(1)
   exp                                                          Int              @default(0)
-  money                                                        Int              @default(0)
+  money                                                        Int              @default(2000)
   health                                                       Int              @default(100)
   friendsOnly                                                  Boolean          @default(false)
   rank                                                         String           @default("Private")
@@ -50,7 +50,6 @@ model GameplayUser {
   updatedAt                                                    DateTime         @default(now())
   deletedAt                                                    DateTime         @default(now())
   isAlive                                                      Boolean          @default(true)
-  badges                                                       String[]         @default([])
   BattleSessions_BattleSessions_attackerUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_attackerUsernameToGameplayUser")
   BattleSessions_BattleSessions_defenderUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_defenderUsernameToGameplayUser")
   BattleSessions_BattleSessions_gameplayUserIdToGameplayUser   BattleSessions[] @relation("BattleSessions_gameplayUserIdToGameplayUser")
@@ -58,6 +57,7 @@ model GameplayUser {
   Users                                                        Users            @relation(fields: [username], references: [username])
   InventoryItem                                                InventoryItem[]
   Locations                                                    Locations?
+  Statistics                                                   Statistics[]
 }
 
 model InventoryItem {
@@ -69,6 +69,18 @@ model InventoryItem {
   GameplayUser GameplayUser @relation(fields: [userId], references: [id])
 }
 
+model Statistics {
+  id                 BigInt       @id @default(autoincrement())
+  userId             Int
+  badges             String[]     @default([])
+  numDeaths          Int          @default(0)
+  numLootPlaced      Int          @default(0)
+  numLandminesPlaced Int          @default(0)
+  numMissilesPlaced  Int          @default(0)
+  numLootPickups     Int          @default(0)
+  GameplayUser       GameplayUser @relation(fields: [userId], references: [id])
+}
+
 model Landmine {
   id         Int      @id @default(sequence(maxValue: 2147483647))
   placedBy   String
@@ -77,6 +89,14 @@ model Landmine {
   placedtime DateTime @default(now())
   type       String
   Expires    DateTime
+}
+
+model LandmineType {
+  name        String @id @unique
+  description String
+  price       Int
+  damage      Int
+  duration    Int
 }
 
 model Locations {
@@ -111,32 +131,26 @@ model Missile {
   id           Int      @id @default(sequence(maxValue: 2147483647))
   destLat      String   @default("")
   destLong     String   @default("")
+  damage       Int      @default(1)
   radius       Int
   type         String
   sentBy       String
-  sentAt       String
+  sentAt       DateTime
   status       String
   currentLat   String   @default("")
   currentLong  String   @default("")
   timeToImpact DateTime
 }
 
-model Landmine {
-  id         Int      @id @default(sequence(maxValue: 2147483647))
-  placedBy   String
-  locLat     String   @default("")
-  locLong    String   @default("")
-  placedtime DateTime @default(now())
-  type       String
-  Expires    DateTime
+model MissileType {
+  name        String @id @unique
+  description String
+  price       Int
+  speed       Int
+  radius      Int
+  damage      Int
+  fallout     Int
 }
-
-model Loot {
-  id      Int      @id @default(sequence(maxValue: 2147483647))
-  rarity  String
-  Expires DateTime
-  locLat  String   @default("")
-  locLong String   @default("")
 
 model RefreshTokens {
   id           Int    @id @default(sequence(maxValue: 2147483647))
@@ -165,14 +179,4 @@ model Users {
   updatedAt         DateTime      @default(now())
   stripeCustomerId  String?       @unique
   GameplayUser      GameplayUser?
-}
-
-model MissileType {
-    name            String @id @unique
-    description     String
-    price           Int
-    speed           Int
-    radius          Int
-    damage          Int
-    fallout         Int
 }
