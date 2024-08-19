@@ -21,7 +21,7 @@ import {
   Register,
   RegisterSchema,
 } from "./interfaces/api";
-import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates} from "./entitymanagment";
+import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates } from "./entitymanagment";
 
 export const prisma = new PrismaClient();
 
@@ -137,46 +137,46 @@ app.ws("/", (ws, req) => {
       where: { username: username },
       include: { GameplayUser: true }
     });
-    
+
     if (!currentUser) {
       return;
     }
     //filtering:
     // Fetch mutual friends usernames and include the current user's username
-const mutualFriendsUsernames = await getMutualFriends(currentUser);
-mutualFriendsUsernames.push(currentUser.username); // Ensure not to include the current user
+    const mutualFriendsUsernames = await getMutualFriends(currentUser);
+    mutualFriendsUsernames.push(currentUser.username); // Ensure not to include the current user
 
-let usernamesToFetchEntitesFrom = [];
+    let usernamesToFetchEntitesFrom = [];
 
-if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
-  // If friendsOnly is enabled, only fetch missiles from mutual friends
-  usernamesToFetchEntitesFrom = mutualFriendsUsernames;
-} else {
-  // Fetch all usernames who are not in friendsOnly mode or are mutual friends
-  const nonFriendsOnlyUsers = await prisma.gameplayUser.findMany({
-    where: {
-      OR: [
-        { username: { notIn: mutualFriendsUsernames }, friendsOnly: false },
-        { username: { in: mutualFriendsUsernames } }
-      ]
-    },
-    select: {
-      username: true // We only need the username for the missile query
+    if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
+      // If friendsOnly is enabled, only fetch missiles from mutual friends
+      usernamesToFetchEntitesFrom = mutualFriendsUsernames;
+    } else {
+      // Fetch all usernames who are not in friendsOnly mode or are mutual friends
+      const nonFriendsOnlyUsers = await prisma.gameplayUser.findMany({
+        where: {
+          OR: [
+            { username: { notIn: mutualFriendsUsernames }, friendsOnly: false },
+            { username: { in: mutualFriendsUsernames } }
+          ]
+        },
+        select: {
+          username: true // We only need the username for the missile query
+        }
+      });
+
+      usernamesToFetchEntitesFrom = nonFriendsOnlyUsers.map(u => u.username);
     }
-  });
 
-  usernamesToFetchEntitesFrom = nonFriendsOnlyUsers.map(u => u.username);
-}
 
-    
-const allMissiles = await prisma.missile.findMany({
-  where: {
-    sentBy: {
-      in: usernamesToFetchEntitesFrom
-    }
-  }
-});
-    
+    const allMissiles = await prisma.missile.findMany({
+      where: {
+        sentBy: {
+          in: usernamesToFetchEntitesFrom
+        }
+      }
+    });
+
     const processedMissiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
 
     let allLoot = await prisma.loot.findMany();
@@ -188,7 +188,7 @@ const allMissiles = await prisma.missile.findMany({
           in: usernamesToFetchEntitesFrom
         }
       }
-  });    
+    });
     let processedLandmines = allLandmines.map((landmine: any) => middleearth.Landmine.from_db(landmine));
 
     // Prepare the data bundle
@@ -735,10 +735,14 @@ app.post("/api/placelandmine", async (req, res) => {
       const landmineType = await prisma.landmineType.findUnique({
         where: { name: landminetype }
       });
-  
+
       if (!landmineType) {
         return res.status(404).json({ message: "Missile type not found" });
       }
+
+      // Convert duration from hours to milliseconds
+      // landmine duration is in hours
+      const durationInMilliseconds = landmineType.duration * 3600000;
 
       await prisma.landmine.create({
         data: {
@@ -747,7 +751,7 @@ app.post("/api/placelandmine", async (req, res) => {
           locLong,
           placedtime: new Date().toISOString(),
           type: landminetype,
-          Expires: new Date(new Date().getTime() + landmineType.duration)
+          Expires: new Date(new Date().getTime() + durationInMilliseconds) 
         }
       });
 
