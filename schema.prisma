@@ -88,6 +88,7 @@ model Landmine {
   locLong    String   @default("")
   placedtime DateTime @default(now())
   type       String
+  damage     Int      @default(1)
   Expires    DateTime
 }
 
