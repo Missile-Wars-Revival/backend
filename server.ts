@@ -769,7 +769,7 @@ app.post("/api/placelandmine", async (req, res) => {
 });
 
 app.post("/api/steppedonlandmine", async (req, res) => {
-  const { token, landmineid } = req.body;
+  const { token, landmineid, landminedamage } = req.body;
 
   try {
     // Verify the token and ensure it's decoded as an object
@@ -786,15 +786,13 @@ app.post("/api/steppedonlandmine", async (req, res) => {
       },
     });
 
-    const amount = 20;
-
     if (user) {
       await prisma.gameplayUser.update({
         where: {
           username: (decoded as JwtPayload).username as string,
         },
         data: {
-          health: user.health - amount,
+          health: user.health - landminedamage,
         },
       });
     }
