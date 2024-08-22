@@ -751,6 +751,7 @@ app.post("/api/placelandmine", async (req, res) => {
           locLong,
           placedtime: new Date().toISOString(),
           type: landminetype,
+          damage: landmineType.damage,
           Expires: new Date(new Date().getTime() + durationInMilliseconds) 
         }
       });
