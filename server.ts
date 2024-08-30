@@ -737,7 +737,7 @@ app.post("/api/placelandmine", async (req, res) => {
       });
 
       if (!landmineType) {
-        return res.status(404).json({ message: "Missile type not found" });
+        return res.status(404).json({ message: "Landmine type not found" });
       }
 
       // Convert duration from hours to milliseconds
