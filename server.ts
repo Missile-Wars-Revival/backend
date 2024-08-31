@@ -1083,7 +1083,6 @@ async function getMutualFriends(currentUser: { friends: any; username: string; }
 
 export interface UserProfile {
   username: string;
-  email: string;
   badges: string[];
   mutualFriends: string[];
 }
@@ -1120,7 +1119,6 @@ app.get("/api/user-profile", async (req, res) => {
 
     const userProfile: UserProfile = {
       username: user.username,
-      email: user.email,
       badges: user.GameplayUser?.Statistics[0]?.badges || [],
       mutualFriends: mutualFriends
     };
