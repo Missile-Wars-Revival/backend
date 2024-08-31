@@ -1394,7 +1394,7 @@ app.get("/api/searchplayers", async (req, res) => {
 });
 
 app.get("/api/searchfriendsadded", async (req, res) => {
-  const { token } = req.query;
+  const { token, searchTerm } = req.query;
 
   if (typeof token !== 'string' || !token.trim()) {
     return res.status(400).json({ message: "Token is required and must be a non-empty string." });
@@ -1421,7 +1421,10 @@ app.get("/api/searchfriendsadded", async (req, res) => {
     const addedFriends = await prisma.users.findMany({
       where: {
         username: {
-          in: currentUser.friends
+          in: currentUser.friends,
+          ...(searchTerm && typeof searchTerm === 'string'
+            ? { contains: searchTerm, mode: 'insensitive' }
+            : {})
         }
       },
       select: {
