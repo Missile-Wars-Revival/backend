@@ -1352,13 +1352,33 @@ app.get("/api/searchplayers", async (req, res) => {
       return res.status(401).json({ message: "Invalid token" });
     }
 
+    // Fetch the current user to get their friends list
+    const currentUser = await prisma.users.findUnique({
+      where: { username: decoded.username },
+      select: { friends: true }
+    });
+
+    if (!currentUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
     // Fetch users whose usernames contain the search term
     const users = await prisma.users.findMany({
       where: {
-        username: {
-          contains: searchTerm,
-          mode: 'insensitive' // This makes the search case-insensitive
-        }
+        AND: [
+          {
+            username: {
+              contains: searchTerm,
+              mode: 'insensitive' // This makes the search case-insensitive
+            }
+          },
+          {
+            username: {
+              not: decoded.username, // Exclude the current user
+              notIn: currentUser.friends // Exclude friends
+            }
+          }
+        ]
       },
       select: {
         username: true,
