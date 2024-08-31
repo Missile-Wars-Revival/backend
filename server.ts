@@ -1081,10 +1081,19 @@ async function getMutualFriends(currentUser: { friends: any; username: string; }
   return mutualFriends;
 }
 
-export interface UserProfile {
-  username: string;
+interface Statistics {
   badges: string[];
+  numDeaths: number;
+  numLootPlaced: number;
+  numLandminesPlaced: number;
+  numMissilesPlaced: number;
+  numLootPickups: number;
+}
+
+interface UserProfile {
+  username: string;
   mutualFriends: string[];
+  statistics: Statistics;
 }
 
 app.get("/api/user-profile", async (req, res) => {
@@ -1117,10 +1126,19 @@ app.get("/api/user-profile", async (req, res) => {
 
     const mutualFriends = await getMutualFriends(user);
 
+    const statistics: Statistics = {
+      badges: user.GameplayUser?.Statistics[0]?.badges || [],
+      numDeaths: user.GameplayUser?.Statistics[0]?.numDeaths || 0,
+      numLootPlaced: user.GameplayUser?.Statistics[0]?.numLootPlaced || 0,
+      numLandminesPlaced: user.GameplayUser?.Statistics[0]?.numLandminesPlaced || 0,
+      numMissilesPlaced: user.GameplayUser?.Statistics[0]?.numMissilesPlaced || 0,
+      numLootPickups: user.GameplayUser?.Statistics[0]?.numLootPickups || 0,
+    };
+
     const userProfile: UserProfile = {
       username: user.username,
-      badges: user.GameplayUser?.Statistics[0]?.badges || [],
-      mutualFriends: mutualFriends
+      mutualFriends: mutualFriends,
+      statistics: statistics
     };
 
     res.status(200).json({ success: true, userProfile });
