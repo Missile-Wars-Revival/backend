@@ -1096,6 +1096,13 @@ interface UserProfile {
   statistics: Statistics;
 }
 
+interface SelfProfile {
+  username: string;
+  email: string;
+  mutualFriends: string[];
+  statistics: Statistics;
+}
+
 app.get("/api/user-profile", async (req, res) => {
   const { token, username } = req.query;
 
@@ -1190,8 +1197,9 @@ app.get("/api/self-profile", async (req, res) => {
       numLootPickups: latestStats.numLootPickups || 0,
     };
 
-    const userProfile: UserProfile = {
+    const userProfile: SelfProfile = {
       username: user.username,
+      email: user.email,
       mutualFriends: mutualFriends,
       statistics: statistics
     };
