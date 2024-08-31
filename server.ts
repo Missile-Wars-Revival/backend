@@ -1352,50 +1352,21 @@ app.get("/api/searchplayers", async (req, res) => {
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    // Fetching the current user and their friends
-    const currentUser = await prisma.users.findUnique({
+    // Fetch users whose usernames contain the search term
+    const users = await prisma.users.findMany({
       where: {
-        username: decoded.username,
-      },
-      select: {
-        friends: true,
-      }
-    });
-
-    if (!currentUser) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    // Fetch users whose usernames contain the search term, excluding the current user and their friends
-    const potentialUsers = await prisma.users.findMany({
-      where: {
-        AND: [
-          {
-            username: {
-              contains: searchTerm,
-              not: decoded.username // Exclude the current user
-            }
-          },
-          {
-            username: {
-              notIn: currentUser.friends // Exclude friends
-            }
-          }
-        ]
+        username: {
+          contains: searchTerm,
+          mode: 'insensitive' // This makes the search case-insensitive
+        }
       },
       select: {
         username: true,
-        friends: true,
         updatedAt: true,
       },
     });
 
-    // Filter out mutual friends and format the response
-    const filteredUsers = potentialUsers
-      .filter(user => !user.friends.includes(decoded.username)) // Exclude mutual friends
-      .map(({ username, updatedAt }) => ({ username, updatedAt })); // Only return username and updatedAt
-
-    res.status(200).json(filteredUsers);
+    res.status(200).json(users);
   } catch (error) {
     console.error("Error fetching user data:", error);
     res.status(500).json({ message: "Internal server error" });
