@@ -1393,6 +1393,57 @@ app.get("/api/searchplayers", async (req, res) => {
   }
 });
 
+app.get("/api/searchfriendsadded", async (req, res) => {
+  const { token } = req.query;
+
+  if (typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+  }
+
+  try {
+    // Verify the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Fetch the current user to get their friends list
+    const currentUser = await prisma.users.findUnique({
+      where: { username: decoded.username },
+      select: { friends: true }
+    });
+
+    if (!currentUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Fetch all users that the current user has added as friends
+    const addedFriends = await prisma.users.findMany({
+      where: {
+        username: {
+          in: currentUser.friends
+        }
+      },
+      select: {
+        username: true,
+        friends: true,
+        updatedAt: true,
+      },
+    });
+
+    // Filter out mutual friends
+    const nonMutualFriends = addedFriends.filter(friend => !friend.friends.includes(decoded.username));
+
+    // Format the response to only include username and updatedAt
+    const formattedFriends = nonMutualFriends.map(({ username, updatedAt }) => ({ username, updatedAt }));
+
+    res.status(200).json(formattedFriends);
+  } catch (error) {
+    console.error("Error fetching added friends:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 app.get("/api/nearby", async (req, res) => {
   const token = req.query.token as string;
   const latitude = parseFloat(req.query.latitude as string);
