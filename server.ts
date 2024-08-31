@@ -1335,19 +1335,30 @@ app.patch("/api/friendsOnlyStatus", async (req, res) => {
 });
 
 app.get("/api/searchplayers", async (req, res) => {
-  const username = req.query.username;
+  const { token, searchTerm } = req.query;
 
-  if (typeof username !== 'string') {
-    return res.status(400).json({ message: "Username is required and must be a single string." });
+  if (typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ message: "Token is required and must be a non-empty string." });
   }
+
+  if (typeof searchTerm !== 'string') {
+    return res.status(400).json({ message: "Search term is required and must be a string." });
+  }
+
   try {
+    // Verify the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
     // Fetching the current user and their friends
     const currentUser = await prisma.users.findUnique({
       where: {
-        username: username,
+        username: decoded.username,
       },
       select: {
-        friends: true,  // Assuming friends is an array of usernames
+        friends: true,
       }
     });
 
@@ -1355,35 +1366,41 @@ app.get("/api/searchplayers", async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Fetch all other users excluding the current user
+    // Fetch users whose usernames contain the search term, excluding the current user and their friends
     const potentialUsers = await prisma.users.findMany({
       where: {
-        username: {
-          not: username
-        }
+        AND: [
+          {
+            username: {
+              contains: searchTerm,
+              not: decoded.username // Exclude the current user
+            }
+          },
+          {
+            username: {
+              notIn: currentUser.friends // Exclude friends
+            }
+          }
+        ]
       },
       select: {
         username: true,
-        friends: true,  // Fetch friends to check for mutual friendship
+        friends: true,
         updatedAt: true,
       },
     });
 
-    // Enhance potentialUsers with friendship status
-    const enhancedUsers = potentialUsers.map((user: { username: any; }) => {
-      return {
-        ...user,
-        isFriend: currentUser.friends.includes(user.username) ? "You are already friends with this person." : "Not friends."
-      };
-    });
+    // Filter out mutual friends and format the response
+    const filteredUsers = potentialUsers
+      .filter(user => !user.friends.includes(decoded.username)) // Exclude mutual friends
+      .map(({ username, updatedAt }) => ({ username, updatedAt })); // Only return username and updatedAt
 
-    res.status(200).json(enhancedUsers);
+    res.status(200).json(filteredUsers);
   } catch (error) {
     console.error("Error fetching user data:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 app.get("/api/nearby", async (req, res) => {
   const token = req.query.token as string;
@@ -1405,41 +1422,73 @@ app.get("/api/nearby", async (req, res) => {
     }
 
     // Fetch the main user object to get access to the friends list
-    const mainUser = await prisma.users.findFirst({
+    const mainUser = await prisma.users.findUnique({
       where: {
         username: decoded.username,
       },
+      include: {
+        GameplayUser: true
+      }
     });
 
     if (!mainUser) {
       return res.status(404).json({ message: "User not found" });
     }
 
+    const radiusInMeters = 15000; // 15 km
+    const earthRadiusKm = 6371; // Earth's radius in kilometers
+
+    // Calculate the latitude and longitude ranges
+    const latRange = radiusInMeters / 111000; // 111000 meters is roughly 1 degree of latitude
+    const lonRange = radiusInMeters / (111000 * Math.cos(latitude * Math.PI / 180));
+
     // Exclude friends from the search
-    const allUsers = await prisma.gameplayUser.findMany({
+    const nearbyUsers = await prisma.gameplayUser.findMany({
       where: {
-        username: {
-          not: {
-            in: [decoded.username, ...mainUser.friends] // Exclude self and friends
+        AND: [
+          { username: { not: { equals: decoded.username } } }, // Exclude self
+          { username: { not: { in: mainUser.friends } } }, // Exclude friends
+          { isAlive: true }, // Only include alive users
+          {
+            OR: [
+              { friendsOnly: false },
+              { username: { in: mainUser.friends } }
+            ]
+          },
+          {
+            Locations: {
+              latitude: {
+                gte: (latitude - latRange).toString(),
+                lte: (latitude + latRange).toString(),
+              },
+              longitude: {
+                gte: (longitude - lonRange).toString(),
+                lte: (longitude + lonRange).toString(),
+              },
+            }
           }
-        }
+        ]
       },
       include: {
         Locations: true // Include the location data
       }
     });
 
-    const radiusInMeters = 15000; // 15 km
-    const nearbyUsers = allUsers.filter((user: any) =>
-      user.location && geolib.isPointWithinRadius(
-        { latitude: parseFloat(user.location.latitude), longitude: parseFloat(user.location.longitude) },
-        { latitude, longitude },
-        radiusInMeters
-      )
-    );
+    // Further filter results using more precise distance calculation
+    const filteredNearbyUsers = nearbyUsers.filter(user => {
+      const userLoc = user.Locations;
+      if (!userLoc) return false;
 
-    if (nearbyUsers.length > 0) {
-      res.status(200).json({ message: "Nearby users found", nearbyUsers });
+      const distance = geolib.getDistance(
+        { latitude, longitude },
+        { latitude: parseFloat(userLoc.latitude), longitude: parseFloat(userLoc.longitude) }
+      );
+
+      return distance <= radiusInMeters;
+    });
+
+    if (filteredNearbyUsers.length > 0) {
+      res.status(200).json({ message: "Nearby users found", nearbyUsers: filteredNearbyUsers });
     } else {
       res.status(404).json({ message: "No nearby users found" });
     }
@@ -1448,7 +1497,6 @@ app.get("/api/nearby", async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 app.get("/api/friends", async (req, res) => {
   const token = req.query.token;
