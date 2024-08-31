@@ -1148,6 +1148,61 @@ app.get("/api/user-profile", async (req, res) => {
   }
 });
 
+app.get("/api/self-profile", async (req, res) => {
+  const { token } = req.query;
+
+  if (!token) {
+    return res.status(400).json({ success: false, message: "Missing token" });
+  }
+
+  try {
+    const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ success: false, message: "Invalid token" });
+    }
+
+    const user = await prisma.users.findUnique({
+      where: { username: decoded.username },
+      include: {
+        GameplayUser: {
+          include: {
+            Statistics: true
+          }
+        }
+      }
+    });
+
+    if (!user || !user.GameplayUser) {
+      return res.status(404).json({ success: false, message: "User or GameplayUser not found" });
+    }
+
+    const mutualFriends = await getMutualFriends(user);
+
+    // Get the most recent statistics or use default values
+    const latestStats = user.GameplayUser.Statistics[0] || {};
+
+    const statistics: Statistics = {
+      badges: latestStats.badges || [],
+      numDeaths: latestStats.numDeaths || 0,
+      numLootPlaced: latestStats.numLootPlaced || 0,
+      numLandminesPlaced: latestStats.numLandminesPlaced || 0,
+      numMissilesPlaced: latestStats.numMissilesPlaced || 0,
+      numLootPickups: latestStats.numLootPickups || 0,
+    };
+
+    const userProfile: UserProfile = {
+      username: user.username,
+      mutualFriends: mutualFriends,
+      statistics: statistics
+    };
+
+    res.status(200).json({ success: true, userProfile });
+  } catch (error) {
+    console.error("Failed to get self profile:", error);
+    res.status(500).json({ success: false, message: "Failed to get self profile" });
+  }
+});
+
 app.get("/api/playerlocations", async (req, res) => {
   const token = req.query.token;
 
