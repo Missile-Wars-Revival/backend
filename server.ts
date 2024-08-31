@@ -1081,6 +1081,57 @@ async function getMutualFriends(currentUser: { friends: any; username: string; }
   return mutualFriends;
 }
 
+export interface UserProfile {
+  username: string;
+  email: string;
+  badges: string[];
+  mutualFriends: string[];
+}
+
+app.get("/api/user-profile", async (req, res) => {
+  const { token, username } = req.query;
+
+  if (!token || !username) {
+    return res.status(400).json({ success: false, message: "Missing token or username" });
+  }
+
+  try {
+    const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
+    if (typeof decoded === 'string' || !decoded.username) {
+      return res.status(401).json({ success: false, message: "Invalid token" });
+    }
+
+    const user = await prisma.users.findUnique({
+      where: { username: username as string },
+      include: {
+        GameplayUser: {
+          include: {
+            Statistics: true
+          }
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const mutualFriends = await getMutualFriends(user);
+
+    const userProfile: UserProfile = {
+      username: user.username,
+      email: user.email,
+      badges: user.GameplayUser?.Statistics[0]?.badges || [],
+      mutualFriends: mutualFriends
+    };
+
+    res.status(200).json({ success: true, userProfile });
+  } catch (error) {
+    console.error("Failed to get user profile:", error);
+    res.status(500).json({ success: false, message: "Failed to get user profile" });
+  }
+});
+
 app.get("/api/playerlocations", async (req, res) => {
   const token = req.query.token;
 
@@ -1416,7 +1467,7 @@ app.post("/api/addFriend", async (req: Request, res: Response) => {
     // Add friend
     await prisma.users.update({
       where: {
-        username: user.username,
+      username: user.username,
       },
       data: {
         friends: {
@@ -1591,7 +1642,7 @@ app.post("/api/purchaseItem", async (req, res) => {
 
     // Retrieve the user from the database
     const user = await prisma.gameplayUser.findFirst({
-      where: {
+    where: {
         username: decoded.username,
       },
     });
