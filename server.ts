@@ -1858,6 +1858,55 @@ app.get("/api/notifications", async (req, res) => {
   }
 });
 
+app.delete("/api/deleteNotification", async (req, res) => {
+  const { token, notificationId } = req.body;
+
+  try {
+    // Verify the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+    if (!decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Fetch the user's current notifications
+    const user = await prisma.users.findUnique({
+      where: { username: decoded.username },
+      select: { notifications: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Filter out the notification with the matching ID
+    const updatedNotifications = user.notifications.filter(notificationStr => {
+      try {
+        const notification = JSON.parse(notificationStr);
+        return notification.id !== notificationId;
+      } catch (error) {
+        console.error("Error parsing notification:", error);
+        return true; // Keep notifications that can't be parsed
+      }
+    });
+
+    // Check if a notification was actually removed
+    if (updatedNotifications.length === user.notifications.length) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    // Update the user's notifications
+    await prisma.users.update({
+      where: { username: decoded.username },
+      data: { notifications: updatedNotifications }
+    });
+
+    res.status(200).json({ message: "Notification deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting notification:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 app.post("/api/purchaseItem", async (req, res) => {
   const { token, items, money } = req.body;
 
