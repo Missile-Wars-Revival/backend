@@ -1911,6 +1911,62 @@ app.delete("/api/deleteNotification", async (req, res) => {
   }
 });
 
+app.patch("/api/markNotificationAsRead", async (req, res) => {
+  const { token, notificationId } = req.body;
+
+  try {
+    // Verify the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+    if (!decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Fetch the user's current notifications
+    const user = await prisma.users.findUnique({
+      where: { username: decoded.username },
+      select: { notifications: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Update the isRead status of the specified notification
+    const updatedNotifications = user.notifications.map(notificationStr => {
+      try {
+        const notification = JSON.parse(notificationStr);
+        if (notification.id === notificationId) {
+          return JSON.stringify({ ...notification, isRead: true });
+        }
+        return notificationStr;
+      } catch (error) {
+        console.error("Error parsing notification:", error);
+        return notificationStr; // Keep notifications that can't be parsed unchanged
+      }
+    });
+
+    // Check if a notification was actually updated
+    const wasUpdated = updatedNotifications.some((notificationStr, index) => {
+      return notificationStr !== user.notifications[index];
+    });
+
+    if (!wasUpdated) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    // Update the user's notifications in the database
+    await prisma.users.update({
+      where: { username: decoded.username },
+      data: { notifications: updatedNotifications }
+    });
+
+    res.status(200).json({ message: "Notification marked as read successfully" });
+  } catch (error) {
+    console.error("Error marking notification as read:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 app.post("/api/purchaseItem", async (req, res) => {
   const { token, items, money } = req.body;
 
