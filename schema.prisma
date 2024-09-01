@@ -166,18 +166,28 @@ model Sessions {
 }
 
 model Users {
-  id                Int           @id @default(sequence(maxValue: 2147483647))
-  email             String        @default("")
-  password          String        @default("")
-  username          String        @unique @default("")
-  role              String        @default("user")
-  avatar            String        @default("")
-  friends           String[]      @default([])
-  notificationToken String        @default("")
-  notifications     String[]      @default([])
-  createdAt         DateTime      @default(now())
-  deletedAt         DateTime      @default(now())
-  updatedAt         DateTime      @default(now())
-  stripeCustomerId  String?       @unique
+  id                Int             @id @default(sequence(maxValue: 2147483647))
+  email             String          @default("")
+  password          String          @default("")
+  username          String          @unique @default("")
+  role              String          @default("user")
+  avatar            String          @default("")
+  friends           String[]        @default([])
+  notificationToken String          @default("")
+  createdAt         DateTime        @default(now())
+  deletedAt         DateTime        @default(now())
+  updatedAt         DateTime        @default(now())
+  stripeCustomerId  String?         @unique
   GameplayUser      GameplayUser?
+  Notifications     Notifications[]
+}
+
+model Notifications {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  body      String
+  timestamp DateTime @default(now())
+  isRead    Boolean  @default(false)
+  user      Users    @relation(fields: [userId], references: [username])
 }
