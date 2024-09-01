@@ -660,6 +660,8 @@ app.post("/api/firemissile@player", async (req, res) => {
       }
     });
 
+
+    await sendNotification(playerusername, "Incoming Missile!", `A missile has been fired at you by ${user.username}!`);
     res.status(200).json({ message: "Missile fired successfully" });
   } catch (error) {
     console.error("Add item failed: ", error);
@@ -1805,6 +1807,54 @@ app.post('/api/payment-intent', async (req, res) => {
       status: 'failed',
       message: "Server error during payment processing."
     });
+  }
+});
+
+app.delete("/api/deleteNotificationToken", async (req, res) => {
+  const { token } = req.body;
+
+  try {
+    // Verify the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+    if (!decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Update the user, setting notificationToken to null or an empty string
+    await prisma.users.update({
+      where: { username: decoded.username },
+      data: { notificationToken: "" } // Using an empty string instead of null
+    });
+
+    res.status(200).json({ message: "Notification token deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting notification token:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+app.get("/api/notifications", async (req, res) => {
+  const token = req.query.token as string;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+    if (!decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    const user = await prisma.users.findUnique({
+      where: { username: decoded.username },
+      select: { notifications: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({ notifications: user.notifications });
+  } catch (error) {
+    console.error("Error fetching notifications:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
