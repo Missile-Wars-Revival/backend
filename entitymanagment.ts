@@ -1,6 +1,5 @@
 import { prisma } from "./server";
 import * as geolib from 'geolib';
-const { random } = require('lodash');
 
 export const haversine = (lat1: string, lon1: string, lat2: string, lon2: string) => {
   const R = 6371e3; // meters
@@ -26,45 +25,62 @@ export function getRandomCoordinates(latitude: number, longitude: number, radius
   );
   return randomPoint;
 }
+interface Coordinates {
+  latitude: number;
+  longitude: number;
+}
+
+function interpolatePosition(start: Coordinates, end: Coordinates, fraction: number): Coordinates {
+  const distance = geolib.getDistance(start, end);
+  const bearing = geolib.getRhumbLineBearing(start, end);
+  return geolib.computeDestinationPoint(start, distance * fraction, bearing);
+}
 
 export const updateMissilePositions = async () => {
   try {
     const missiles = await prisma.missile.findMany({ where: { status: 'Incoming' } });
+    const currentTime = new Date();
 
     const updates = missiles.map(async (missile) => {
-      const timeNow = new Date();
-      const timeLaunched = missile.sentAt; 
-      const impactTime = missile.timeToImpact; 
+      const startPosition = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
+      const destinationPosition = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
+      const timeLaunched = new Date(missile.sentAt);
+      const impactTime = new Date(missile.timeToImpact);
 
       if (isNaN(timeLaunched.getTime()) || isNaN(impactTime.getTime())) {
         console.error('Invalid date found for missile ID:', missile.id);
         return;
       }
 
-      const startPosition = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
-      const destinationPosition = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
+      const totalFlightTime = impactTime.getTime() - timeLaunched.getTime();
+      const elapsedTime = currentTime.getTime() - timeLaunched.getTime();
+      const remainingTime = impactTime.getTime() - currentTime.getTime();
 
-      const totalDistance = geolib.getDistance(startPosition, destinationPosition);
-      const totalTime = impactTime.getTime() - timeLaunched.getTime();
-      const speed = totalDistance / (totalTime / 1000); // Speed in meters per second
-
-      const timeElapsed = timeNow.getTime() - timeLaunched.getTime();
-      const distanceTraveled = speed * (timeElapsed / 1000); // Distance traveled till now
-
-      if (distanceTraveled >= totalDistance && timeNow >= impactTime) {
+      // If the missile has reached its destination
+      if (remainingTime <= 0) {
         return prisma.missile.update({
           where: { id: missile.id },
-          data: { currentLat: missile.destLat, currentLong: missile.destLong, status: 'Hit' }
-        });
-      } else {
-        const newLocation = geolib.computeDestinationPoint(startPosition, distanceTraveled, geolib.getGreatCircleBearing(startPosition, destinationPosition));
-        //console.log(`Missile ID: ${missile.id}, New Location: Latitude ${newLocation.latitude}, Longitude ${newLocation.longitude}`);
-
-        return prisma.missile.update({
-          where: { id: missile.id },
-          data: { currentLat: newLocation.latitude.toString(), currentLong: newLocation.longitude.toString() }
+          data: { 
+            currentLat: missile.destLat, 
+            currentLong: missile.destLong, 
+            status: 'Hit' 
+          }
         });
       }
+
+      // Calculate the fraction of the journey completed
+      const fractionCompleted = elapsedTime / totalFlightTime;
+
+      // Use our custom interpolation function
+      const newPosition = interpolatePosition(startPosition, destinationPosition, fractionCompleted);
+
+      return prisma.missile.update({
+        where: { id: missile.id },
+        data: { 
+          currentLat: newPosition.latitude.toFixed(6), 
+          currentLong: newPosition.longitude.toFixed(6)
+        }
+      });
     });
 
     await Promise.all(updates);

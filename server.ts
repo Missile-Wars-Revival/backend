@@ -23,7 +23,7 @@ import {
   RegisterSchema,
 } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates } from "./entitymanagment";
-import { sendNotification } from "./notificationhelper";
+import { sendNotification, startNotificationManager } from "./notificationhelper";
 
 export const prisma = new PrismaClient();
 
@@ -673,6 +673,9 @@ setInterval(addRandomLoot, 60000);
 setInterval(deleteExpiredLandmines, 30000);
 setInterval(deleteExpiredLoot, 30000);
 setInterval(updateMissilePositions, 30000);
+
+//manages notifications
+startNotificationManager();
 
 
 app.post("/api/placelandmine", async (req, res) => {
@@ -1479,9 +1482,7 @@ app.get("/api/nearby", async (req, res) => {
       where: {
         username: decoded.username,
       },
-      include: {
-        GameplayUser: true
-      }
+      select: { friends: true }
     });
 
     if (!mainUser) {
@@ -1489,35 +1490,18 @@ app.get("/api/nearby", async (req, res) => {
     }
 
     const radiusInMeters = 15000; // 15 km
-    const earthRadiusKm = 6371; // Earth's radius in kilometers
 
-    // Calculate the latitude and longitude ranges
-    const latRange = radiusInMeters / 111000; // 111000 meters is roughly 1 degree of latitude
-    const lonRange = radiusInMeters / (111000 * Math.cos(latitude * Math.PI / 180));
-
-    // Exclude friends from the search
+    // Fetch nearby users
     const nearbyUsers = await prisma.gameplayUser.findMany({
       where: {
         AND: [
           { username: { not: { equals: decoded.username } } }, // Exclude self
           { username: { not: { in: mainUser.friends } } }, // Exclude friends
-          { isAlive: true }, // Only include alive users
-          {
-            OR: [
-              { friendsOnly: false },
-              { username: { in: mainUser.friends } }
-            ]
-          },
+          { friendsOnly: false }, // Only include users with friendsOnly set to false
           {
             Locations: {
-              latitude: {
-                gte: (latitude - latRange).toString(),
-                lte: (latitude + latRange).toString(),
-              },
-              longitude: {
-                gte: (longitude - lonRange).toString(),
-                lte: (longitude + lonRange).toString(),
-              },
+              latitude: { not: { equals: '' } },
+              longitude: { not: { equals: '' } }
             }
           }
         ]
@@ -1527,7 +1511,7 @@ app.get("/api/nearby", async (req, res) => {
       }
     });
 
-    // Further filter results using more precise distance calculation
+    // Filter results using precise distance calculation
     const filteredNearbyUsers = nearbyUsers.filter(user => {
       const userLoc = user.Locations;
       if (!userLoc) return false;
