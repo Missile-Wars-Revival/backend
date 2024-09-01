@@ -38,7 +38,7 @@ export async function sendNotification(username: string, title: string, body: st
         where: { username },
         data: {
           notifications: {
-            push: JSON.stringify({ id: uuidv4(), title, body, timestamp: new Date(), read: false })
+            push: JSON.stringify({ id: uuidv4(), title, body, timestamp: new Date(), isRead: false })
           }
         }
       });
