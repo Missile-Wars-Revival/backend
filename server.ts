@@ -13,6 +13,7 @@ import { JwtPayload } from "jsonwebtoken";
 import * as middleearth from "middle-earth";
 import { number, z, ZodError } from "zod";
 import Stripe from 'stripe';
+import { Expo } from 'expo-server-sdk';
 import {
   AuthWithLocation,
   AuthWithLocationSchema,
@@ -22,11 +23,14 @@ import {
   RegisterSchema,
 } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates } from "./entitymanagment";
+import { sendNotification } from "./notificationhelper";
 
 export const prisma = new PrismaClient();
 
 const wsServer = expressWs(express());
 const app = wsServer.app;;
+
+const expo = new Expo();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2024-06-20'
@@ -1647,6 +1651,9 @@ app.post("/api/addFriend", async (req: Request, res: Response) => {
         },
       },
     });
+
+
+    await sendNotification(friend, "Friend Request", `${user.username} has added you as a friend!`);
     console.log("Friend added")
     res.status(200).json({ message: "Friend added successfully" });
   } catch (error) {
