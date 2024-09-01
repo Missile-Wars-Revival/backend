@@ -1,5 +1,6 @@
 import Expo from "expo-server-sdk";
 import { prisma } from "./server";
+import { v4 as uuidv4 } from 'uuid';
 
 const expo = new Expo();
 
@@ -37,7 +38,7 @@ export async function sendNotification(username: string, title: string, body: st
         where: { username },
         data: {
           notifications: {
-            push: JSON.stringify({ title, body, timestamp: new Date() })
+            push: JSON.stringify({ id: uuidv4(), title, body, timestamp: new Date() })
           }
         }
       });
