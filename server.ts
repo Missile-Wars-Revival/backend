@@ -24,6 +24,7 @@ import {
 } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates } from "./entitymanagment";
 import { sendNotification, startNotificationManager } from "./notificationhelper";
+import { aiBots, manageAIBots } from "./bots";
 
 export const prisma = new PrismaClient();
 
@@ -285,8 +286,22 @@ app.ws("/", (ws, req) => {
         username: gpu.username,
         ...gpu.Locations
       }));
+
+      // Add AI bots to the locations
+      const aiLocations = aiBots
+        .filter(bot => bot.isOnline)
+        .map(bot => ({
+          username: bot.username,
+          latitude: bot.latitude.toFixed(6),
+          longitude: bot.longitude.toFixed(6),
+          updatedAt: bot.lastUpdate
+        }));
+
+      // Combine real player locations with AI bot locations
+      const allLocations = [...locations, ...aiLocations];
+
       //bundle for sending
-      let playerslocations = locations
+      let playerslocations = allLocations
       let userinventory = inventory
       let dataBundle = new middleearth.WebSocketMessage([
         new middleearth.WSMsg('health', userhealth),
@@ -677,6 +692,9 @@ setInterval(updateMissilePositions, 30000);
 //manages notifications
 startNotificationManager();
 
+//Bots:
+manageAIBots();
+
 
 app.post("/api/placelandmine", async (req, res) => {
   const { token, locLat, locLong, landminetype } = req.body;
@@ -759,7 +777,7 @@ app.post("/api/placelandmine", async (req, res) => {
           placedtime: new Date().toISOString(),
           type: landminetype,
           damage: landmineType.damage,
-          Expires: new Date(new Date().getTime() + durationInMilliseconds) 
+          Expires: new Date(new Date().getTime() + durationInMilliseconds)
         }
       });
 
@@ -1631,7 +1649,7 @@ app.post("/api/addFriend", async (req: Request, res: Response) => {
     // Add friend
     await prisma.users.update({
       where: {
-      username: user.username,
+        username: user.username,
       },
       data: {
         friends: {
@@ -1906,7 +1924,7 @@ app.post("/api/purchaseItem", async (req, res) => {
 
     // Retrieve the user from the database
     const user = await prisma.gameplayUser.findFirst({
-    where: {
+      where: {
         username: decoded.username,
       },
     });
