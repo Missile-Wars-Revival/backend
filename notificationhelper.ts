@@ -9,8 +9,11 @@ export async function sendNotification(username: string, title: string, body: st
       where: { username },
     });
   
-    if (!user || !user.notificationToken) return;
-  
+    if (!user || !user.notificationToken) {
+      console.log(`No user found or no notification token for username: ${username}`);
+      return;
+    }
+
     if (!Expo.isExpoPushToken(user.notificationToken)) {
       console.error(`Push token ${user.notificationToken} is not a valid Expo push token`);
       return;
@@ -25,16 +28,16 @@ export async function sendNotification(username: string, title: string, body: st
     };
   
     try {
-      await expo.sendPushNotificationsAsync([{
+      const result = await expo.sendPushNotificationsAsync([{
         to: message.to,
         sound: "default",
         title: message.title,
         body: message.body,
         data: message.data,
       }]);
+      console.log('Expo push result:', result);
       
-      // Store the notification in the user's notifications array
-      await prisma.notifications.create({
+      const notification = await prisma.notifications.create({
         data: {
           userId: username,
           title,
@@ -42,6 +45,7 @@ export async function sendNotification(username: string, title: string, body: st
           // The id, timestamp, and isRead fields will be automatically handled by Prisma
         }
       });
+      console.log('Notification created:', notification);
     } catch (error) {
       console.error('Error sending notification:', error);
     }
