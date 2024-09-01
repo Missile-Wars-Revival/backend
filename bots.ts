@@ -201,18 +201,18 @@ async function fireMissile(bot: AIBot, target: any) {
 }
 
 async function updateBotsInBatch(bots: AIBot[]) {
-  const updates = bots.map(bot => ({
-    where: { username: bot.username },
-    data: {
-      latitude: bot.latitude.toString(),
-      longitude: bot.longitude.toString(),
-      updatedAt: new Date()
-    }
-  }));
-
-  await prisma.locations.updateMany({
-    data: updates
-  });
+  await prisma.$transaction(
+    bots.map(bot => 
+      prisma.locations.updateMany({
+        where: { username: bot.username },
+        data: {
+          latitude: bot.latitude.toString(),
+          longitude: bot.longitude.toString(),
+          updatedAt: new Date()
+        }
+      })
+    )
+  );
 }
 
 export async function manageAIBots() {
