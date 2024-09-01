@@ -61,40 +61,71 @@ async function createBot(): Promise<AIBot> {
     inventory[type.name] = Math.floor(Math.random() * 5) + 1; // 1 to 5 missiles of each type
   });
 
-  const botUsername = generateRandomUsername();
+  let botUsername: string;
+  let createdUser: any;
 
-  // Create a User and GameplayUser entry for the bot
-  const createdUser = await prisma.users.create({
-    data: {
-      email: `${botUsername}@example.com`,
-      password: uuidv4(), // Generate a random password
-      username: botUsername,
-      role: "bot", // Explicitly set the role to "bot"
-      avatar: "", // You might want to set a default avatar for bots
-      friends: [],
-      notificationToken: "",
-      GameplayUser: {
-        create: {
-          isAlive: true,
-          friendsOnly: false,
-          health: 100,
-          Locations: {
+  // Keep trying to create a user until we succeed with a unique username
+  while (true) {
+    try {
+      botUsername = generateRandomUsername();
+      
+      createdUser = await prisma.users.create({
+        data: {
+          email: `${botUsername}@example.com`,
+          password: uuidv4(), // Generate a random password
+          username: botUsername,
+          role: "bot", // Explicitly set the role to "bot"
+          avatar: "", // You might want to set a default avatar for bots
+          friends: [],
+          notificationToken: "",
+          GameplayUser: {
             create: {
-              latitude: latitude.toString(),
-              longitude: longitude.toString()
+              isAlive: true,
+              friendsOnly: false,
+              health: 100,
+              Locations: {
+                create: {
+                  latitude: latitude.toString(),
+                  longitude: longitude.toString()
+                }
+              }
             }
           }
+        },
+        include: {
+          GameplayUser: {
+            include: { Locations: true }
+          }
         }
-      }
-    },
-    include: {
-      GameplayUser: {
-        include: { Locations: true }
+      });
+
+      // If we reach here, the user was created successfully
+      break;
+    } catch (error: unknown) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'P2002' &&
+        'meta' in error &&
+        typeof error.meta === 'object' &&
+        error.meta !== null &&
+        'target' in error.meta &&
+        Array.isArray(error.meta.target) &&
+        error.meta.target.includes('username')
+      ) {
+        // Username already exists, we'll try again with a new username
+        console.log(`Username already exists, trying again...`);
+        continue;
+      } else {
+        // If it's a different error, we throw it
+        throw error;
       }
     }
-  });
+  }
+
   const bot: AIBot = {
-    id: createdUser.id.toString(), // Convert the database-generated ID to string
+    id: createdUser.id,
     username: botUsername,
     latitude,
     longitude,
