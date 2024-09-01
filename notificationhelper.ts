@@ -1,6 +1,7 @@
-const expo = new Expo();
 import Expo from "expo-server-sdk";
 import { prisma } from "./server";
+
+const expo = new Expo();
 
 export async function sendNotification(username: string, title: string, body: string) {
     const user = await prisma.users.findUnique({
