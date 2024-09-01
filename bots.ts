@@ -25,11 +25,27 @@ function generateRandomUsername(): string {
   return `${sample(adjectives)}${sample(nouns)}${Math.floor(Math.random() * 1000)}`;
 }
 
+// New configuration object
+const config = {
+  maxBots: 50,
+  minBots: 10,
+  updateInterval: 60000,
+  batchSize: 10,
+  landCoordinates: [
+    { minLat: 25, maxLat: 49, minLong: -125, maxLong: -66 }, // North America
+    { minLat: 36, maxLat: 70, minLong: -10, maxLong: 40 },   // Europe
+    { minLat: -34, maxLat: -10, minLong: 112, maxLong: 154 }, // Australia
+    // Add more regions as needed
+  ]
+};
+
 function getRandomLandCoordinates() {
-  // This is a simplified version. You might want to use a more sophisticated method
-  // to ensure bots are on land, possibly using a geography API or predefined land areas.
-  const latitude = Math.random() * 180 - 90;
-  const longitude = Math.random() * 360 - 180;
+  const region = sample(config.landCoordinates);
+  if (!region) {
+    throw new Error('No land coordinates available');
+  }
+  const latitude = Math.random() * (region.maxLat - region.minLat) + region.minLat;
+  const longitude = Math.random() * (region.maxLong - region.minLong) + region.minLong;
   return { latitude, longitude };
 }
 
@@ -45,32 +61,48 @@ async function createBot(): Promise<AIBot> {
     inventory[type.name] = Math.floor(Math.random() * 5) + 1; // 1 to 5 missiles of each type
   });
 
+  const botUsername = generateRandomUsername();
+
+  // Create a User and GameplayUser entry for the bot
+  const createdUser = await prisma.users.create({
+    data: {
+      email: `${botUsername}@example.com`,
+      password: uuidv4(), // Generate a random password
+      username: botUsername,
+      role: "bot", // Explicitly set the role to "bot"
+      avatar: "", // You might want to set a default avatar for bots
+      friends: [],
+      notificationToken: "",
+      GameplayUser: {
+        create: {
+          isAlive: true,
+          friendsOnly: false,
+          health: 100,
+          Locations: {
+            create: {
+              latitude: latitude.toString(),
+              longitude: longitude.toString()
+            }
+          }
+        }
+      }
+    },
+    include: {
+      GameplayUser: {
+        include: { Locations: true }
+      }
+    }
+  });
   const bot: AIBot = {
-    id: uuidv4(),
-    username: generateRandomUsername(),
+    id: createdUser.id.toString(), // Convert the database-generated ID to string
+    username: botUsername,
     latitude,
     longitude,
-    isOnline: Math.random() > 0.3, // 70% chance of being online
+    isOnline: true, // Start as online
     lastUpdate: new Date(),
     health: 100,
     inventory: inventory
   };
-
-  // Create a GameplayUser entry for the bot
-  await prisma.gameplayUser.create({
-    data: {
-      username: bot.username,
-      isAlive: true,
-      friendsOnly: false,
-      health: bot.health,
-      Locations: {
-        create: {
-          latitude: bot.latitude.toString(),
-          longitude: bot.longitude.toString()
-        }
-      }
-    }
-  });
 
   return bot;
 }
@@ -168,30 +200,70 @@ async function fireMissile(bot: AIBot, target: any) {
   bot.inventory[randomMissileType.name]--;
 }
 
+async function updateBotsInBatch(bots: AIBot[]) {
+  const updates = bots.map(bot => ({
+    where: { username: bot.username },
+    data: {
+      latitude: bot.latitude.toString(),
+      longitude: bot.longitude.toString(),
+      updatedAt: new Date()
+    }
+  }));
+
+  await prisma.locations.updateMany({
+    data: updates
+  });
+}
+
 export async function manageAIBots() {
-  const maxBots = 50; // Adjust this number as needed
-  const updateInterval = 60000; // Update every minute
+  let lastUpdateTime = Date.now();
 
-  // Create initial bots if needed
-  while (aiBots.length < maxBots) {
-    aiBots.push(await createBot());
-  }
+  async function updateLoop() {
+    const currentTime = Date.now();
+    const timeSinceLastUpdate = currentTime - lastUpdateTime;
 
-  // Update bot positions and perform actions
-  setInterval(async () => {
-    for (const bot of aiBots) {
-      await updateBotPosition(bot);
-      await botAction(bot);
+    // Dynamically adjust bot count based on active players
+    const activePlayers = await prisma.gameplayUser.count({ where: { isAlive: true } });
+    const targetBotCount = Math.min(Math.max(config.minBots, Math.floor(activePlayers / 2)), config.maxBots);
 
-      if (Math.random() > 0.9) { // 10% chance of changing online status
-        bot.isOnline = !bot.isOnline;
-        await prisma.gameplayUser.update({
-          where: { username: bot.username },
-          data: { isAlive: bot.isOnline }
-        });
+    // Create or remove bots as needed
+    while (aiBots.length < targetBotCount) {
+      aiBots.push(await createBot());
+    }
+    while (aiBots.length > targetBotCount) {
+      const removedBot = aiBots.pop();
+      if (removedBot) {
+        await prisma.users.delete({ where: { username: removedBot.username } });
       }
     }
-  }, updateInterval);
+
+    // Update bots in batches
+    for (let i = 0; i < aiBots.length; i += config.batchSize) {
+      const batch = aiBots.slice(i, i + config.batchSize);
+      await Promise.all(batch.map(async (bot) => {
+        await updateBotPosition(bot);
+        await botAction(bot);
+
+        if (Math.random() > 0.9) {
+          bot.isOnline = !bot.isOnline;
+          await prisma.gameplayUser.update({
+            where: { username: bot.username },
+            data: { isAlive: bot.isOnline }
+          });
+        }
+      }));
+
+      await updateBotsInBatch(batch);
+    }
+
+    lastUpdateTime = currentTime;
+
+    // Schedule next update
+    const nextUpdateTime = Math.max(0, config.updateInterval - (Date.now() - currentTime));
+    setTimeout(updateLoop, nextUpdateTime);
+  }
+
+  updateLoop();
 }
 
 export { aiBots };
