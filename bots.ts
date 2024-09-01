@@ -298,3 +298,38 @@ export async function manageAIBots() {
 }
 
 export { aiBots };
+
+export async function deleteAllBots() {
+    try {
+      // Start a transaction
+      await prisma.$transaction(async (prisma) => {
+        // Get all bot usernames
+        const botUsers = await prisma.users.findMany({
+          where: { role: "bot" },
+          select: { username: true }
+        });
+  
+        const botUsernames = botUsers.map(user => user.username);
+  
+        // Delete related records first
+        await prisma.locations.deleteMany({
+          where: { username: { in: botUsernames } }
+        });
+  
+        await prisma.gameplayUser.deleteMany({
+          where: { username: { in: botUsernames } }
+        });
+  
+        // Now delete the bot users
+        const deletedBots = await prisma.users.deleteMany({
+          where: { role: "bot" }
+        });
+  
+        console.log(`Deleted ${deletedBots.count} bots`);
+      });
+    } catch (error) {
+      console.error("Error deleting bots:", error);
+    } finally {
+      await prisma.$disconnect();
+    }
+  }

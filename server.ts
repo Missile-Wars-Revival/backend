@@ -24,7 +24,7 @@ import {
 } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates } from "./entitymanagment";
 import { sendNotification, startNotificationManager } from "./notificationhelper";
-import { aiBots, manageAIBots } from "./bots";
+import { aiBots, deleteAllBots, manageAIBots } from "./bots";
 
 export const prisma = new PrismaClient();
 
@@ -693,7 +693,9 @@ setInterval(updateMissilePositions, 30000);
 startNotificationManager();
 
 //Bots:
-manageAIBots();
+//manageAIBots();
+
+//deleteAllBots();
 
 
 app.post("/api/placelandmine", async (req, res) => {
