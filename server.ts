@@ -1098,6 +1098,7 @@ interface Statistics {
 
 interface UserProfile {
   username: string;
+  rankpoints: number;
   mutualFriends: string[];
   statistics: Statistics;
 }
@@ -1105,6 +1106,7 @@ interface UserProfile {
 interface SelfProfile {
   username: string;
   email: string;
+  rankpoints: number;
   mutualFriends: string[];
   statistics: Statistics;
 }
@@ -1150,6 +1152,7 @@ app.get("/api/user-profile", async (req, res) => {
 
     const userProfile: UserProfile = {
       username: user.username,
+      rankpoints: user.GameplayUser?.rankPoints || 0,
       mutualFriends: mutualFriends,
       statistics: statistics
     };
@@ -1206,6 +1209,7 @@ app.get("/api/self-profile", async (req, res) => {
     const userProfile: SelfProfile = {
       username: user.username,
       email: user.email,
+      rankpoints: user.GameplayUser?.rankPoints || 0,
       mutualFriends: mutualFriends,
       statistics: statistics
     };
