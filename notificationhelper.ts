@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 const expo = new Expo();
 
-export async function sendNotification(username: string, title: string, body: string) {
+export async function sendNotification(username: string, title: string, body: string, sentby: string) {
     const user = await prisma.users.findUnique({
       where: { username },
     });
@@ -42,6 +42,7 @@ export async function sendNotification(username: string, title: string, body: st
           userId: username,
           title,
           body,
+          sentby,
           // The id, timestamp, and isRead fields will be automatically handled by Prisma
         }
       });

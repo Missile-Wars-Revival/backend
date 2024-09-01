@@ -187,6 +187,7 @@ model Notifications {
   userId    String
   title     String
   body      String
+  sentby    String   @default("")
   timestamp DateTime @default(now())
   isRead    Boolean  @default(false)
   user      Users    @relation(fields: [userId], references: [username])

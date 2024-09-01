@@ -659,13 +659,11 @@ app.post("/api/firemissile@player", async (req, res) => {
         timeToImpact: new Date(new Date().getTime() + timeToImpact)
       }
     });
-
-
-    await sendNotification(playerusername, "Incoming Missile!", `A missile has been fired at you by ${user.username}!`);
+    await sendNotification(playerusername, "Incoming Missile!", `A missile has been fired at you by ${user.username}!`, user.username);
     res.status(200).json({ message: "Missile fired successfully" });
   } catch (error) {
-    console.error("Add item failed: ", error);
-    res.status(500).json({ message: "Add item failed" });
+    console.error("Missile firing failed: ", error);
+    res.status(500).json({ message: "Missile firing failed" });
   }
 });
 
@@ -1657,10 +1655,8 @@ app.post("/api/addFriend", async (req: Request, res: Response) => {
         },
       },
     });
-
-
-    await sendNotification(friend, "Friend Request", `${user.username} has added you as a friend!`);
-    console.log("Friend added")
+    await sendNotification(friend, "Friend Request", `${user.username} has added you as a friend!`, user.username);
+    console.log("Friend added");
     res.status(200).json({ message: "Friend added successfully" });
   } catch (error) {
     console.error("Error processing request:", error);
