@@ -34,12 +34,12 @@ export async function sendNotification(username: string, title: string, body: st
       }]);
       
       // Store the notification in the user's notifications array
-      await prisma.users.update({
-        where: { username },
+      await prisma.notifications.create({
         data: {
-          notifications: {
-            push: JSON.stringify({ id: uuidv4(), title, body, timestamp: new Date(), isRead: false })
-          }
+          userId: username,
+          title,
+          body,
+          // The id, timestamp, and isRead fields will be automatically handled by Prisma
         }
       });
     } catch (error) {
