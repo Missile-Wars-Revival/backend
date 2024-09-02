@@ -26,6 +26,7 @@ const config = {
   minBots: 5,
   updateInterval: 10000, // 10 seconds
   batchSize: 5,
+  maxActiveMissiles: 20, // Maximum number of active missiles
   pois: [
     { latitude: 40.7128, longitude: -74.0060 }, // New York
     { latitude: 34.0522, longitude: -118.2437 }, // Los Angeles
@@ -43,6 +44,13 @@ const config = {
   ],
   movementStepSize: 0.005, // Adjust this value for smaller steps
 };
+
+async function getActiveMissileCount() {
+  const activeMissiles = await prisma.missile.count({
+    where: { status: "Incoming" },
+  });
+  return activeMissiles;
+}
 
 async function fireMissileAtPlayer(bot: AIBot, player: any, missileType: any) {
   try {
@@ -164,6 +172,12 @@ async function interactWithPlayers(bot: AIBot) {
     return;
   }
 
+  const activeMissileCount = await getActiveMissileCount();
+  if (activeMissileCount >= config.maxActiveMissiles) {
+    console.log(`Too many active missiles. ${bot.username} will not fire a missile.`);
+    return;
+  }
+
   if (Math.random() < 0.05) { // 5% chance to interact with players
     const missileType = await getRandomMissileType();
     const player = await getRandomPlayer();
@@ -261,36 +275,62 @@ async function updateBotsInBatch(bots: AIBot[]) {
 }
 
 async function manageAIBots() {
-  setInterval(async () => {
-    const activePlayers = await prisma.users.count({
-      where: { role: "player" },
-    });
+	setInterval(async () => {
+		const activePlayers = await prisma.users.count({
+			where: { role: "player" },
+		});
 
-    const desiredBotCount = Math.min(
-      config.maxBots,
-      Math.max(config.minBots, Math.floor(activePlayers / 2))
-    );
+		const desiredBotCount = Math.min(
+			config.maxBots,
+			Math.max(config.minBots, Math.floor(activePlayers / 2))
+		);
 
-    while (aiBots.length < desiredBotCount) {
-      await createBot();
-    }
+		while (aiBots.length < desiredBotCount) {
+			await createBot();
+		}
 
-    while (aiBots.length > desiredBotCount) {
-      const bot = aiBots.pop();
-      if (bot) {
-        await prisma.users.delete({ where: { username: bot.username } });
-      }
-    }
+		while (aiBots.length > desiredBotCount) {
+			const bot = aiBots.pop();
+			if (bot) {
+				await prisma.users.delete({ where: { username: bot.username } });
+			}
+		}
 
-    const botsToUpdate = aiBots.slice(0, config.batchSize);
-    await updateBotsInBatch(botsToUpdate);
+		const botsToUpdate = aiBots.slice(0, config.batchSize);
+		await updateBotsInBatch(botsToUpdate);
 
-    aiBots.forEach(bot => {
-      if (Math.random() < 0.1) { // 10% chance to go offline
-        setBotOffline(bot);
-      }
-    });
-  }, config.updateInterval);
+		aiBots.forEach(bot => {
+			if (Math.random() < 0.1) { // 10% chance to go offline
+				setBotOffline(bot);
+			} else if (Math.random() < 0.1) { // 10% chance to go to sleep
+				setBotSleeping(bot);
+			}
+		});
+	}, config.updateInterval);
+}
+
+function setBotSleeping(bot: AIBot) {
+	bot.isOnline = false;
+
+	setTimeout(() => {
+		bot.isOnline = true;
+	}, getRandomSleepDuration());
+}
+
+function getRandomSleepDuration() {
+	const durationType = sample(["minutes", "hours"]);
+	let duration;
+
+	switch (durationType) {
+		case "minutes":
+			duration = Math.floor(Math.random() * 60) + 1; // 1 to 60 minutes
+			return duration * 60 * 1000; // Convert to milliseconds
+		case "hours":
+			duration = Math.floor(Math.random() * 8) + 1; // 1 to 8 hours
+			return duration * 60 * 60 * 1000; // Convert to milliseconds
+		default:
+			return 0;
+	}
 }
 
 async function deleteAllBots() {
