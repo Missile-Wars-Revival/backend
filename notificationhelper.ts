@@ -9,8 +9,25 @@ export async function sendNotification(username: string, title: string, body: st
       where: { username },
     });
   
-    if (!user || !user.notificationToken) {
-      console.log(`No user found or no notification token for username: ${username}`);
+    if (!user) {
+      console.log(`No user found for username: ${username}`);
+      return;
+    }
+
+    // Create the notification in the database regardless of the Expo token
+    const notification = await prisma.notifications.create({
+      data: {
+        userId: username,
+        title,
+        body,
+        sentby,
+        // The id, timestamp, and isRead fields will be automatically handled by Prisma
+      }
+    });
+    console.log('Notification created:', notification);
+
+    if (!user.notificationToken) {
+      console.log(`No notification token for username: ${username}`);
       return;
     }
 
@@ -36,17 +53,6 @@ export async function sendNotification(username: string, title: string, body: st
         data: message.data,
       }]);
       console.log('Expo push result:', result);
-      
-      const notification = await prisma.notifications.create({
-        data: {
-          userId: username,
-          title,
-          body,
-          sentby,
-          // The id, timestamp, and isRead fields will be automatically handled by Prisma
-        }
-      });
-      console.log('Notification created:', notification);
     } catch (error) {
       console.error('Error sending notification:', error);
     }
