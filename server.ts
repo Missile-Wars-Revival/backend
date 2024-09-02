@@ -693,7 +693,7 @@ setInterval(updateMissilePositions, 30000);
 startNotificationManager();
 
 //Bots:
-//manageAIBots();
+manageAIBots();
 
 //deleteAllBots();
 

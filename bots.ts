@@ -1,335 +1,320 @@
 import { PrismaClient } from "@prisma/client";
-import * as geolib from 'geolib';
-import { v4 as uuidv4 } from 'uuid';
-import { sample } from 'lodash';
-
-const prisma = new PrismaClient();
+import { sendNotification } from "./notificationhelper";
+import * as geolib from "geolib";
+import { v4 as uuidv4 } from "uuid";
+import { sample } from "lodash";
+import { AStarFinder } from 'pathfinding'; // Importing A* pathfinding library
 
 interface AIBot {
   id: string;
   username: string;
   latitude: number;
   longitude: number;
-  isOnline: boolean;
   lastUpdate: Date;
-  health: number;
-  inventory: { [key: string]: number };
+  isOnline: boolean;
+  behaviorTree: any; // Placeholder for behavior tree
 }
 
-let aiBots: AIBot[] = [];
+const prisma = new PrismaClient();
+const aiBots: AIBot[] = [];
 
-const adjectives = ['Happy', 'Sleepy', 'Grumpy', 'Dopey', 'Bashful', 'Sneezy', 'Doc'];
-const nouns = ['Dwarf', 'Elf', 'Hobbit', 'Wizard', 'Ranger', 'Knight', 'Archer'];
+const adjectives = ["Swift", "Brave", "Cunning", "Mighty"];
+const nouns = ["Eagle", "Tiger", "Wolf", "Bear"];
 
-function generateRandomUsername(): string {
-  return `${sample(adjectives)}${sample(nouns)}${Math.floor(Math.random() * 1000)}`;
-}
-
-// New configuration object
 const config = {
-  maxBots: 50,
-  minBots: 10,
-  updateInterval: 60000,
-  batchSize: 10,
-  landCoordinates: [
-    { minLat: 25, maxLat: 49, minLong: -125, maxLong: -66 }, // North America
-    { minLat: 36, maxLat: 70, minLong: -10, maxLong: 40 },   // Europe
-    { minLat: -34, maxLat: -10, minLong: 112, maxLong: 154 }, // Australia
-    // Add more regions as needed
-  ]
+  maxBots: 10,
+  minBots: 5,
+  updateInterval: 10000, // 10 seconds
+  batchSize: 5,
+  pois: [
+    { latitude: 40.7128, longitude: -74.0060 }, // New York
+    { latitude: 34.0522, longitude: -118.2437 }, // Los Angeles
+    { latitude: 51.5074, longitude: -0.1278 }, // London
+    { latitude: 48.8566, longitude: 2.3522 }, // Paris
+    { latitude: 35.6895, longitude: 139.6917 }, // Tokyo
+    { latitude: 55.7558, longitude: 37.6173 }, // Moscow
+    { latitude: -33.8688, longitude: 151.2093 }, // Sydney
+    { latitude: 37.7749, longitude: -122.4194 }, // San Francisco
+    { latitude: 39.9042, longitude: 116.4074 }, // Beijing
+    { latitude: 19.4326, longitude: -99.1332 }, // Mexico City
+    { latitude: 52.5200, longitude: 13.4050 }, // Berlin
+    { latitude: 41.9028, longitude: 12.4964 }, // Rome
+    { latitude: 40.4168, longitude: -3.7038 }, // Madrid
+  ],
+  movementStepSize: 0.005, // Adjust this value for smaller steps
 };
 
-function getRandomLandCoordinates() {
-  const region = sample(config.landCoordinates);
-  if (!region) {
-    throw new Error('No land coordinates available');
-  }
-  const latitude = Math.random() * (region.maxLat - region.minLat) + region.minLat;
-  const longitude = Math.random() * (region.maxLong - region.minLong) + region.minLong;
-  return { latitude, longitude };
-}
-
-async function createBot(): Promise<AIBot> {
-  const { latitude, longitude } = getRandomLandCoordinates();
-  
-  // Get all missile types
-  const missileTypes = await prisma.missileType.findMany();
-  
-  // Create an inventory with random quantities of each missile type
-  const inventory: { [key: string]: number } = {};
-  missileTypes.forEach(type => {
-    inventory[type.name] = Math.floor(Math.random() * 5) + 1; // 1 to 5 missiles of each type
-  });
-
-  let botUsername: string;
-  let createdUser: any;
-
-  // Keep trying to create a user until we succeed with a unique username
-  while (true) {
-    try {
-      botUsername = generateRandomUsername();
-      
-      createdUser = await prisma.users.create({
-        data: {
-          email: `${botUsername}@example.com`,
-          password: uuidv4(), // Generate a random password
-          username: botUsername,
-          role: "bot", // Explicitly set the role to "bot"
-          avatar: "", // You might want to set a default avatar for bots
-          friends: [],
-          notificationToken: "",
-          GameplayUser: {
-            create: {
-              isAlive: true,
-              friendsOnly: false,
-              health: 100,
-              Locations: {
-                create: {
-                  latitude: latitude.toString(),
-                  longitude: longitude.toString()
-                }
-              }
-            }
-          }
-        },
-        include: {
-          GameplayUser: {
-            include: { Locations: true }
-          }
-        }
-      });
-
-      // If we reach here, the user was created successfully
-      break;
-    } catch (error: unknown) {
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 'P2002' &&
-        'meta' in error &&
-        typeof error.meta === 'object' &&
-        error.meta !== null &&
-        'target' in error.meta &&
-        Array.isArray(error.meta.target) &&
-        error.meta.target.includes('username')
-      ) {
-        // Username already exists, we'll try again with a new username
-        console.log(`Username already exists, trying again...`);
-        continue;
-      } else {
-        // If it's a different error, we throw it
-        throw error;
-      }
+async function fireMissileAtPlayer(bot: AIBot, player: any, missileType: any) {
+  try {
+    if (!bot.latitude || !bot.longitude || !player.latitude || !player.longitude) {
+      throw new Error("Bot or player coordinates are missing");
     }
-  }
-
-  const bot: AIBot = {
-    id: createdUser.id,
-    username: botUsername,
-    latitude,
-    longitude,
-    isOnline: true, // Start as online
-    lastUpdate: new Date(),
-    health: 100,
-    inventory: inventory
-  };
-
-  return bot;
-}
-
-async function updateBotPosition(bot: AIBot) {
-  if (bot.isOnline) {
-    // Move the bot slightly, staying on land
-    const newCoords = getRandomLandCoordinates();
-    bot.latitude = newCoords.latitude;
-    bot.longitude = newCoords.longitude;
-
-    // Update the bot's location in the database
-    await prisma.locations.update({
-      where: { username: bot.username },
-      data: {
-        latitude: bot.latitude.toString(),
-        longitude: bot.longitude.toString(),
-        updatedAt: new Date()
-      }
-    });
-  }
-  bot.lastUpdate = new Date();
-}
-
-async function botAction(bot: AIBot) {
-  if (!bot.isOnline) return;
-
-  // Find nearby players
-  const nearbyPlayers = await prisma.gameplayUser.findMany({
-    where: {
-      isAlive: true,
-      username: { not: bot.username },
-      Locations: {
-        latitude: { not: "" },
-        longitude: { not: "" }
-      }
-    },
-    include: { Locations: true }
-  });
-
-  for (const player of nearbyPlayers) {
-    if (!player.Locations) continue;
 
     const distance = geolib.getDistance(
       { latitude: bot.latitude, longitude: bot.longitude },
-      { latitude: parseFloat(player.Locations.latitude), longitude: parseFloat(player.Locations.longitude) }
+      { latitude: player.latitude, longitude: player.longitude }
     );
+    const timeToImpact = Math.round(distance / missileType.speed * 1000); // time in milliseconds
 
-    if (distance <= 10000 && bot.inventory["BasicMissile"] > 0) { // Within 10km and has missiles
-      // Fire a missile at the player
-      await fireMissile(bot, player);
-      break; // Only fire one missile per action
+    await prisma.missile.create({
+      data: {
+        destLat: player.latitude.toString(),
+        destLong: player.longitude.toString(),
+        radius: missileType.radius,
+        damage: missileType.damage,
+        type: missileType.name,
+        sentBy: bot.username,
+        sentAt: new Date(),
+        status: "Incoming",
+        currentLat: bot.latitude.toString(),
+        currentLong: bot.longitude.toString(),
+        timeToImpact: new Date(new Date().getTime() + timeToImpact)
+      },
+    });
+
+    console.log(`Missile fired successfully from ${bot.username} to ${player.username}`);
+
+    await sendNotification(player.username, "Incoming Missile!", `A missile has been fired at you by ${bot.username}!`, bot.username);
+  } catch (error) {
+    console.error(`Failed to fire missile from ${bot.username} to ${player.username}:`, error);
+  }
+}
+
+function generateRandomUsername() {
+  const adjective = sample(adjectives);
+  const noun = sample(nouns);
+  const number = Math.floor(Math.random() * 1000);
+  return `${adjective}${noun}${number}`;
+}
+
+function getRandomLandCoordinates() {
+  const land = sample(config.pois);
+  if (!land) {
+    throw new Error("No land coordinates available");
+  }
+  return {
+    latitude: land.latitude + (Math.random() - 0.5) * 0.01,
+    longitude: land.longitude + (Math.random() - 0.5) * 0.01,
+  };
+}
+
+function getRandomOfflineDuration() {
+  const durationType = sample(["minutes", "hours", "days"]);
+  let duration;
+
+  switch (durationType) {
+    case "minutes":
+      duration = Math.floor(Math.random() * 60) + 1; // 1 to 60 minutes
+      return duration * 60 * 1000; // Convert to milliseconds
+    case "hours":
+      duration = Math.floor(Math.random() * 24) + 1; // 1 to 24 hours
+      return duration * 60 * 60 * 1000; // Convert to milliseconds
+    case "days":
+      duration = Math.floor(Math.random() * 7) + 1; // 1 to 7 days
+      return duration * 24 * 60 * 60 * 1000; // Convert to milliseconds
+    default:
+      return 0;
+  }
+}
+
+function setBotOffline(bot: AIBot) {
+  bot.isOnline = false;
+
+  setTimeout(() => {
+    bot.isOnline = true;
+  }, getRandomOfflineDuration());
+}
+
+async function getRandomMissileType() {
+  const missileTypes = await prisma.missileType.findMany();
+  return sample(missileTypes);
+}
+
+async function getRandomPlayer() {
+  const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const players = await prisma.users.findMany({
+    where: { role: { not: "bot" } }, // Exclude bots
+    include: {
+      GameplayUser: {
+        include: {
+          Locations: {
+            where: {
+              updatedAt: { gte: twoDaysAgo },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const activePlayers = players.filter(player => player.GameplayUser && player.GameplayUser.Locations);
+  const player = sample(activePlayers);
+  if (player && player.GameplayUser && player.GameplayUser.Locations) {
+    return {
+      ...player,
+      latitude: parseFloat(player.GameplayUser.Locations.latitude),
+      longitude: parseFloat(player.GameplayUser.Locations.longitude),
+    };
+  }
+  return null;
+}
+
+async function interactWithPlayers(bot: AIBot) {
+  if (!bot.isOnline) {
+    return;
+  }
+
+  if (Math.random() < 0.05) { // 5% chance to interact with players
+    const missileType = await getRandomMissileType();
+    const player = await getRandomPlayer();
+    if (missileType && player) {
+      console.log(`${bot.username} is firing a ${missileType.name} missile at player ${player.username}!`);
+      await fireMissileAtPlayer(bot, player, missileType);
     }
   }
 }
 
-async function fireMissile(bot: AIBot, target: any) {
-  // Get all available missile types
-  const missileTypes = await prisma.missileType.findMany();
-  
-  if (missileTypes.length === 0) return; // No missile types available
+async function createBot() {
+  const username = generateRandomUsername();
+  const { latitude, longitude } = getRandomLandCoordinates();
+  const bot: AIBot = {
+    id: uuidv4(),
+    username,
+    latitude,
+    longitude,
+    lastUpdate: new Date(),
+    isOnline: true,
+    behaviorTree: null, // Initialize behavior tree
+  };
+  aiBots.push(bot);
 
-  // Select a random missile type
-  const randomMissileType = missileTypes[Math.floor(Math.random() * missileTypes.length)];
+  await prisma.users.create({
+    data: {
+      username: bot.username,
+      role: "bot",
+      GameplayUser: {
+        create: {
+          Locations: {
+            create: {
+              latitude: bot.latitude.toString(),
+              longitude: bot.longitude.toString(),
+              updatedAt: bot.lastUpdate,
+            },
+          },
+        },
+      },
+    },
+  });
+}
 
-  // Check if the bot has this type of missile in inventory
-  if (!bot.inventory[randomMissileType.name] || bot.inventory[randomMissileType.name] <= 0) {
-    return; // Bot doesn't have this type of missile
-  }
-
+function calculateNewPosition(bot: AIBot, target: { latitude: number; longitude: number }) {
   const distance = geolib.getDistance(
     { latitude: bot.latitude, longitude: bot.longitude },
-    { latitude: parseFloat(target.Locations.latitude), longitude: parseFloat(target.Locations.longitude) }
+    { latitude: target.latitude, longitude: target.longitude }
   );
 
-  const timeToImpact = Math.round(distance / randomMissileType.speed * 1000); // time in milliseconds
+  if (distance < config.movementStepSize * 1000) {
+    return target; // If the target is within one step, move directly to the target
+  }
 
-  await prisma.missile.create({
+  const newCoords = geolib.computeDestinationPoint(
+    { latitude: bot.latitude, longitude: bot.longitude },
+    config.movementStepSize * 1000, // Convert step size to meters
+    geolib.getRhumbLineBearing(
+      { latitude: bot.latitude, longitude: bot.longitude },
+      { latitude: target.latitude, longitude: target.longitude }
+    )
+  );
+
+  return {
+    latitude: newCoords.latitude,
+    longitude: newCoords.longitude,
+  };
+}
+
+async function updateBotPosition(bot: AIBot) {
+  if (!bot.isOnline) return;
+
+  const target = getRandomLandCoordinates();
+  const newPosition = calculateNewPosition(bot, target);
+
+  bot.latitude = newPosition.latitude;
+  bot.longitude = newPosition.longitude;
+  bot.lastUpdate = new Date();
+
+  await prisma.locations.update({
+    where: { username: bot.username },
     data: {
-      destLat: target.Locations.latitude,
-      destLong: target.Locations.longitude,
-      radius: randomMissileType.radius,
-      damage: randomMissileType.damage,
-      type: randomMissileType.name,
-      sentBy: bot.username,
-      sentAt: new Date(),
-      status: "Incoming",
-      currentLat: bot.latitude.toString(),
-      currentLong: bot.longitude.toString(),
-      timeToImpact: new Date(new Date().getTime() + timeToImpact)
-    }
+      latitude: bot.latitude.toString(),
+      longitude: bot.longitude.toString(),
+      updatedAt: bot.lastUpdate,
+    },
   });
 
-  // Decrease the inventory count for the used missile type
-  bot.inventory[randomMissileType.name]--;
+  await interactWithPlayers(bot);
 }
 
 async function updateBotsInBatch(bots: AIBot[]) {
-  await prisma.$transaction(
-    bots.map(bot => 
-      prisma.locations.updateMany({
-        where: { username: bot.username },
-        data: {
-          latitude: bot.latitude.toString(),
-          longitude: bot.longitude.toString(),
-          updatedAt: new Date()
-        }
-      })
-    )
-  );
+  for (const bot of bots) {
+    await updateBotPosition(bot);
+  }
 }
 
-export async function manageAIBots() {
-  let lastUpdateTime = Date.now();
+async function manageAIBots() {
+  setInterval(async () => {
+    const activePlayers = await prisma.users.count({
+      where: { role: "player" },
+    });
 
-  async function updateLoop() {
-    const currentTime = Date.now();
-    const timeSinceLastUpdate = currentTime - lastUpdateTime;
+    const desiredBotCount = Math.min(
+      config.maxBots,
+      Math.max(config.minBots, Math.floor(activePlayers / 2))
+    );
 
-    // Dynamically adjust bot count based on active players
-    const activePlayers = await prisma.gameplayUser.count({ where: { isAlive: true } });
-    const targetBotCount = Math.min(Math.max(config.minBots, Math.floor(activePlayers / 2)), config.maxBots);
-
-    // Create or remove bots as needed
-    while (aiBots.length < targetBotCount) {
-      aiBots.push(await createBot());
+    while (aiBots.length < desiredBotCount) {
+      await createBot();
     }
-    while (aiBots.length > targetBotCount) {
-      const removedBot = aiBots.pop();
-      if (removedBot) {
-        await prisma.users.delete({ where: { username: removedBot.username } });
+
+    while (aiBots.length > desiredBotCount) {
+      const bot = aiBots.pop();
+      if (bot) {
+        await prisma.users.delete({ where: { username: bot.username } });
       }
     }
 
-    // Update bots in batches
-    for (let i = 0; i < aiBots.length; i += config.batchSize) {
-      const batch = aiBots.slice(i, i + config.batchSize);
-      await Promise.all(batch.map(async (bot) => {
-        await updateBotPosition(bot);
-        await botAction(bot);
+    const botsToUpdate = aiBots.slice(0, config.batchSize);
+    await updateBotsInBatch(botsToUpdate);
 
-        if (Math.random() > 0.9) {
-          bot.isOnline = !bot.isOnline;
-          await prisma.gameplayUser.update({
-            where: { username: bot.username },
-            data: { isAlive: bot.isOnline }
-          });
-        }
-      }));
-
-      await updateBotsInBatch(batch);
-    }
-
-    lastUpdateTime = currentTime;
-
-    // Schedule next update
-    const nextUpdateTime = Math.max(0, config.updateInterval - (Date.now() - currentTime));
-    setTimeout(updateLoop, nextUpdateTime);
-  }
-
-  updateLoop();
+    aiBots.forEach(bot => {
+      if (Math.random() < 0.1) { // 10% chance to go offline
+        setBotOffline(bot);
+      }
+    });
+  }, config.updateInterval);
 }
 
-export { aiBots };
+async function deleteAllBots() {
+  await prisma.locations.deleteMany({
+    where: {
+      GameplayUser: {
+        Users: {
+          role: "bot",
+        },
+      },
+    },
+  });
 
-export async function deleteAllBots() {
-    try {
-      // Start a transaction
-      await prisma.$transaction(async (prisma) => {
-        // Get all bot usernames
-        const botUsers = await prisma.users.findMany({
-          where: { role: "bot" },
-          select: { username: true }
-        });
-  
-        const botUsernames = botUsers.map(user => user.username);
-  
-        // Delete related records first
-        await prisma.locations.deleteMany({
-          where: { username: { in: botUsernames } }
-        });
-  
-        await prisma.gameplayUser.deleteMany({
-          where: { username: { in: botUsernames } }
-        });
-  
-        // Now delete the bot users
-        const deletedBots = await prisma.users.deleteMany({
-          where: { role: "bot" }
-        });
-  
-        console.log(`Deleted ${deletedBots.count} bots`);
-      });
-    } catch (error) {
-      console.error("Error deleting bots:", error);
-    } finally {
-      await prisma.$disconnect();
-    }
-  }
+  await prisma.gameplayUser.deleteMany({
+    where: {
+      Users: {
+        role: "bot",
+      },
+    },
+  });
+
+  await prisma.users.deleteMany({ where: { role: "bot" } });
+
+  aiBots.length = 0;
+}
+
+export { manageAIBots, aiBots, deleteAllBots };

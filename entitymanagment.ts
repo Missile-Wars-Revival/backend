@@ -172,7 +172,15 @@ const haversineDistance = (coords1: { latitude: any; longitude: any; }, coords2:
 export const addRandomLoot = async () => {
   const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const userLocations = await prisma.locations.findMany({
-    where: { updatedAt: { gte: twoDaysAgo } }
+    where: {
+      updatedAt: { gte: twoDaysAgo },
+      username: {
+        notIn: (await prisma.users.findMany({
+          where: { role: "bot" }, // filter for bots
+          select: { username: true }
+        })).map(user => user.username)
+      }
+    }
   });
 
   if (userLocations.length === 0) {
