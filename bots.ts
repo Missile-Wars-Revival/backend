@@ -3,7 +3,6 @@ import { sendNotification } from "./notificationhelper";
 import * as geolib from "geolib";
 import { v4 as uuidv4 } from "uuid";
 import { sample } from "lodash";
-import { AStarFinder } from 'pathfinding'; // Importing A* pathfinding library
 
 interface AIBot {
   id: string;
@@ -13,6 +12,7 @@ interface AIBot {
   lastUpdate: Date;
   isOnline: boolean;
   behaviorTree: any; // Placeholder for behavior tree
+  lastMissileFiredAt?: Date; // Add this property to track the last missile fired time
 }
 
 const prisma = new PrismaClient();
@@ -27,6 +27,7 @@ const config = {
   updateInterval: 10000, // 10 seconds
   batchSize: 5,
   maxActiveMissiles: 20, // Maximum number of active missiles
+  maxMissilesPerDay: 2, // Maximum number of missiles a bot can fire per day
   pois: [
     { latitude: 40.7128, longitude: -74.0060 }, // New York
     { latitude: 34.0522, longitude: -118.2437 }, // Los Angeles
@@ -178,12 +179,22 @@ async function interactWithPlayers(bot: AIBot) {
     return;
   }
 
+  const now = new Date();
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const missilesFiredToday = bot.lastMissileFiredAt && bot.lastMissileFiredAt > oneDayAgo;
+
+  if (missilesFiredToday) {
+    console.log(`${bot.username} has already fired the maximum number of missiles today.`);
+    return;
+  }
+
   if (Math.random() < 0.05) { // 5% chance to interact with players
     const missileType = await getRandomMissileType();
     const player = await getRandomPlayer();
     if (missileType && player) {
       console.log(`${bot.username} is firing a ${missileType.name} missile at player ${player.username}!`);
       await fireMissileAtPlayer(bot, player, missileType);
+      bot.lastMissileFiredAt = now; // Update the last missile fired time
     }
   }
 }
