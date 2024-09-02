@@ -22,7 +22,7 @@ import {
   Register,
   RegisterSchema,
 } from "./interfaces/api";
-import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates } from "./entitymanagment";
+import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates, checkPlayerProximity } from "./entitymanagment";
 import { sendNotification, startNotificationManager } from "./notificationhelper";
 import { aiBots, deleteAllBots, manageAIBots } from "./bots";
 
@@ -688,6 +688,8 @@ setInterval(addRandomLoot, 60000);
 setInterval(deleteExpiredLandmines, 30000);
 setInterval(deleteExpiredLoot, 30000);
 setInterval(updateMissilePositions, 30000);
+//player notificaitons
+setInterval(checkPlayerProximity, 15000);
 
 //manages notifications
 startNotificationManager();
@@ -1091,7 +1093,7 @@ app.post(
   }
 );
 
-async function getMutualFriends(currentUser: { friends: any; username: string; }) {
+export async function getMutualFriends(currentUser: { friends: any; username: string; }) {
   const mutualFriends = [];
 
   // Fetch each friend and check if they also have currentUser in their friends list

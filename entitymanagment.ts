@@ -1,5 +1,10 @@
 import { prisma } from "./server";
 import * as geolib from 'geolib';
+import { getMutualFriends } from "./server";
+import { sendNotification } from "./notificationhelper";
+
+// Add this at the top of your file or in an appropriate scope
+const notifiedEntities = new Set<string>();
 
 export const haversine = (lat1: string, lon1: string, lat2: string, lon2: string) => {
   const R = 6371e3; // meters
@@ -176,7 +181,7 @@ export const addRandomLoot = async () => {
       updatedAt: { gte: twoDaysAgo },
       username: {
         notIn: (await prisma.users.findMany({
-          where: { role: "bot" }, // filter for bots
+          //where: { role: "bot" }, // filter for bots
           select: { username: true }
         })).map(user => user.username)
       }
@@ -225,3 +230,136 @@ export const addRandomLoot = async () => {
     console.error('Failed to add loot:', error);
   }
 };
+
+// Constants for distance thresholds in kilometers
+const MISSILE_ALERT_DISTANCE = 0.5; // 0.5 km = 500 meters
+const LANDMINE_ALERT_DISTANCE = 0.05; // 0.05 km = 50 meters
+
+export const checkPlayerProximity = async () => {
+  try {
+    const allUsers = await prisma.gameplayUser.findMany({
+      include: { Users: true, Locations: true }
+    });
+
+    for (const user of allUsers) {
+      if (!user.Locations) continue;
+
+      const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
+      
+      // Fetch relevant entities based on friendsOnly setting
+      let missiles, landmines;
+      if (user.friendsOnly) {
+        const mutualFriends = await getMutualFriends(user.Users);
+        missiles = await prisma.missile.findMany({ where: { sentBy: { in: mutualFriends } } });
+        landmines = await prisma.landmine.findMany({ where: { placedBy: { in: mutualFriends } } });
+      } else {
+        const nonFriendsOnlyUsers = await prisma.gameplayUser.findMany({
+          where: { OR: [{ friendsOnly: false }, { username: { in: await getMutualFriends(user.Users) } }] },
+          select: { username: true }
+        });
+        const relevantUsernames = nonFriendsOnlyUsers.map(u => u.username);
+        missiles = await prisma.missile.findMany({ where: { sentBy: { in: relevantUsernames } } });
+        landmines = await prisma.landmine.findMany({ where: { placedBy: { in: relevantUsernames } } });
+      }
+
+      // Fetch loot (regardless of friendsOnly setting)
+      const loot = await prisma.loot.findMany();
+
+      // Check proximity to missiles
+      for (const missile of missiles) {
+        const missileCoords = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
+        const distance = haversineDistance(userCoords, missileCoords); // Already in km
+        
+        const bufferZone = 0.05; // Additional 50 meters in km
+        const entityId = `missile-${missile.id}-${user.id}`; // Unique identifier for this missile-user pair
+        
+        if (!notifiedEntities.has(entityId)) {
+          if (missile.status !== 'Hit') {
+            if (distance <= missile.radius / 1000 + bufferZone) { // Convert missile.radius from meters to km
+              const message = distance <= missile.radius / 1000
+                ? "A missile is approaching your location! Take cover immediately!"
+                : "A missile is approaching nearby! Be prepared to take cover.";
+              await sendNotification(user.username, "Missile Alert!", message, "Server");
+              notifiedEntities.add(entityId);
+            }
+          } else { // missile.status === 'Hit'
+            if (distance <= missile.radius / 1000 + bufferZone) { // Convert missile.radius from meters to km
+              const message = distance <= missile.radius / 1000
+                ? "You're in a missile impact zone! Check the app to avoid damage."
+                : "You're near a missile impact zone! Proceed with caution.";
+              await sendNotification(user.username, "Missile Impact Alert!", message, "Server");
+              notifiedEntities.add(entityId);
+            }
+          }
+        }
+      }
+
+      // Check proximity to landmines
+      for (const landmine of landmines) {
+        const landmineCoords = { latitude: parseFloat(landmine.locLat), longitude: parseFloat(landmine.locLong) };
+        const distance = haversineDistance(userCoords, landmineCoords); // Already in km
+        const entityId = `landmine-${landmine.id}-${user.id}`;
+        
+        if (!notifiedEntities.has(entityId) && distance <= LANDMINE_ALERT_DISTANCE) {
+          await sendNotification(user.username, "Landmine Nearby!", `Caution: You're within 50 meters of a landmine!`, "Server");
+          notifiedEntities.add(entityId);
+        }
+      }
+
+      const LOOT_NEARBY_DISTANCE = 0.5; // 0.5 km = 500 meters
+      const LOOT_COLLECTIBLE_DISTANCE = 0.05; // 0.05 km = 50 meters
+      let nearbyLootCount = 0;
+      let collectibleLootCount = 0;
+
+      for (const item of loot) {
+        const lootCoords = { latitude: parseFloat(item.locLat), longitude: parseFloat(item.locLong) };
+        const distance = haversineDistance(userCoords, lootCoords); // This returns distance in km
+        const entityId = `loot-${item.id}-${user.id}`;
+        
+        if (!notifiedEntities.has(entityId)) {
+          if (distance <= LOOT_COLLECTIBLE_DISTANCE) {
+            collectibleLootCount++;
+            notifiedEntities.add(entityId);
+          } else if (distance <= LOOT_NEARBY_DISTANCE) {
+            nearbyLootCount++;
+            notifiedEntities.add(entityId);
+          }
+        }
+      }
+
+      // Send a notification for nearby loot
+      if (nearbyLootCount > 0) {
+        await sendNotification(
+          user.username, 
+          "Loot Nearby!", 
+          `There ${nearbyLootCount === 1 ? 'is' : 'are'} ${nearbyLootCount} loot item${nearbyLootCount === 1 ? '' : 's'} within 500 meters of you!`, 
+          "Server"
+        );
+      }
+
+      // Send a separate notification for collectible loot
+      if (collectibleLootCount > 0) {
+        await sendNotification(
+          user.username, 
+          "Loot Within Reach!", 
+          `There ${collectibleLootCount === 1 ? 'is' : 'are'} ${collectibleLootCount} loot item${collectibleLootCount === 1 ? '' : 's'} within 50 meters! Open the app to collect.`, 
+          "Server"
+        );
+      }
+    }
+  } catch (error) {
+    console.error('Failed to check player proximity:', error);
+  }
+};
+
+// Add this interval to run the check every minute
+setInterval(checkPlayerProximity, 60000);
+
+// Add this function to clear notifications when appropriate (e.g., when a missile is removed)
+function clearNotification(entityType: string, entityId: string) {
+  notifiedEntities.forEach((notifiedEntityId) => {
+    if (notifiedEntityId.startsWith(`${entityType}-${entityId}-`)) {
+      notifiedEntities.delete(notifiedEntityId);
+    }
+  });
+}

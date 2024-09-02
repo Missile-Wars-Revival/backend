@@ -1,49 +1,153 @@
 import { PrismaClient } from "@prisma/client";
 import { sendNotification } from "./notificationhelper";
 import * as geolib from "geolib";
-import { v4 as uuidv4 } from "uuid";
 import { sample } from "lodash";
 
 interface AIBot {
-  id: string;
+  id: number;
   username: string;
   latitude: number;
   longitude: number;
   lastUpdate: Date;
   isOnline: boolean;
-  behaviorTree: any; // Placeholder for behavior tree
-  lastMissileFiredAt?: Date; // Add this property to track the last missile fired time
+  behaviorTree: BehaviorTree;
+  personality: {
+    aggressiveness: number;
+    curiosity: number;
+    sociability: number;
+    tacticalAwareness: number;
+    riskTolerance: number;
+  };
+  missilesFiredToday: number;
+  lastMissileFiredAt: Date | null;
+}
+
+class BehaviorTree {
+  private bot: AIBot;
+
+  constructor(bot: AIBot) {
+    this.bot = bot;
+  }
+
+  async execute() {
+    const actions = [
+      { action: this.explore.bind(this), weight: this.bot.personality.curiosity },
+      { action: this.attack.bind(this), weight: this.bot.personality.aggressiveness },
+      { action: this.socialize.bind(this), weight: this.bot.personality.sociability },
+      { action: this.collectLoot.bind(this), weight: this.bot.personality.tacticalAwareness },
+      { action: this.idle.bind(this), weight: 1 - (this.bot.personality.curiosity + this.bot.personality.aggressiveness + this.bot.personality.sociability + this.bot.personality.tacticalAwareness) / 4 },
+    ];
+
+    const totalWeight = actions.reduce((sum, action) => sum + action.weight, 0);
+    let random = Math.random() * totalWeight;
+
+    for (const { action, weight } of actions) {
+      if (random < weight) {
+        await action();
+        return;
+      }
+      random -= weight;
+    }
+  }
+
+  private async explore() {
+    const newLocation = getRandomLandCoordinates();
+    await updateBotPosition(this.bot, newLocation);
+    console.log(`${this.bot.username} is exploring a new location.`);
+  }
+
+  private async attack() {
+    if (this.bot.missilesFiredToday >= 3) {
+      console.log(`${this.bot.username} has reached the daily missile limit.`);
+      return;
+    }
+
+    const now = new Date();
+    if (this.bot.lastMissileFiredAt && (now.getTime() - this.bot.lastMissileFiredAt.getTime()) < config.missileCooldownPeriod) {
+      console.log(`${this.bot.username} is waiting for missile cooldown.`);
+      return;
+    }
+
+    const player = await getRandomPlayer();
+    if (player) {
+      const missileType = await getRandomMissileType();
+      if (missileType) {
+        await fireMissileAtPlayer(this.bot, player, missileType);
+        this.bot.missilesFiredToday++;
+        this.bot.lastMissileFiredAt = now;
+      }
+    }
+  }
+
+  private async socialize() {
+    const nearbyPlayers = await getNearbyPlayers(this.bot);
+    if (nearbyPlayers.length > 0) {
+      const player = sample(nearbyPlayers);
+      if (player) {
+        console.log(`${this.bot.username} is socializing with ${player.username}.`);
+        await sendNotification(player.username, "Friendly Bot", `${this.bot.username} waves hello!`, this.bot.username);
+      } else {
+        console.log(`${this.bot.username} couldn't find anyone to socialize with.`);
+      }
+    } else {
+      console.log(`${this.bot.username} couldn't find anyone to socialize with.`);
+    }
+  }
+
+  private async collectLoot() {
+    const loot = await findNearbyLoot(this.bot);
+    if (loot) {
+      console.log(`${this.bot.username} found ${loot.rarity} and collected it.`);
+      await collectLootItem(this.bot, loot);
+    } else {
+      console.log(`${this.bot.username} couldn't find any loot nearby.`);
+    }
+  }
+
+  private async idle() {
+    console.log(`${this.bot.username} is idling.`);
+  }
 }
 
 const prisma = new PrismaClient();
 const aiBots: AIBot[] = [];
 
-const adjectives = ["Swift", "Brave", "Cunning", "Mighty"];
-const nouns = ["Eagle", "Tiger", "Wolf", "Bear"];
+const adjectives = ["Swift", "Brave", "Cunning", "Mighty", "Stealthy", "Tactical", "Resourceful", "Vigilant"];
+const nouns = ["Eagle", "Tiger", "Wolf", "Bear", "Hawk", "Panther", "Falcon", "Viper"];
 
 const config = {
   maxBots: 10,
   minBots: 5,
-  updateInterval: 10000, // 10 seconds
-  batchSize: 5,
-  maxActiveMissiles: 20, // Maximum number of active missiles
-  maxMissilesPerDay: 2, // Maximum number of missiles a bot can fire per day
+  updateInterval: 5000, // 5 seconds
+  batchSize: 10,
+  maxActiveMissiles: 30,
+  maxMissilesPerDay: 5,
   pois: [
-    { latitude: 40.7128, longitude: -74.0060 }, // New York
-    { latitude: 34.0522, longitude: -118.2437 }, // Los Angeles
-    { latitude: 51.5074, longitude: -0.1278 }, // London
-    { latitude: 48.8566, longitude: 2.3522 }, // Paris
-    { latitude: 35.6895, longitude: 139.6917 }, // Tokyo
-    { latitude: 55.7558, longitude: 37.6173 }, // Moscow
-    { latitude: -33.8688, longitude: 151.2093 }, // Sydney
-    { latitude: 37.7749, longitude: -122.4194 }, // San Francisco
-    { latitude: 39.9042, longitude: 116.4074 }, // Beijing
-    { latitude: 19.4326, longitude: -99.1332 }, // Mexico City
-    { latitude: 52.5200, longitude: 13.4050 }, // Berlin
-    { latitude: 41.9028, longitude: 12.4964 }, // Rome
-    { latitude: 40.4168, longitude: -3.7038 }, // Madrid
+    { latitude: 40.7128, longitude: -74.0060, name: "New York" },
+    { latitude: 34.0522, longitude: -118.2437, name: "Los Angeles" },
+    { latitude: 51.5074, longitude: -0.1278, name: "London" },
+    { latitude: 48.8566, longitude: 2.3522, name: "Paris" },
+    { latitude: 35.6895, longitude: 139.6917, name: "Tokyo" },
+    { latitude: 55.7558, longitude: 37.6173, name: "Moscow" },
+    { latitude: -33.8688, longitude: 151.2093, name: "Sydney" },
+    { latitude: 37.7749, longitude: -122.4194, name: "San Francisco" },
+    { latitude: 39.9042, longitude: 116.4074, name: "Beijing" },
+    { latitude: 19.4326, longitude: -99.1332, name: "Mexico City" },
+    { latitude: 52.5200, longitude: 13.4050, name: "Berlin" },
+    { latitude: 41.9028, longitude: 12.4964, name: "Rome" },
+    { latitude: 40.4168, longitude: -3.7038, name: "Madrid" },
+    { latitude: 25.2048, longitude: 55.2708, name: "Dubai" },
+    { latitude: -22.9068, longitude: -43.1729, name: "Rio de Janeiro" },
+    { latitude: 1.3521, longitude: 103.8198, name: "Singapore" },
+    { latitude: 31.2304, longitude: 121.4737, name: "Shanghai" },
+    { latitude: -37.8136, longitude: 144.9631, name: "Melbourne" },
+    { latitude: 43.6532, longitude: -79.3832, name: "Toronto" },
+    { latitude: 59.9139, longitude: 10.7522, name: "Oslo" },
   ],
-  movementStepSize: 0.005, // Adjust this value for smaller steps
+  movementStepSize: 0.002,
+  missileCooldownPeriod: 4 * 60 * 60 * 1000, // 4 hours in milliseconds
+  maxRetries: 3,
+  retryDelay: 1000, // 1 second
 };
 
 async function getActiveMissileCount() {
@@ -54,38 +158,46 @@ async function getActiveMissileCount() {
 }
 
 async function fireMissileAtPlayer(bot: AIBot, player: any, missileType: any) {
-  try {
-    if (!bot.latitude || !bot.longitude || !player.latitude || !player.longitude) {
-      throw new Error("Bot or player coordinates are missing");
+  for (let attempt = 0; attempt < config.maxRetries; attempt++) {
+    try {
+      if (!bot.latitude || !bot.longitude || !player.latitude || !player.longitude) {
+        throw new Error("Bot or player coordinates are missing");
+      }
+
+      const distance = geolib.getDistance(
+        { latitude: bot.latitude, longitude: bot.longitude },
+        { latitude: player.latitude, longitude: player.longitude }
+      );
+      const timeToImpact = Math.round(distance / missileType.speed * 1000); // time in milliseconds
+
+      await prisma.missile.create({
+        data: {
+          destLat: player.latitude.toString(),
+          destLong: player.longitude.toString(),
+          radius: missileType.radius,
+          damage: missileType.damage,
+          type: missileType.name,
+          sentBy: bot.username,
+          sentAt: new Date(),
+          status: "Incoming",
+          currentLat: bot.latitude.toString(),
+          currentLong: bot.longitude.toString(),
+          timeToImpact: new Date(new Date().getTime() + timeToImpact)
+        },
+      });
+
+      console.log(`Missile fired successfully from ${bot.username} to ${player.username}`);
+
+      await sendNotification(player.username, "Incoming Missile!", `A missile has been fired at you by ${bot.username}!`, bot.username);
+      return; // Success, exit the function
+    } catch (error) {
+      console.error(`Attempt ${attempt + 1} failed to fire missile from ${bot.username} to ${player.username}:`, error);
+      if (attempt === config.maxRetries - 1) {
+        console.error(`All attempts to fire missile from ${bot.username} to ${player.username} have failed.`);
+      } else {
+        await new Promise(resolve => setTimeout(resolve, config.retryDelay));
+      }
     }
-
-    const distance = geolib.getDistance(
-      { latitude: bot.latitude, longitude: bot.longitude },
-      { latitude: player.latitude, longitude: player.longitude }
-    );
-    const timeToImpact = Math.round(distance / missileType.speed * 1000); // time in milliseconds
-
-    await prisma.missile.create({
-      data: {
-        destLat: player.latitude.toString(),
-        destLong: player.longitude.toString(),
-        radius: missileType.radius,
-        damage: missileType.damage,
-        type: missileType.name,
-        sentBy: bot.username,
-        sentAt: new Date(),
-        status: "Incoming",
-        currentLat: bot.latitude.toString(),
-        currentLong: bot.longitude.toString(),
-        timeToImpact: new Date(new Date().getTime() + timeToImpact)
-      },
-    });
-
-    console.log(`Missile fired successfully from ${bot.username} to ${player.username}`);
-
-    await sendNotification(player.username, "Incoming Missile!", `A missile has been fired at you by ${bot.username}!`, bot.username);
-  } catch (error) {
-    console.error(`Failed to fire missile from ${bot.username} to ${player.username}:`, error);
   }
 }
 
@@ -195,7 +307,7 @@ async function interactWithPlayers(bot: AIBot) {
     return;
   }
 
-  if (Math.random() < 0.05) { // 5% chance to interact with players
+  if (Math.random() < bot.personality.aggressiveness * 0.05) { // 5% chance to interact with players
     const missileType = await getRandomMissileType();
     const player = await getRandomPlayer();
     if (missileType && player) {
@@ -204,39 +316,62 @@ async function interactWithPlayers(bot: AIBot) {
       bot.lastMissileFiredAt = now; // Update the last missile fired time
     }
   }
+
+  if (Math.random() < bot.personality.curiosity * 0.05) {
+    await exploreNewLocation(bot);
+  }
 }
 
 async function createBot() {
   const username = generateRandomUsername();
   const { latitude, longitude } = getRandomLandCoordinates();
   const bot: AIBot = {
-    id: uuidv4(),
+    id: 0, // Temporary placeholder
     username,
     latitude,
     longitude,
     lastUpdate: new Date(),
     isOnline: true,
-    behaviorTree: null, // Initialize behavior tree
+    behaviorTree: new BehaviorTree({} as AIBot), // Temporary placeholder
+    personality: generateRandomPersonality(),
+    missilesFiredToday: 0,
+    lastMissileFiredAt: null,
   };
-  aiBots.push(bot);
+  bot.behaviorTree = new BehaviorTree(bot); // Now we can pass the full bot object
 
-  await prisma.users.create({
-    data: {
-      username: bot.username,
-      role: "bot",
-      GameplayUser: {
-        create: {
-          Locations: {
-            create: {
-              latitude: bot.latitude.toString(),
-              longitude: bot.longitude.toString(),
-              updatedAt: bot.lastUpdate,
+  for (let attempt = 0; attempt < config.maxRetries; attempt++) {
+    try {
+      await prisma.$transaction(async (prisma) => {
+        const createdBot = await prisma.users.create({
+          data: {
+            username: bot.username,
+            role: "bot",
+            GameplayUser: {
+              create: {
+                Locations: {
+                  create: {
+                    latitude: bot.latitude.toString(),
+                    longitude: bot.longitude.toString(),
+                    updatedAt: bot.lastUpdate,
+                  },
+                },
+              },
             },
           },
-        },
-      },
-    },
-  });
+        });
+        bot.id = createdBot.id; // Update the bot's ID with the one from the database
+      });
+      aiBots.push(bot);
+      return; // Success, exit the function
+    } catch (error) {
+      console.error(`Attempt ${attempt + 1} failed to create bot ${username}:`, error);
+      if (attempt === config.maxRetries - 1) {
+        console.error(`All attempts to create bot ${username} have failed.`);
+      } else {
+        await new Promise(resolve => setTimeout(resolve, config.retryDelay));
+      }
+    }
+  }
 }
 
 function calculateNewPosition(bot: AIBot, target: { latitude: number; longitude: number }) {
@@ -258,16 +393,23 @@ function calculateNewPosition(bot: AIBot, target: { latitude: number; longitude:
     )
   );
 
+  // Add some randomness to movement
+  const randomFactor = 0.2; // Adjust this value to control randomness
+  const randomAngle = Math.random() * 2 * Math.PI;
+  const randomOffset = {
+    latitude: Math.sin(randomAngle) * config.movementStepSize * randomFactor,
+    longitude: Math.cos(randomAngle) * config.movementStepSize * randomFactor,
+  };
+
   return {
-    latitude: newCoords.latitude,
-    longitude: newCoords.longitude,
+    latitude: newCoords.latitude + randomOffset.latitude,
+    longitude: newCoords.longitude + randomOffset.longitude,
   };
 }
 
-async function updateBotPosition(bot: AIBot) {
+async function updateBotPosition(bot: AIBot, target: { latitude: number; longitude: number }) {
   if (!bot.isOnline) return;
 
-  const target = getRandomLandCoordinates();
   const newPosition = calculateNewPosition(bot, target);
 
   bot.latitude = newPosition.latitude;
@@ -283,96 +425,343 @@ async function updateBotPosition(bot: AIBot) {
     },
   });
 
-  await interactWithPlayers(bot);
+  await bot.behaviorTree.execute();
 }
 
 async function updateBotsInBatch(bots: AIBot[]) {
-  for (const bot of bots) {
-    await updateBotPosition(bot);
+  const maxRetries = 5;
+  const baseDelay = 100; // 100ms
+  const batchSize = 10; // Adjust this value based on your needs
+
+  for (let i = 0; i < bots.length; i += batchSize) {
+    const batch = bots.slice(i, i + batchSize);
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        await prisma.$transaction(async (prisma) => {
+          for (const bot of batch) {
+            await prisma.locations.upsert({
+              where: { username: bot.username },
+              update: {
+                latitude: bot.latitude.toString(),
+                longitude: bot.longitude.toString(),
+                updatedAt: new Date(),
+              },
+              create: {
+                username: bot.username,
+                latitude: bot.latitude.toString(),
+                longitude: bot.longitude.toString(),
+                updatedAt: new Date(),
+              },
+            });
+            // Small delay between each bot update
+            await new Promise(resolve => setTimeout(resolve, 10));
+          }
+        });
+
+        console.log(`Updated locations for ${batch.length} bots`);
+        break; // Success, move to next batch
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'P2034' && attempt < maxRetries - 1) {
+          const delay = baseDelay * Math.pow(2, attempt);
+          console.log(`Transaction failed due to conflict. Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          throw error; // Rethrow if it's not a conflict error or we've exhausted retries
+        }
+      }
+    }
   }
 }
 
 async function manageAIBots() {
-	setInterval(async () => {
-		const activePlayers = await prisma.users.count({
-			where: { role: "player" },
-		});
+  setInterval(async () => {
+    const activePlayers = await prisma.users.count({
+      where: { role: "player" },
+    });
 
-		const desiredBotCount = Math.min(
-			config.maxBots,
-			Math.max(config.minBots, Math.floor(activePlayers / 2))
-		);
+    const desiredBotCount = Math.min(
+      config.maxBots,
+      Math.max(config.minBots, Math.floor(activePlayers / 2))
+    );
 
-		while (aiBots.length < desiredBotCount) {
-			await createBot();
-		}
+    while (aiBots.length < desiredBotCount) {
+      await createBot();
+    }
 
-		while (aiBots.length > desiredBotCount) {
-			const bot = aiBots.pop();
-			if (bot) {
-				await prisma.users.delete({ where: { username: bot.username } });
-			}
-		}
+    while (aiBots.length > desiredBotCount) {
+      const bot = aiBots.pop();
+      if (bot) {
+        try {
+          // Delete related records first
+          await prisma.$transaction(async (prisma) => {
+            // Delete Notifications
+            await prisma.notifications.deleteMany({ where: { userId: bot.username } });
 
-		const botsToUpdate = aiBots.slice(0, config.batchSize);
-		await updateBotsInBatch(botsToUpdate);
+            // Delete FriendRequests
+            await prisma.friendRequests.deleteMany({ where: { username: bot.username } });
+            await prisma.friendRequests.deleteMany({ where: { friend: bot.username } });
 
-		aiBots.forEach(bot => {
-			if (Math.random() < 0.1) { // 10% chance to go offline
-				setBotOffline(bot);
-			} else if (Math.random() < 0.1) { // 10% chance to go to sleep
-				setBotSleeping(bot);
-			}
-		});
-	}, config.updateInterval);
+            // Delete BattleSessions
+            await prisma.battleSessions.deleteMany({ where: { attackerUsername: bot.username } });
+            await prisma.battleSessions.deleteMany({ where: { defenderUsername: bot.username } });
+
+            // Delete Locations
+            await prisma.locations.delete({ where: { username: bot.username } }).catch(() => {});
+
+            // Delete InventoryItems
+            await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: bot.username } } });
+
+            // Delete Statistics
+            await prisma.statistics.deleteMany({ where: { GameplayUser: { username: bot.username } } });
+
+            // Delete GameplayUser
+            await prisma.gameplayUser.delete({ where: { username: bot.username } }).catch(() => {});
+
+            // Finally, delete the User
+            await prisma.users.delete({ where: { username: bot.username } });
+          });
+
+          console.log(`Successfully deleted bot: ${bot.username}`);
+        } catch (error) {
+          console.error(`Failed to delete bot ${bot.username}:`, error);
+        }
+      }
+    }
+
+    const botsToUpdate = aiBots.slice(0, config.batchSize);
+    await updateBotsInBatch(botsToUpdate);  // Add this line
+
+    for (const bot of botsToUpdate) {
+      if (bot.isOnline) {
+        await bot.behaviorTree.execute();
+      } else if (Math.random() < 0.1) {
+        bot.isOnline = true;
+        console.log(`${bot.username} is back online.`);
+      }
+    }
+
+    aiBots.forEach(bot => {
+      if (Math.random() < 0.05) { // 5% chance to go offline
+        setBotOffline(bot);
+      } else if (Math.random() < 0.05) { // 5% chance to go to sleep
+        setBotSleeping(bot);
+      }
+    });
+
+    // Reset daily missile count at midnight
+    const now = new Date();
+    if (now.getHours() === 0 && now.getMinutes() === 0) {
+      aiBots.forEach(bot => {
+        bot.missilesFiredToday = 0;
+      });
+      console.log("Daily missile counts reset for all bots.");
+    }
+  }, config.updateInterval);
 }
 
 function setBotSleeping(bot: AIBot) {
-	bot.isOnline = false;
+  bot.isOnline = false;
 
-	setTimeout(() => {
-		bot.isOnline = true;
-	}, getRandomSleepDuration());
+  setTimeout(() => {
+    bot.isOnline = true;
+  }, getRandomSleepDuration());
 }
 
 function getRandomSleepDuration() {
-	const durationType = sample(["minutes", "hours"]);
-	let duration;
+  const durationType = sample(["minutes", "hours"]);
+  let duration;
 
-	switch (durationType) {
-		case "minutes":
-			duration = Math.floor(Math.random() * 60) + 1; // 1 to 60 minutes
-			return duration * 60 * 1000; // Convert to milliseconds
-		case "hours":
-			duration = Math.floor(Math.random() * 8) + 1; // 1 to 8 hours
-			return duration * 60 * 60 * 1000; // Convert to milliseconds
-		default:
-			return 0;
-	}
+  switch (durationType) {
+    case "minutes":
+      duration = Math.floor(Math.random() * 60) + 1; // 1 to 60 minutes
+      return duration * 60 * 1000; // Convert to milliseconds
+    case "hours":
+      duration = Math.floor(Math.random() * 8) + 1; // 1 to 8 hours
+      return duration * 60 * 60 * 1000; // Convert to milliseconds
+    default:
+      return 0;
+  }
 }
 
 async function deleteAllBots() {
-  await prisma.locations.deleteMany({
-    where: {
-      GameplayUser: {
-        Users: {
-          role: "bot",
-        },
-      },
-    },
-  });
+  await prisma.$transaction(async (prisma) => {
+    // Delete Notifications related to bots
+    await prisma.notifications.deleteMany({
+      where: { user: { role: "bot" } }
+    });
 
-  await prisma.gameplayUser.deleteMany({
-    where: {
-      Users: {
-        role: "bot",
-      },
-    },
-  });
+    // Delete FriendRequests related to bots
+    await prisma.friendRequests.deleteMany({
+      where: { 
+        OR: [
+          { GameplayUser: { Users: { role: "bot" } } },
+          { friend: { in: await prisma.users.findMany({ where: { role: "bot" }, select: { username: true } }).then(users => users.map(u => u.username)) } }
+        ]
+      }
+    });
 
-  await prisma.users.deleteMany({ where: { role: "bot" } });
+    // Delete BattleSessions related to bots
+    await prisma.battleSessions.deleteMany({
+      where: { 
+        OR: [
+          { GameplayUser_BattleSessions_attackerUsernameToGameplayUser: { Users: { role: "bot" } } },
+          { GameplayUser_BattleSessions_defenderUsernameToGameplayUser: { Users: { role: "bot" } } }
+        ]
+      }
+    });
+
+    // Delete InventoryItems related to bots
+    await prisma.inventoryItem.deleteMany({
+      where: { GameplayUser: { Users: { role: "bot" } } }
+    });
+
+    // Delete Statistics related to bots
+    await prisma.statistics.deleteMany({
+      where: { GameplayUser: { Users: { role: "bot" } } }
+    });
+
+    // Delete Locations related to bots
+    await prisma.locations.deleteMany({
+      where: { GameplayUser: { Users: { role: "bot" } } }
+    });
+
+    // Delete GameplayUser entries related to bots
+    await prisma.gameplayUser.deleteMany({
+      where: { Users: { role: "bot" } }
+    });
+
+    // Finally, delete the bot Users
+    await prisma.users.deleteMany({ where: { role: "bot" } });
+  });
 
   aiBots.length = 0;
+  console.log("All bots have been deleted.");
+}
+
+function generateRandomPersonality() {
+  return {
+    aggressiveness: Math.random(),
+    curiosity: Math.random(),
+    sociability: Math.random(),
+    tacticalAwareness: Math.random(),
+    riskTolerance: Math.random(),
+  };
+}
+
+async function exploreNewLocation(bot: AIBot) {
+  const newLocation = getRandomLandCoordinates();
+  console.log(`${bot.username} is exploring a new location: ${newLocation.latitude}, ${newLocation.longitude}`);
+  await updateBotPosition(bot, newLocation);
+}
+
+// New helper functions
+
+async function getNearbyPlayers(bot: AIBot) {
+  const searchRadius = 5000; // 5 km radius, adjust as needed
+
+  const nearbyPlayers = await prisma.gameplayUser.findMany({
+    where: {
+      AND: [
+        { username: { not: bot.username } },
+        { isAlive: true },
+        {
+          OR: [
+            { friendsOnly: false },
+            { username: { in: await getMutualFriends(bot) } }
+          ]
+        }
+      ]
+    },
+    include: { Locations: true, Users: true }
+  });
+
+  return nearbyPlayers.filter(player => 
+    player.Locations && geolib.isPointWithinRadius(
+      { latitude: parseFloat(player.Locations.latitude), longitude: parseFloat(player.Locations.longitude) },
+      { latitude: bot.latitude, longitude: bot.longitude },
+      searchRadius
+    )
+  ).map(player => ({
+    username: player.username,
+    latitude: parseFloat(player.Locations!.latitude),
+    longitude: parseFloat(player.Locations!.longitude),
+    // Include other relevant player information
+  }));
+}
+
+async function findNearbyLoot(bot: AIBot) {
+  const searchRadius = 1000; // 1 km radius, adjust as needed
+
+  const nearbyLoot = await prisma.loot.findMany();
+
+  const closeLoot = nearbyLoot.filter(loot => 
+    geolib.isPointWithinRadius(
+      { latitude: parseFloat(loot.locLat), longitude: parseFloat(loot.locLong) },
+      { latitude: bot.latitude, longitude: bot.longitude },
+      searchRadius
+    )
+  );
+
+  return closeLoot.length > 0 ? closeLoot[0] : null;
+}
+
+async function collectLootItem(bot: AIBot, loot: any) {
+  try {
+    // Remove the loot from the game world
+    await prisma.loot.delete({
+      where: { id: loot.id }
+    });
+
+    // Check if the item already exists in the bot's inventory
+    const existingItem = await prisma.inventoryItem.findFirst({
+      where: {
+        userId: bot.id,
+        name: loot.name
+      }
+    });
+
+    if (existingItem) {
+      // If item exists, update the quantity
+      await prisma.inventoryItem.update({
+        where: { id: existingItem.id },
+        data: { quantity: { increment: 1 } }
+      });
+    } else {
+      // If item does not exist, create a new entry
+      await prisma.inventoryItem.create({
+        data: {
+          userId: bot.id,
+          name: loot.name,
+          quantity: 1,
+          category: loot.category || 'misc' // Provide a default category if not available
+        }
+      });
+    }
+
+    console.log(`${bot.username} collected ${loot.name}`);
+  } catch (error) {
+    console.error(`Error collecting loot for ${bot.username}:`, error);
+  }
+}
+
+async function getMutualFriends(bot: AIBot): Promise<string[]> {
+  const user = await prisma.users.findUnique({
+    where: { username: bot.username },
+    select: { friends: true }
+  });
+
+  if (!user || !user.friends) return [];
+
+  const mutualFriends = await prisma.users.findMany({
+    where: {
+      username: { in: user.friends },
+      friends: { has: bot.username }
+    },
+    select: { username: true }
+  });
+
+  return mutualFriends.map(friend => friend.username);
 }
 
 export { manageAIBots, aiBots, deleteAllBots };
