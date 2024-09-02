@@ -181,9 +181,16 @@ async function interactWithPlayers(bot: AIBot) {
 
   const now = new Date();
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const missilesFiredToday = bot.lastMissileFiredAt && bot.lastMissileFiredAt > oneDayAgo;
+  
+  // Count the number of missiles fired by this bot in the last 24 hours
+  const missilesFiredToday = await prisma.missile.count({
+    where: {
+      sentBy: bot.username,
+      sentAt: { gte: oneDayAgo },
+    },
+  });
 
-  if (missilesFiredToday) {
+  if (missilesFiredToday >= config.maxMissilesPerDay) {
     console.log(`${bot.username} has already fired the maximum number of missiles today.`);
     return;
   }
