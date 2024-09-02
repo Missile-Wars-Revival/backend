@@ -69,17 +69,45 @@ export async function sendNotification(username: string, title: string, body: st
   async function cleanupOldNotifications() {
     const oneMonthAgo = new Date();
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-  
+
     try {
-      const result = await prisma.notifications.deleteMany({
+      // Delete notifications older than one month
+      const oldNotificationsResult = await prisma.notifications.deleteMany({
         where: {
           timestamp: {
             lt: oneMonthAgo
           }
         }
       });
-      console.log(`Deleted ${result.count} old notifications`);
+
+      // Get all users
+      const users = await prisma.users.findMany({
+        select: { username: true }
+      });
+
+      let totalExcessDeleted = 0;
+
+      // For each user, keep only the 50 most recent notifications
+      for (const user of users) {
+        const excessNotifications = await prisma.notifications.findMany({
+          where: { userId: user.username },
+          orderBy: { timestamp: 'desc' },
+          skip: 50,
+          select: { id: true }
+        });
+
+        if (excessNotifications.length > 0) {
+          const deleteResult = await prisma.notifications.deleteMany({
+            where: {
+              id: { in: excessNotifications.map(n => n.id) }
+            }
+          });
+          totalExcessDeleted += deleteResult.count;
+        }
+      }
+
+      console.log(`Deleted ${oldNotificationsResult.count} old notifications and ${totalExcessDeleted} excess notifications`);
     } catch (error) {
-      console.error('Error cleaning up old notifications:', error);
+      console.error('Error cleaning up notifications:', error);
     }
   }
