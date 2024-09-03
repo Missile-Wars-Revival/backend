@@ -2557,10 +2557,24 @@ app.post("/api/getisAlive", async (req, res) => {
 
 app.get("/api/map-data", async (req, res) => {
   try {
-    const [onlinePlayers, activeMissiles, lootDrops, landmines] = await Promise.all([
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+
+    const [activePlayers, activeMissiles, lootDrops, landmines] = await Promise.all([
       prisma.gameplayUser.findMany({
-        where: { isAlive: true },
-        include: { Locations: true }
+        where: {
+          isAlive: true,
+          Locations: {
+            updatedAt: {
+              gte: thirtyMinutesAgo
+            }
+          },
+          Users: {
+            role: {
+              not: 'bot'
+            }
+          }
+        },
+        include: { Locations: true, Users: true }
       }),
       prisma.missile.findMany({
         where: { status: "Incoming" }
@@ -2569,10 +2583,24 @@ app.get("/api/map-data", async (req, res) => {
       prisma.landmine.findMany()
     ]);
 
-    const totalPlayers = await prisma.gameplayUser.count();
+    const totalPlayers = await prisma.gameplayUser.count({
+      where: {
+        isAlive: true,
+        Locations: {
+          updatedAt: {
+            gte: thirtyMinutesAgo
+          }
+        },
+        Users: {
+          role: {
+            not: 'bot'
+          }
+        }
+      }
+    });
 
     const mapData = {
-      online_players: onlinePlayers.map(p => ({
+      active_players: activePlayers.map(p => ({
         latitude: p.Locations?.latitude,
         longitude: p.Locations?.longitude
       })).filter(p => p.latitude && p.longitude),
