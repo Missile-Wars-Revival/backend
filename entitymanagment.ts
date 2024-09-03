@@ -180,7 +180,7 @@ export const addRandomLoot = async () => {
       updatedAt: { gte: twoDaysAgo },
       username: {
         notIn: (await prisma.users.findMany({
-          //where: { role: "bot" }, // filter for bots
+          where: { role: "bot" }, // filter for bots
           select: { username: true }
         })).map(user => user.username)
       }
