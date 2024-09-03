@@ -2631,7 +2631,7 @@ app.get("/api/map-data", async (req, res) => {
       total_missiles: activeMissiles.length
     };
 
-    console.log('Map data:', mapData);
+    //console.log('Map data:', mapData);
     res.json(mapData);
   } catch (error) {
     console.error("Error fetching map data:", error);
