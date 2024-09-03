@@ -278,17 +278,17 @@ export const checkPlayerProximity = async () => {
               const currentTime = new Date();
               const timeToImpact = new Date(missile.timeToImpact);
               const etaSeconds = Math.max(0, Math.round((timeToImpact.getTime() - currentTime.getTime()) / 1000));
-              const etaMinutes = Math.floor(etaSeconds / 60);
+              const etaHours = Math.floor(etaSeconds / 3600);
+              const etaMinutes = Math.floor((etaSeconds % 3600) / 60);
               const remainingSeconds = etaSeconds % 60;
 
-              // Format ETA string
               let etaString = '';
-              if (etaMinutes > 0) {
-                etaString += `${etaMinutes} minute${etaMinutes > 1 ? 's' : ''}`;
-                if (remainingSeconds > 0) etaString += ' and ';
-              }
-              if (remainingSeconds > 0 || etaMinutes === 0) {
-                etaString += `${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`;
+              if (etaHours > 0) {
+                etaString = `${etaHours} hour${etaHours > 1 ? 's' : ''}`;
+              } else if (etaMinutes > 0) {
+                etaString = `${etaMinutes} minute${etaMinutes > 1 ? 's' : ''}`;
+              } else {
+                etaString = `${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`;
               }
 
               const message = distance <= missile.radius / 1000
