@@ -277,7 +277,7 @@ export const checkPlayerProximity = async () => {
           if (missile.status !== 'Hit') {
             if (distance <= missile.radius / 1000 + bufferZone) { // Convert missile.radius from meters to km
               const message = distance <= missile.radius / 1000
-                ? "A missile is approaching your location! Take cover immediately!"
+                ? "A missile is approaching your location! Take cover!"
                 : "A missile is approaching nearby! Be prepared to take cover.";
               await sendNotification(user.username, "Missile Alert!", message, "Server");
               notifiedEntities.add(entityId);
