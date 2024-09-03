@@ -2555,6 +2555,50 @@ app.post("/api/getisAlive", async (req, res) => {
   }
 });
 
+app.get("/api/map-data", async (req, res) => {
+  try {
+    const [onlinePlayers, activeMissiles, lootDrops, landmines] = await Promise.all([
+      prisma.gameplayUser.findMany({
+        where: { isAlive: true },
+        include: { Locations: true }
+      }),
+      prisma.missile.findMany({
+        where: { status: "Incoming" }
+      }),
+      prisma.loot.findMany(),
+      prisma.landmine.findMany()
+    ]);
+
+    const totalPlayers = await prisma.gameplayUser.count();
+
+    const mapData = {
+      online_players: onlinePlayers.map(p => ({
+        latitude: p.Locations?.latitude,
+        longitude: p.Locations?.longitude
+      })).filter(p => p.latitude && p.longitude),
+      active_missiles: activeMissiles.map(m => ({
+        latitude: m.currentLat,
+        longitude: m.currentLong
+      })),
+      loot_drops: lootDrops.map(l => ({
+        latitude: l.locLat,
+        longitude: l.locLong
+      })),
+      landmines: landmines.map(l => ({
+        latitude: l.locLat,
+        longitude: l.locLong
+      })),
+      total_players: totalPlayers,
+      total_missiles: activeMissiles.length
+    };
+
+    res.json(mapData);
+  } catch (error) {
+    console.error("Error fetching map data:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 
 ////////////////////////
 
