@@ -269,20 +269,36 @@ export const checkPlayerProximity = async () => {
         const missileCoords = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
         const distance = haversineDistance(userCoords, missileCoords); // Already in km
         
-        const bufferZone = 0.05; // Additional 50 meters in km
         const entityId = `missile-${missile.id}-${user.id}`; // Unique identifier for this missile-user pair
         
         if (!notifiedEntities.has(entityId)) {
           if (missile.status !== 'Hit') {
-            if (distance <= missile.radius / 1000 + bufferZone) { // Convert missile.radius from meters to km
+            if (distance <= missile.radius / 1000 + MISSILE_ALERT_DISTANCE) { // Convert missile.radius from meters to km
+              // Calculate ETA
+              const currentTime = new Date();
+              const timeToImpact = new Date(missile.timeToImpact);
+              const etaSeconds = Math.max(0, Math.round((timeToImpact.getTime() - currentTime.getTime()) / 1000));
+              const etaMinutes = Math.floor(etaSeconds / 60);
+              const remainingSeconds = etaSeconds % 60;
+
+              // Format ETA string
+              let etaString = '';
+              if (etaMinutes > 0) {
+                etaString += `${etaMinutes} minute${etaMinutes > 1 ? 's' : ''}`;
+                if (remainingSeconds > 0) etaString += ' and ';
+              }
+              if (remainingSeconds > 0 || etaMinutes === 0) {
+                etaString += `${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`;
+              }
+
               const message = distance <= missile.radius / 1000
-                ? "A missile is approaching your location! Take cover!"
-                : "A missile is approaching nearby! Be prepared to take cover.";
+                ? `A missile is approaching your location! ETA: ${etaString}. Take cover!`
+                : `A missile is approaching nearby! ETA: ${etaString}. Be prepared to take cover.`;
               await sendNotification(user.username, "Missile Alert!", message, "Server");
               notifiedEntities.add(entityId);
             }
           } else { // missile.status === 'Hit'
-            if (distance <= missile.radius / 1000 + bufferZone) { // Convert missile.radius from meters to km
+            if (distance <= missile.radius / 1000 + MISSILE_ALERT_DISTANCE) { // Convert missile.radius from meters to km
               const message = distance <= missile.radius / 1000
                 ? "You're in a missile impact zone! Check the app to avoid damage."
                 : "You're near a missile impact zone! Proceed with caution.";
@@ -350,9 +366,6 @@ export const checkPlayerProximity = async () => {
     console.error('Failed to check player proximity:', error);
   }
 };
-
-// Add this interval to run the check every minute
-setInterval(checkPlayerProximity, 60000);
 
 // Add this function to clear notifications when appropriate (e.g., when a missile is removed)
 function clearNotification(entityType: string, entityId: string) {
