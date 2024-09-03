@@ -2559,7 +2559,7 @@ app.get("/api/map-data", async (req, res) => {
   try {
     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
 
-    const [activePlayers, activeMissiles, lootDrops, landmines] = await Promise.all([
+    const [activePlayers, activeMissiles, lootDrops, landmines, totalPlayersCount] = await Promise.all([
       prisma.gameplayUser.findMany({
         where: {
           isAlive: true,
@@ -2574,30 +2574,40 @@ app.get("/api/map-data", async (req, res) => {
             }
           }
         },
-        include: { Locations: true, Users: true }
+        include: { 
+          Locations: true,
+          Users: true
+        }
       }),
       prisma.missile.findMany({
         where: { status: "Incoming" }
       }),
-      prisma.loot.findMany(),
-      prisma.landmine.findMany()
-    ]);
-
-    const totalPlayers = await prisma.gameplayUser.count({
-      where: {
-        isAlive: true,
-        Locations: {
-          updatedAt: {
-            gte: thirtyMinutesAgo
-          }
-        },
-        Users: {
-          role: {
-            not: 'bot'
+      prisma.loot.findMany({
+        where: {
+          Expires: {
+            gt: new Date()
           }
         }
-      }
-    });
+      }),
+      prisma.landmine.findMany({
+        where: {
+          Expires: {
+            gt: new Date()
+          }
+        }
+      }),
+      prisma.gameplayUser.count({
+        where: {
+          Users: {
+            role: {
+              not: 'bot'
+            }
+          }
+        }
+      })
+    ]);
+
+    const activePlayersCount = activePlayers.length;
 
     const mapData = {
       active_players: activePlayers.map(p => ({
@@ -2616,10 +2626,12 @@ app.get("/api/map-data", async (req, res) => {
         latitude: l.locLat,
         longitude: l.locLong
       })),
-      total_players: totalPlayers,
+      active_players_count: activePlayersCount,
+      total_players: totalPlayersCount,
       total_missiles: activeMissiles.length
     };
 
+    console.log('Map data:', mapData);
     res.json(mapData);
   } catch (error) {
     console.error("Error fetching map data:", error);
