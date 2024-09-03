@@ -1608,60 +1608,56 @@ app.get("/api/friends", async (req, res) => {
 });
 
 app.post("/api/addFriend", async (req: Request, res: Response) => {
-  const { token, friend } = req.body; // Destructuring from req.body
+  const { token, friend } = req.body;
 
   if (typeof token !== 'string' || !token.trim()) {
     return res.status(400).json({ message: "Token is required and must be a non-empty string." });
   }
 
   try {
-    // Verify the token and ensure it's treated as an object
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string; };
     if (!decoded.username) {
       return res.status(401).json({ message: "Invalid token: Username is missing." });
     }
 
-    // Retrieve the user from the database based on the username decoded from the token
     const user = await prisma.users.findFirst({
-      where: {
-        username: decoded.username,
-      },
+      where: { username: decoded.username },
     });
 
     if (!user) {
-      console.log("User not found")
+      console.log("User not found");
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Check if the friend exists
     const friendUser = await prisma.users.findFirst({
-      where: {
-        username: friend,
-      },
+      where: { username: friend },
     });
 
     if (!friendUser) {
       return res.status(404).json({ message: "Friend not found" });
     }
 
-    // Check if the friend is already added
     if (user.friends.includes(friend)) {
-      console.log("Friend already added")
+      console.log("Friend already added");
       return res.status(409).json({ message: "Friend already added" });
     }
 
+    // Check if the friend has already added the user
+    const isMutualFriend = friendUser.friends.includes(user.username);
+
     // Add friend
     await prisma.users.update({
-      where: {
-        username: user.username,
-      },
-      data: {
-        friends: {
-          push: friend,
-        },
-      },
+      where: { username: user.username },
+      data: { friends: { push: friend } },
     });
-    await sendNotification(friend, "Friend Request", `${user.username} has added you as a friend!`, user.username);
+
+    // Send appropriate notification
+    if (isMutualFriend) {
+      await sendNotification(friend, "Friend Accepted", `${user.username} has added you back!`, user.username);
+    } else {
+      await sendNotification(friend, "Friend Request", `${user.username} has added you as a friend!`, user.username);
+    }
+
     console.log("Friend added");
     res.status(200).json({ message: "Friend added successfully" });
   } catch (error) {
