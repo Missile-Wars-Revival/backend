@@ -37,10 +37,10 @@ export const updateMissilePositions = async () => {
     const currentTime = new Date();
 
     const updates = missiles.map(async (missile) => {
-      const timeLaunched = new Date(missile.sentAt);
-      const impactTime = new Date(missile.timeToImpact);
+      const sentAt = new Date(missile.sentAt);
+      const timeToImpact = new Date(missile.timeToImpact);
 
-      if (isNaN(timeLaunched.getTime()) || isNaN(impactTime.getTime())) {
+      if (isNaN(sentAt.getTime()) || isNaN(timeToImpact.getTime())) {
         console.error('Invalid date found for missile ID:', missile.id);
         return;
       }
@@ -48,15 +48,14 @@ export const updateMissilePositions = async () => {
       const startPosition = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
       const destinationPosition = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
 
-      // Recalculate total distance, time, and speed every 30 seconds
       const totalDistance = geolib.getDistance(startPosition, destinationPosition);
-      const totalTime = impactTime.getTime() - currentTime.getTime();
-      const speed = totalDistance / (totalTime / 1000); // Speed in meters per second
+      const totalTravelTime = timeToImpact.getTime() - sentAt.getTime();
+      const speed = totalDistance / (totalTravelTime / 1000); // Speed in meters per second
 
-      const timeElapsed = currentTime.getTime() - timeLaunched.getTime();
-      const distanceTraveled = speed * (timeElapsed / 1000); // Distance traveled till now
+      const elapsedTime = currentTime.getTime() - sentAt.getTime();
+      const distanceTraveled = (speed * elapsedTime) / 1000; // Distance traveled in meters
 
-      if (distanceTraveled >= totalDistance || currentTime >= impactTime) {
+      if (currentTime >= timeToImpact) {
         return prisma.missile.update({
           where: { id: missile.id },
           data: { currentLat: missile.destLat, currentLong: missile.destLong, status: 'Hit' }
