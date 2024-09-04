@@ -21,19 +21,30 @@ import {
   Register,
   RegisterSchema,
 } from "./interfaces/api";
+import * as crypto from 'crypto';
+import nodemailer from 'nodemailer';
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates, checkPlayerProximity } from "./entitymanagment";
 import { sendNotification, startNotificationManager } from "./notificationhelper";
 import { aiBots, deleteAllBots, manageAIBots } from "./bots";
+import { deleteResetToken, getResetTokenInfo, storeResetToken } from "./usermanagment";
 
 export const prisma = new PrismaClient();
 
 const wsServer = expressWs(express());
 const app = wsServer.app;;
 
-const expo = new Expo();
-
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2024-06-20'
+});
+
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST,
+  port: parseInt(process.env.EMAIL_PORT || '587'),
+  secure: process.env.EMAIL_SECURE === 'true',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
 });
 
 app.use(bodyParser.json());
@@ -490,6 +501,85 @@ app.post("/api/register", validateSchema(RegisterSchema), async (req, res) => {
   );
 
   res.status(200).json({ message: "User created", token });
+});
+
+app.post("/api/requestPasswordReset", async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const user = await prisma.users.findFirst({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // Token valid for 1 hour
+
+    await storeResetToken(user.id, resetToken, resetTokenExpiry);
+
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: user.email,
+      subject: "Password Reset Request",
+      text: `Please use the following link to reset your password: ${resetUrl}`,
+      html: `<p>Please use the following link to reset your password:</p><a href="${resetUrl}">${resetUrl}</a>`,
+    });
+
+    res.status(200).json({ message: "Password reset email sent" });
+  } catch (error) {
+    console.error("Password reset request failed:", error);
+    res.status(500).json({ message: "Failed to process password reset request" });
+  }
+});
+app.post("/api/resetPassword", async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  try {
+    const resetInfo = await getResetTokenInfo(token);
+    if (!resetInfo || resetInfo.expiry < new Date()) {
+      return res.status(400).json({ message: "Invalid or expired reset token" });
+    }
+
+    const hashedPassword = await argon2.hash(newPassword);
+
+    await prisma.users.update({
+      where: { id: resetInfo.userId },
+      data: { password: hashedPassword },
+    });
+
+    await deleteResetToken(token);
+
+    res.status(200).json({ message: "Password reset successful" });
+  } catch (error) {
+    console.error("Password reset failed:", error);
+    res.status(500).json({ message: "Failed to reset password" });
+  }
+});
+
+app.post("/api/requestUsernameReminder", async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const user = await prisma.users.findFirst({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: user.email,
+      subject: "Username Reminder",
+      text: `Your username is: ${user.username}`,
+      html: `<p>Your username is: <strong>${user.username}</strong></p>`,
+    });
+
+    res.status(200).json({ message: "Username reminder email sent" });
+  } catch (error) {
+    console.error("Username reminder request failed:", error);
+    res.status(500).json({ message: "Failed to process username reminder request" });
+  }
 });
 
 //Entering missiles and landmines into DB
