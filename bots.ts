@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { sendNotification } from "./notificationhelper";
+import { sendNotification } from "./runners/notificationhelper";
 import * as geolib from "geolib";
 import { sample } from "lodash";
 
