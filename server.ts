@@ -2553,7 +2553,7 @@ app.post("/api/addHealth", async (req, res) => {
     res.status(500).json({ message: "Error verifying token" });
   }
 });
-
+//website & discord bot
 app.get("/api/map-data", async (req, res) => {
   try {
     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
@@ -2637,30 +2637,44 @@ app.get("/api/map-data", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
-app.get("/api/recent-missiles", async (req, res) => {
+//discord notificaitons
+app.get("/api/recent-updates", async (req, res) => {
   const sinceTime = req.query.since ? new Date(req.query.since as string) : new Date(0);
 
   try {
-    const recentMissiles = await prisma.missile.findMany({
-      where: {
-        sentAt: {
-          gt: sinceTime
+    const [recentMissiles, recentLandmines] = await Promise.all([
+      prisma.missile.findMany({
+        where: {
+          sentAt: {
+            gt: sinceTime
+          },
+          status: "Incoming"
         },
-        status: "Incoming"
-      },
-      orderBy: {
-        sentAt: 'asc'
-      }
-    });
+        orderBy: {
+          sentAt: 'asc'
+        }
+      }),
+      prisma.landmine.findMany({
+        where: {
+          placedtime: {
+            gt: sinceTime
+          }
+        },
+        orderBy: {
+          placedtime: 'asc'
+        }
+      })
+    ]);
 
-    res.status(200).json({ missiles: recentMissiles });
+    res.status(200).json({
+      missiles: recentMissiles,
+      landmines: recentLandmines
+    });
   } catch (error) {
-    console.error("Error fetching recent missiles:", error);
-    res.status(500).json({ message: "Error fetching recent missiles" });
+    console.error("Error fetching recent updates:", error);
+    res.status(500).json({ message: "Error fetching recent updates" });
   }
 });
-
 ////////////////////////
 
 let port = process.env.PORT;
