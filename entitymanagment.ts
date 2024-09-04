@@ -266,7 +266,7 @@ export const checkPlayerProximity = async () => {
 
       // Check proximity to missiles
       for (const missile of missiles) {
-        const missileCoords = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
+        const missileCoords = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
         const distance = haversineDistance(userCoords, missileCoords); // Already in km
         
         const entityId = `missile-${missile.id}-${user.id}`; // Unique identifier for this missile-user pair
