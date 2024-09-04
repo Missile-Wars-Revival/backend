@@ -204,14 +204,6 @@ export function setupAuthRoutes(app: any) {
                 return res.status(404).json({ message: "User not found" });
             }
 
-            await transporter.sendMail({
-                from: process.env.EMAIL_FROM,
-                to: user.email,
-                subject: "Username Reminder",
-                text: `Your username is: ${user.username}`,
-                html: `<p>Your username is: <strong>${user.username}</strong></p>`,
-            });
-
             res.status(200).json({ message: `${user.username}` });
         } catch (error) {
             console.error("Username reminder request failed:", error);
