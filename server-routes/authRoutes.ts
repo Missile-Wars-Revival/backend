@@ -212,10 +212,127 @@ export function setupAuthRoutes(app: any) {
                 html: `<p>Your username is: <strong>${user.username}</strong></p>`,
             });
 
-            res.status(200).json({ message: "Username reminder email sent" });
+            res.status(200).json({ message: `${user.username}` });
         } catch (error) {
             console.error("Username reminder request failed:", error);
             res.status(500).json({ message: "Failed to process username reminder request" });
+        }
+    });
+
+    app.post("/api/changePassword", async (req: Request, res: Response) => {
+        const { token, newPassword } = req.body;
+        if (typeof token !== 'string' || !token.trim()) {
+            return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+        }
+
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            if (typeof decoded === 'string' || !decoded.username) {
+                return res.status(401).json({ message: "Invalid token" });
+            }
+            const user = await prisma.users.findUnique({ where: { username: decoded.username } });
+            if (!user) {
+                return res.status(404).json({ message: "User not found" });
+            }
+
+            if (newPassword.length < 8 || !newPassword.match(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/)) {
+                return res.status(400).json({
+                    message: "New password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+                });
+            }
+
+            const hashedNewPassword = await argon2.hash(newPassword);
+
+            await prisma.users.update({
+                where: { username: decoded.username },
+                data: { password: hashedNewPassword },
+            });
+
+            res.status(200).json({ message: "Password changed successfully" });
+        } catch (error) {
+            console.error("Password change failed:", error);
+            res.status(500).json({ message: "Failed to change password" });
+        }
+        
+    });
+
+    app.post("/api/changeUsername", async (req: Request, res: Response) => {
+        const { token, newUsername } = req.body;
+
+        if (typeof token !== 'string' || !token.trim()) {
+            return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+        }
+
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            if (typeof decoded === 'string' || !decoded.username) {
+                return res.status(401).json({ message: "Invalid token" });
+            }
+            const user = await prisma.users.findUnique({ where: { username: decoded.username } });
+            if (!user) {
+                return res.status(404).json({ message: "User not found" });
+            }
+
+            if (newUsername.length < 3 || !newUsername.match(/^[a-zA-Z0-9]+$/)) {
+                return res.status(400).json({
+                    message: "New username must be at least 3 characters long and contain only letters and numbers",
+                });
+            }
+
+            const existingUser = await prisma.users.findUnique({ where: { username: newUsername } });
+            if (existingUser) {
+                return res.status(409).json({ message: "Username already exists" });
+            }
+
+            await prisma.users.update({
+                where: { username: decoded.username },
+                data: { username: newUsername },
+            });
+
+            // Update the username in the gameplayUser table as well
+            await prisma.gameplayUser.update({
+                where: { username: decoded.username },
+                data: { username: newUsername },
+            });
+
+            res.status(200).json({ message: "Username changed successfully" });
+        } catch (error) {
+            console.error("Username change failed:", error);
+            res.status(500).json({ message: "Failed to change username" });
+        }
+    });
+
+    app.post("/api/changeEmail", async (req: Request, res: Response) => {
+        const { token, newEmail } = req.body;
+
+        if (typeof token !== 'string' || !token.trim()) {
+            return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+        }
+
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            if (typeof decoded === 'string' || !decoded.username) {
+                return res.status(401).json({ message: "Invalid token" });
+            }
+
+            if (!newEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+                return res.status(400).json({ message: "Invalid email address" });
+            }
+
+            const existingUser = await prisma.users.findFirst({ where: { email: newEmail } });
+            if (existingUser) {
+                return res.status(409).json({ message: "Email already in use" });
+            }
+
+            await prisma.users.update({
+                where: { username: decoded.username },
+                data: { email: newEmail },
+            });
+
+            res.status(200).json({ message: "Email changed successfully" });
+        } catch (error) {
+            console.error("Email change failed:", error);
+            res.status(500).json({ message: "Failed to change email" });
         }
     });
 }
