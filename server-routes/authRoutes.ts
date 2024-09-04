@@ -122,6 +122,7 @@ export function setupAuthRoutes(app: any) {
                 username: register.username,
                 password: hashedPassword,
                 email: register.email,
+                notificationToken: register.notificationToken,
             },
         });
 
