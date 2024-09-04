@@ -6,12 +6,11 @@ import swaggerUi from "swagger-ui-express";
 import swaggerJSDoc from "swagger-jsdoc";
 import expressWs from "express-ws";
 import { ParamsDictionary } from "express-serve-static-core";
-import { ParsedQs } from "qs";
 import * as geolib from 'geolib';
 import * as jwt from "jsonwebtoken";
 import { JwtPayload } from "jsonwebtoken";
 import * as middleearth from "middle-earth";
-import { number, z, ZodError } from "zod";
+import { z, ZodError } from "zod";
 import Stripe from 'stripe';
 import { Expo } from 'expo-server-sdk';
 import {
@@ -25,7 +24,6 @@ import {
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates, checkPlayerProximity } from "./entitymanagment";
 import { sendNotification, startNotificationManager } from "./notificationhelper";
 import { aiBots, deleteAllBots, manageAIBots } from "./bots";
-import WebSocket from 'ws';
 
 export const prisma = new PrismaClient();
 
@@ -2362,6 +2360,197 @@ app.post("/api/getisAlive", async (req, res) => {
     res.status(200).json({ isAlive: user.isAlive });
   } else {
     res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/addRankPoints", async (req, res) => {
+  const { token, points } = req.body;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    // Check if decoded is of type JwtPayload and has a username property
+    if (typeof decoded === 'object' && 'username' in decoded) {
+      const username = decoded.username;
+
+      const user = await prisma.gameplayUser.findFirst({
+        where: {
+          username: username,
+        },
+      });
+
+      if (user) {
+        await prisma.gameplayUser.update({
+          where: {
+            username: username,
+          },
+          data: {
+            rankPoints: user.rankPoints + points, // Correctly add points to the current rankPoints
+          },
+        });
+
+        res.status(200).json({ message: "Rank points added" });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
+    } else {
+      // If decoded does not have a username property
+      res.status(401).json({ message: "Invalid token" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Error verifying token" });
+  }
+});
+
+
+app.post("/api/removeRankPoints", async (req, res) => {
+  const { token, points } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        rankPoints: user.rankPoints - points,
+      },
+    });
+
+    res.status(200).json({ message: "Rank points removed" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/getRank", async (req, res) => {
+  const { token } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    const rank = user.rank;
+
+    res.status(200).json({ rank });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/setRank", async (req, res) => {
+  const { token, rank } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    await prisma.gameplayUser.update({
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
+      data: {
+        rank,
+      },
+    });
+
+    res.status(200).json({ message: "Rank set" });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+//health
+app.post("/api/getHealth", async (req, res) => {
+  const { token } = req.body;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+  if (!decoded) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+
+  const user = await prisma.gameplayUser.findFirst({
+    where: {
+      username: (decoded as JwtPayload).username as string,
+    },
+  });
+
+  if (user) {
+    res.status(200).json({ health: user.health });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
+});
+
+app.post("/api/addHealth", async (req, res) => {
+  const { token, amount } = req.body;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+    // Check if decoded is of type JwtPayload and has a username property
+    if (typeof decoded === 'object' && 'username' in decoded) {
+      const username = decoded.username;
+
+      const user = await prisma.gameplayUser.findUnique({
+        where: {
+          username: username,
+        },
+      });
+
+      if (user) {
+        // Calculate new health without exceeding 100
+        const newHealth = Math.min(user.health + amount, 100);
+
+        await prisma.gameplayUser.update({
+          where: {
+            username: username,
+          },
+          data: {
+            health: newHealth,
+          },
+        });
+
+        res.status(200).json({ message: "Health added", health: newHealth });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
+    } else {
+      // If decoded does not have a username property
+      res.status(401).json({ message: "Invalid token" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Error verifying token" });
   }
 });
 
