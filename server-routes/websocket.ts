@@ -178,6 +178,9 @@ export function setupWebSocket(app: any) {
               has: currentUser.username
             }
           },
+          select: {
+            username: true,
+          },
         });
 
         const mutualFriendsUsernames = await getMutualFriends(currentUser);
