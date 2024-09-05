@@ -69,7 +69,7 @@ setInterval(checkPlayerProximity, 15000);
 startNotificationManager();
 
 //manages leagues
-leagueRunner();
+//leagueRunner();
 
 //Bots:
 manageAIBots();
