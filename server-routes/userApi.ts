@@ -27,6 +27,27 @@ interface SelfProfile {
   statistics: Statistics;
 }
 
+export async function getMutualUsersFriends(username1: string, username2: string): Promise<string[]> {
+  const [user1, user2] = await Promise.all([
+    prisma.users.findUnique({
+      where: { username: username1 },
+      select: { friends: true }
+    }),
+    prisma.users.findUnique({
+      where: { username: username2 },
+      select: { friends: true }
+    })
+  ]);
+
+  if (!user1 || !user2) {
+    throw new Error("One or both users not found");
+  }
+
+  const user1FriendSet = new Set(user1.friends);
+  const mutualFriends = user2.friends.filter(friend => user1FriendSet.has(friend));
+
+  return mutualFriends;
+}
 
 export function setupUserApi(app: any) {
 
@@ -43,35 +64,41 @@ export function setupUserApi(app: any) {
         return res.status(401).json({ success: false, message: "Invalid token" });
       }
 
-      const user = await prisma.users.findUnique({
-        where: { username: username as string },
-        include: {
-          GameplayUser: {
-            include: {
-              Statistics: true
+      const [requestingUser, targetUser] = await Promise.all([
+        prisma.users.findUnique({
+          where: { username: decoded.username },
+          include: { GameplayUser: true }
+        }),
+        prisma.users.findUnique({
+          where: { username: username as string },
+          include: {
+            GameplayUser: {
+              include: {
+                Statistics: true
+              }
             }
           }
-        }
-      });
+        })
+      ]);
 
-      if (!user) {
+      if (!requestingUser || !targetUser) {
         return res.status(404).json({ success: false, message: "User not found" });
       }
 
-      const mutualFriends = await getMutualFriends(user);
+      const mutualFriends = await getMutualUsersFriends(requestingUser.username, targetUser.username);
 
       const statistics: Statistics = {
-        badges: user.GameplayUser?.Statistics[0]?.badges || [],
-        numDeaths: user.GameplayUser?.Statistics[0]?.numDeaths || 0,
-        numLootPlaced: user.GameplayUser?.Statistics[0]?.numLootPlaced || 0,
-        numLandminesPlaced: user.GameplayUser?.Statistics[0]?.numLandminesPlaced || 0,
-        numMissilesPlaced: user.GameplayUser?.Statistics[0]?.numMissilesPlaced || 0,
-        numLootPickups: user.GameplayUser?.Statistics[0]?.numLootPickups || 0,
+        badges: targetUser.GameplayUser?.Statistics[0]?.badges || [],
+        numDeaths: targetUser.GameplayUser?.Statistics[0]?.numDeaths || 0,
+        numLootPlaced: targetUser.GameplayUser?.Statistics[0]?.numLootPlaced || 0,
+        numLandminesPlaced: targetUser.GameplayUser?.Statistics[0]?.numLandminesPlaced || 0,
+        numMissilesPlaced: targetUser.GameplayUser?.Statistics[0]?.numMissilesPlaced || 0,
+        numLootPickups: targetUser.GameplayUser?.Statistics[0]?.numLootPickups || 0,
       };
 
       const userProfile: UserProfile = {
-        username: user.username,
-        rankpoints: user.GameplayUser?.rankPoints || 0,
+        username: targetUser.username,
+        rankpoints: targetUser.GameplayUser?.rankPoints || 0,
         mutualFriends: mutualFriends,
         statistics: statistics
       };

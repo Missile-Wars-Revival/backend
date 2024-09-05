@@ -262,7 +262,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       return res.status(500).json({ message: "Internal server error" });
     }
   });
-  
+  //pending removal
   app.get("/api/friends", async (req: Request, res: Response) => {
     const token = req.query.token;
   
