@@ -63,16 +63,16 @@ setInterval(deleteExpiredLandmines, 30000);
 setInterval(deleteExpiredLoot, 30000);
 setInterval(updateMissilePositions, 30000);
 //player notificaitons
-setInterval(checkPlayerProximity, 15000);
+//setInterval(checkPlayerProximity, 15000);
 
 //manages notifications
-startNotificationManager();
+//startNotificationManager();
 
 //manages leagues
-//leagueRunner();
+leagueRunner;
 
 //Bots:
-manageAIBots();
+//manageAIBots();
 
 //deleteAllBots();
 
@@ -85,7 +85,7 @@ setupFriendsApi(app);
 setupHealthApi(app);
 setupInventoryApi(app);
 setupMoneyApi(app);
-setupNotificationApi(app);
+//setupNotificationApi(app);
 setupRankApi(app);
 setupUserApi(app);
 setupWebSocket(app);
