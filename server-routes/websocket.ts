@@ -238,11 +238,12 @@ export function setupWebSocket(app: any) {
         //bundle for sending
         let playerslocations = allLocations
         let userinventory = inventory
+        let friends = friendsData
         let dataBundle = new middleearth.WebSocketMessage([
           new middleearth.WSMsg('health', userhealth),
           new middleearth.WSMsg('inventory', userinventory),
           new middleearth.WSMsg('playerlocations', playerslocations),
-          new middleearth.WSMsg('friends', friendsData) // Add this line
+          new middleearth.WSMsg('friends', friends)
         ])
 
         // Compress the data bundle
