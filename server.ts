@@ -85,7 +85,7 @@ setupFriendsApi(app);
 setupHealthApi(app);
 setupInventoryApi(app);
 setupMoneyApi(app);
-//setupNotificationApi(app);
+setupNotificationApi(app);
 setupRankApi(app);
 setupUserApi(app);
 setupWebSocket(app);
