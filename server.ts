@@ -22,6 +22,7 @@ import { setupUserApi } from "./server-routes/userApi";
 import { setupRankApi } from "./server-routes/rankApi";
 import { setupHealthApi } from "./server-routes/healthApi";
 import { setupInventoryApi } from "./server-routes/inventoryApi";
+import { setupLeagueApi } from "./server-routes/leagueApi";
 
 export const prisma = new PrismaClient();
 
@@ -67,6 +68,9 @@ setInterval(checkPlayerProximity, 15000);
 //manages notifications
 startNotificationManager();
 
+//manages leagues
+leagueRunner();
+
 //Bots:
 manageAIBots();
 
@@ -85,6 +89,7 @@ setupNotificationApi(app);
 setupRankApi(app);
 setupUserApi(app);
 setupWebSocket(app);
+setupLeagueApi(app);
 
 
 // Next to convert to WS
@@ -170,3 +175,7 @@ let port = process.env.PORT;
 app.listen(port, () => {
   console.log("listening on port", port);
 });
+
+function leagueRunner() {
+  throw new Error("Function not implemented.");
+}
