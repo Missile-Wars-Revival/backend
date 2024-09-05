@@ -168,6 +168,17 @@ export function setupWebSocket(app: any) {
         if (!currentUser) {
           return
         }
+        //friends data
+        const friendsData = await prisma.users.findMany({
+          where: {
+            username: {
+              in: currentUser.friends,
+            },
+            friends: {
+              has: currentUser.username
+            }
+          },
+        });
 
         const mutualFriendsUsernames = await getMutualFriends(currentUser);
 
@@ -230,7 +241,8 @@ export function setupWebSocket(app: any) {
         let dataBundle = new middleearth.WebSocketMessage([
           new middleearth.WSMsg('health', userhealth),
           new middleearth.WSMsg('inventory', userinventory),
-          new middleearth.WSMsg('playerlocations', playerslocations)
+          new middleearth.WSMsg('playerlocations', playerslocations),
+          new middleearth.WSMsg('friends', friendsData) // Add this line
         ])
 
         // Compress the data bundle
