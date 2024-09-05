@@ -72,7 +72,7 @@ startNotificationManager();
 leagueRunner;
 
 //Bots:
-manageAIBots();
+//manageAIBots();
 
 //deleteAllBots();
 
