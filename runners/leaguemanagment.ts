@@ -3,22 +3,25 @@ import { assignUserToLeague, checkAndPromoteUsers } from '../server-routes/leagu
 
 const prisma = new PrismaClient();
 
-async function leagueRunner() {
+export async function leagueRunner() {
   console.log('Starting league runner...');
 
-  // Assign users without a league
-  const usersWithoutLeague = await prisma.gameplayUser.findMany({
-    where: { leagueId: null }
-  });
+  try {
+    // Assign users without a league
+    const usersWithoutLeague = await prisma.gameplayUser.findMany({
+      where: { leagueId: null }
+    });
+    for (const user of usersWithoutLeague) {
+      await assignUserToLeague(user.id);
+    }
 
-  for (const user of usersWithoutLeague) {
-    await assignUserToLeague(user.id);
+    // Check and promote users
+    await checkAndPromoteUsers();
+
+    console.log('League runner completed successfully.');
+  } catch (error) {
+    console.error('Error in league runner:', error);
   }
-
-  // Check and promote users
-  await checkAndPromoteUsers();
-
-  console.log('League runner completed.');
 }
 
 // Run the league runner every hour
