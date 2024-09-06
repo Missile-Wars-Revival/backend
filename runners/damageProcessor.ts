@@ -247,8 +247,8 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
         console.log(`No reward given. Location update too recent: ${locationAge} ms`);
       }
 
-      const message = `You have been eliminated by a ${damageSource}!`;
-      await sendNotification(user.username, "Eliminated!", message, "Server");
+      const message = `You have been eliminated by a ${recivedtype} ${damageSource} sent by ${attackerUsername}!`;
+      await sendNotification(user.username, "Eliminated!", message, attackerUsername);
     } else if (damageSource === 'missile') {
       // Continue dealing damage for missiles only if the user is still alive
       setTimeout(() => applyDamage(user, damage, attackerUsername, damageSource, recivedtype), DAMAGE_INTERVAL);
