@@ -31,12 +31,6 @@ export function getRandomCoordinates(latitude: number, longitude: number, radius
   return randomPoint;
 }
 
-function interpolatePosition(start: {latitude: number, longitude: number}, end: {latitude: number, longitude: number}, fraction: number): {latitude: number, longitude: number} {
-  const lat = start.latitude + (end.latitude - start.latitude) * fraction;
-  const lng = start.longitude + (end.longitude - start.longitude) * fraction;
-  return { latitude: lat, longitude: lng };
-}
-
 export const updateMissilePositions = async () => {
   try {
     const missiles = await prisma.missile.findMany({ where: { status: 'Incoming' } });
@@ -54,19 +48,26 @@ export const updateMissilePositions = async () => {
       const startPosition = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
       const destinationPosition = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
 
+      const totalDistance = geolib.getDistance(startPosition, destinationPosition);
       const totalTravelTime = timeToImpact.getTime() - sentAt.getTime();
       
-      // Calculate progress based on elapsed time
-      const elapsedTime = currentTime.getTime() - sentAt.getTime();
-      const progress = Math.min(elapsedTime / totalTravelTime, 1);
+      // Calculate speed in meters per millisecond
+      const speed = totalDistance / totalTravelTime;
 
-      if (progress >= 1) {
+      const elapsedTime = currentTime.getTime() - sentAt.getTime();
+      const distanceTraveled = speed * elapsedTime;
+
+      if (currentTime >= timeToImpact) {
         return prisma.missile.update({
           where: { id: missile.id },
           data: { currentLat: missile.destLat, currentLong: missile.destLong, status: 'Hit' }
         });
       } else {
-        const newLocation = interpolatePosition(startPosition, destinationPosition, progress);
+        const newLocation = geolib.computeDestinationPoint(
+          startPosition, 
+          distanceTraveled, 
+          geolib.getGreatCircleBearing(startPosition, destinationPosition)
+        );
 
         return prisma.missile.update({
           where: { id: missile.id },
