@@ -24,6 +24,7 @@ import { setupHealthApi } from "./server-routes/healthApi";
 import { setupInventoryApi } from "./server-routes/inventoryApi";
 import { setupLeagueApi } from "./server-routes/leagueApi";
 import { leagueRunner } from "./runners/leaguemanagment";
+import { processDamage } from "./runners/damageProcessor";
 
 export const prisma = new PrismaClient();
 
@@ -71,6 +72,9 @@ startNotificationManager();
 
 //manages leagues
 leagueRunner();
+
+//manage damage:
+processDamage();
 
 //Bots:
 //manageAIBots();
