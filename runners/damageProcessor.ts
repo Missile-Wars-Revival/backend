@@ -4,7 +4,8 @@ import { sendNotification } from "./notificationhelper";
 import { getMutualFriends } from "../server-routes/friendsApi";
 
 const DAMAGE_INTERVAL = 30000; // 30 seconds in milliseconds
-const FIVE_MINUTES = 5 * 60 * 1000; // 5 minutes in milliseconds
+const TWO_MINUTES = 2 * 60 * 1000; // 2 minutes in milliseconds
+const PROCESS_INTERVAL = 15000; // 15 seconds in milliseconds
 
 export const processDamage = async () => {
   try {
@@ -155,7 +156,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
       const locationAge = Date.now() - updatedUser.Locations.updatedAt.getTime();
       console.log(`Location age for ${user.username}: ${locationAge} ms`);
 
-      if (locationAge > FIVE_MINUTES) {
+      if (locationAge > TWO_MINUTES) {
         console.log(`Processing death reward for ${user.username}, killed by ${attackerUsername}`);
 
         const attacker = await prisma.gameplayUser.findUnique({
@@ -229,3 +230,9 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
     console.error("Error in applyDamage function:", error);
   }
 }
+
+// New function to start the damage processing interval
+export const startDamageProcessing = () => {
+  setInterval(processDamage, PROCESS_INTERVAL);
+  console.log('Damage processing started, running every 15 seconds');
+};
