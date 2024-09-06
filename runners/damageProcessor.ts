@@ -3,6 +3,7 @@ import { haversine } from "./entitymanagment";
 import { sendNotification } from "./notificationhelper";
 
 const DAMAGE_INTERVAL = 30000; // 30 seconds in milliseconds
+const FIVE_MINUTES = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 export const processDamage = async () => {
   try {
@@ -85,7 +86,8 @@ interface GameplayUser {
 async function applyDamage(user: GameplayUser, damage: number, attackerUsername: string, damageSource: 'missile' | 'landmine') {
   const updatedUser = await prisma.gameplayUser.update({
     where: { id: user.id },
-    data: { health: { decrement: damage } }
+    data: { health: { decrement: damage } },
+    include: { Locations: true }
   });
 
   if (updatedUser.health <= 0) {
@@ -93,59 +95,64 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
       where: { id: user.id },
       data: { isAlive: false, health: 0 }
     });
+    // Check if the user's location is older than 5 minutes
+    const locationAge = updatedUser.Locations?.updatedAt
+      ? Date.now() - updatedUser.Locations.updatedAt.getTime()
+      : Infinity;
+    if (locationAge > FIVE_MINUTES) {
+      // Death reward logic
+      try {
+        const attacker = await prisma.gameplayUser.findUnique({
+          where: { username: attackerUsername },
+        });
 
-    // Death reward logic
-    try {
-      const attacker = await prisma.gameplayUser.findUnique({
-        where: { username: attackerUsername },
-      });
+        if (attacker) {
+          let rewardAmount = 0;
+          let rankPointsReward = 0;
 
-      if (attacker) {
-        let rewardAmount = 0;
-        let rankPointsReward = 0;
-
-        if (damageSource === 'landmine') {
-          const landmineType = await prisma.landmineType.findUnique({
-            where: { name: 'StandardLandmine' }, // Adjust this type as needed
-          });
-          if (landmineType) {
-            rewardAmount = Math.round(landmineType.price * 1.5);
-            rankPointsReward = 300; // Base rank points for landmine kill
+          if (damageSource === 'landmine') {
+            const landmineType = await prisma.landmineType.findUnique({
+              where: { name: 'StandardLandmine' }, // Adjust this type as needed
+            });
+            if (landmineType) {
+              rewardAmount = Math.round(landmineType.price * 1.5);
+              rankPointsReward = 300; // Base rank points for landmine kill
+            }
+          } else if (damageSource === 'missile') {
+            const missileType = await prisma.missileType.findUnique({
+              where: { name: 'StandardMissile' }, // Adjust this type as needed
+            });
+            if (missileType) {
+              rewardAmount = Math.round(missileType.price * 1.5);
+              rankPointsReward = 500; // Base rank points for missile kill
+            }
           }
-        } else if (damageSource === 'missile') {
-          const missileType = await prisma.missileType.findUnique({
-            where: { name: 'StandardMissile' }, // Adjust this type as needed
+
+          // Add bonus rank points based on item price
+          rankPointsReward += Math.round(rewardAmount / 10);
+
+          // Update attacker's money and rank points
+          await prisma.gameplayUser.update({
+            where: { id: attacker.id },
+            data: {
+              money: { increment: rewardAmount },
+              rankPoints: { increment: rankPointsReward },
+            },
           });
-          if (missileType) {
-            rewardAmount = Math.round(missileType.price * 1.5);
-            rankPointsReward = 500; // Base rank points for missile kill
-          }
+
+          // Create a notification for the attacker
+          await prisma.notifications.create({
+            data: {
+              userId: attacker.username,
+              title: "Kill Reward",
+              body: `You've been rewarded ${rewardAmount} coins and ${rankPointsReward} rank points for killing ${user.username} with your ${damageSource}!`,
+              sentby: "server",
+            },
+          });
         }
-
-        // Add bonus rank points based on item price
-        rankPointsReward += Math.round(rewardAmount / 10);
-
-        // Update attacker's money and rank points
-        await prisma.gameplayUser.update({
-          where: { id: attacker.id },
-          data: {
-            money: { increment: rewardAmount },
-            rankPoints: { increment: rankPointsReward },
-          },
-        });
-
-        // Create a notification for the attacker
-        await prisma.notifications.create({
-          data: {
-            userId: attacker.username,
-            title: "Kill Reward",
-            body: `You've been rewarded ${rewardAmount} coins and ${rankPointsReward} rank points for killing ${user.username} with your ${damageSource}!`,
-            sentby: "server",
-          },
-        });
+      } catch (error) {
+        console.error("Failed to process death reward:", error);
       }
-    } catch (error) {
-      console.error("Failed to process death reward:", error);
     }
 
     const message = `You have been eliminated by a ${damageSource}!`;
