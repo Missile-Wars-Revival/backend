@@ -1,6 +1,6 @@
-import { prisma } from "./server";
+import { prisma } from "../server";
 import * as geolib from 'geolib';
-import { getMutualFriends } from "./server";
+import { getMutualFriends } from "../server-routes/friendsApi";
 import { sendNotification } from "./notificationhelper";
 
 // Add this at the top of your file or in an appropriate scope

@@ -7,24 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model BattleSessions {
-  sessionId                                                  String
-  attackerUsername                                           String        @default("")
-  defenderUsername                                           String        @default("")
-  gameplayUserId                                             Int?
-  result                                                     String        @default("")
-  status                                                     String        @default("")
-  target                                                     String        @default("")
-  createdAt                                                  DateTime      @default(now())
-  updatedAt                                                  DateTime      @default(now())
-  deletedAt                                                  DateTime      @default(now())
-  GameplayUser_BattleSessions_attackerUsernameToGameplayUser GameplayUser  @relation("BattleSessions_attackerUsernameToGameplayUser", fields: [attackerUsername], references: [username])
-  GameplayUser_BattleSessions_defenderUsernameToGameplayUser GameplayUser  @relation("BattleSessions_defenderUsernameToGameplayUser", fields: [defenderUsername], references: [username])
-  GameplayUser_BattleSessions_gameplayUserIdToGameplayUser   GameplayUser? @relation("BattleSessions_gameplayUserIdToGameplayUser", fields: [gameplayUserId], references: [id])
-
-  @@id([attackerUsername, defenderUsername])
-}
-
 model FriendRequests {
   id             Int           @id @default(sequence(maxValue: 2147483647))
   username       String        @default("")
@@ -50,10 +32,12 @@ model GameplayUser {
   updatedAt                                                    DateTime         @default(now())
   deletedAt                                                    DateTime         @default(now())
   isAlive                                                      Boolean          @default(true)
+  leagueId                                                     String?
   BattleSessions_BattleSessions_attackerUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_attackerUsernameToGameplayUser")
   BattleSessions_BattleSessions_defenderUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_defenderUsernameToGameplayUser")
   BattleSessions_BattleSessions_gameplayUserIdToGameplayUser   BattleSessions[] @relation("BattleSessions_gameplayUserIdToGameplayUser")
   FriendRequests                                               FriendRequests[]
+  league                                                       League?          @relation(fields: [leagueId], references: [id])
   Users                                                        Users            @relation(fields: [username], references: [username])
   InventoryItem                                                InventoryItem[]
   Locations                                                    Locations?
@@ -187,8 +171,36 @@ model Notifications {
   userId    String
   title     String
   body      String
-  sentby    String   @default("")
   timestamp DateTime @default(now())
   isRead    Boolean  @default(false)
+  sentby    String   @default("")
   user      Users    @relation(fields: [userId], references: [username])
+}
+
+model League {
+  id        String         @id @default(uuid())
+  tier      String
+  division  String
+  number    Int
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  players   GameplayUser[]
+}
+
+model BattleSessions {
+  sessionId                                                  String
+  attackerUsername                                           String        @default("")
+  defenderUsername                                           String        @default("")
+  gameplayUserId                                             Int?
+  result                                                     String        @default("")
+  status                                                     String        @default("")
+  target                                                     String        @default("")
+  createdAt                                                  DateTime      @default(now())
+  updatedAt                                                  DateTime      @default(now())
+  deletedAt                                                  DateTime      @default(now())
+  GameplayUser_BattleSessions_attackerUsernameToGameplayUser GameplayUser  @relation("BattleSessions_attackerUsernameToGameplayUser", fields: [attackerUsername], references: [username])
+  GameplayUser_BattleSessions_defenderUsernameToGameplayUser GameplayUser  @relation("BattleSessions_defenderUsernameToGameplayUser", fields: [defenderUsername], references: [username])
+  GameplayUser_BattleSessions_gameplayUserIdToGameplayUser   GameplayUser? @relation("BattleSessions_gameplayUserIdToGameplayUser", fields: [gameplayUserId], references: [id])
+
+  @@id([attackerUsername, defenderUsername])
 }
