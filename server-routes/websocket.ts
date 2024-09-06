@@ -222,7 +222,8 @@ export function setupWebSocket(app: any) {
         // Mapping to format output
         const locations = allGameplayUsers.map((gpu) => ({
           username: gpu.username,
-          ...gpu.Locations
+          ...gpu.Locations,
+          health: gpu.health,
         }));
 
         // Add AI bots to the locations
