@@ -23,6 +23,7 @@ import { setupRankApi } from "./server-routes/rankApi";
 import { setupHealthApi } from "./server-routes/healthApi";
 import { setupInventoryApi } from "./server-routes/inventoryApi";
 import { setupLeagueApi } from "./server-routes/leagueApi";
+import { leagueRunner } from "./runners/leaguemanagment";
 
 export const prisma = new PrismaClient();
 
@@ -69,7 +70,7 @@ setInterval(checkPlayerProximity, 15000);
 startNotificationManager();
 
 //manages leagues
-leagueRunner;
+leagueRunner();
 
 //Bots:
 //manageAIBots();
@@ -175,7 +176,3 @@ let port = process.env.PORT;
 app.listen(port, () => {
   console.log("listening on port", port);
 });
-
-function leagueRunner() {
-  throw new Error("Function not implemented.");
-}

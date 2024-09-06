@@ -90,24 +90,27 @@ export function setupLeagueApi(app: any) {
 				});
 
 				if (!user || !user.league) {
+					console.error(`Failed to assign user to league: ${user?.id}`);
 					return res.status(404).json({ success: false, message: "Failed to assign user to a league" });
 				}
 			}
 
 			const topPlayer = await prisma.gameplayUser.findFirst({
 				where: { leagueId: user.league.id },
-				orderBy: { rankPoints: 'desc' },
-				select: { username: true, rankPoints: true }
+					orderBy: { rankPoints: 'desc' },
+					select: { username: true, rankPoints: true }
 			});
 
 			const league = {
 				id: user.league.id,
-				name: `${user.league.tier} ${user.league.division}`,
+				tier: user.league.tier,
+				division: user.league.division,
+				number: user.league.number,
 				topPlayer: topPlayer ? {
 					username: topPlayer.username,
 					points: topPlayer.rankPoints
 				} : null
-			};
+				};
 
 			return res.json({ success: true, league });
 		} catch (error) {
