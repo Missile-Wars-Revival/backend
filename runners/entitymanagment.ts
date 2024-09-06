@@ -31,6 +31,12 @@ export function getRandomCoordinates(latitude: number, longitude: number, radius
   return randomPoint;
 }
 
+function interpolatePosition(start: {latitude: number, longitude: number}, end: {latitude: number, longitude: number}, fraction: number): {latitude: number, longitude: number} {
+  const lat = start.latitude + (end.latitude - start.latitude) * fraction;
+  const lng = start.longitude + (end.longitude - start.longitude) * fraction;
+  return { latitude: lat, longitude: lng };
+}
+
 export const updateMissilePositions = async () => {
   try {
     const missiles = await prisma.missile.findMany({ where: { status: 'Incoming' } });
@@ -48,24 +54,19 @@ export const updateMissilePositions = async () => {
       const startPosition = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
       const destinationPosition = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
 
-      const totalDistance = geolib.getDistance(startPosition, destinationPosition);
       const totalTravelTime = timeToImpact.getTime() - sentAt.getTime();
-      const speed = totalDistance / (totalTravelTime / 1000); // Speed in meters per second
-
+      
+      // Calculate progress based on elapsed time
       const elapsedTime = currentTime.getTime() - sentAt.getTime();
-      const distanceTraveled = (speed * elapsedTime) / 1000; // Distance traveled in meters
+      const progress = Math.min(elapsedTime / totalTravelTime, 1);
 
-      if (currentTime >= timeToImpact) {
+      if (progress >= 1) {
         return prisma.missile.update({
           where: { id: missile.id },
           data: { currentLat: missile.destLat, currentLong: missile.destLong, status: 'Hit' }
         });
       } else {
-        const newLocation = geolib.computeDestinationPoint(
-          startPosition, 
-          distanceTraveled, 
-          geolib.getGreatCircleBearing(startPosition, destinationPosition)
-        );
+        const newLocation = interpolatePosition(startPosition, destinationPosition, progress);
 
         return prisma.missile.update({
           where: { id: missile.id },
