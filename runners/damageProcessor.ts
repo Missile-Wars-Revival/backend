@@ -179,8 +179,8 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
     // Start the damage cycle immediately for missiles, or apply once for landmines
     if (damageSource === 'missile') {
-      const initialMessage = `You're in a missile impact zone! You will start taking damage in 30 seconds.`;
-      await sendNotification(user.username, "Missile Impact Alert!", initialMessage, attackerUsername);
+      //const initialMessage = `You're in a missile impact zone! You will start taking damage in 30 seconds.`;
+      //await sendNotification(user.username, "Missile Impact Alert!", initialMessage, attackerUsername);
       setTimeout(applyDamageRecursively, 30000);
     } else {
       // For landmines, apply damage once after 30 seconds

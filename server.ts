@@ -37,7 +37,7 @@ app.use(bodyParser.json());
 const swaggerDefinition = {
   info: {
     title: "Missile Wars Backend",
-    version: "0.0.1",
+    version: "1.0.0",
     description: "Endpoints to interact with the Missile Wars game backend",
   },
   host: "localhost:3000", // Your host
