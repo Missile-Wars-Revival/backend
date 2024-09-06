@@ -511,4 +511,86 @@ export function setupEntityApi(app: any) {
       res.status(500).json({ message: "Transaction failed" });
     }
   });
+
+  app.post("/api/deathreward", async (req: Request, res: Response) => {
+    const { token, itemType, type, sentby } = req.body;
+
+    if (!token || !itemType || !type || !sentby) {
+        return res.status(400).json({ success: false, message: "Missing required parameters" });
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+        if (typeof decoded === 'string' || !decoded.username) {
+            return res.status(401).json({ success: false, message: "Invalid token" });
+        }
+
+        const killedUsername = decoded.username;
+
+        const sender = await prisma.gameplayUser.findUnique({
+            where: { username: sentby },
+        });
+
+        if (!sender) {
+            return res.status(404).json({ success: false, message: "Sender not found" });
+        }
+
+        let rewardAmount = 0;
+        let rankPointsReward = 0;
+
+        if (itemType === "landmine") {
+            const landmineType = await prisma.landmineType.findUnique({
+                where: { name: type },
+            });
+            if (landmineType) {
+                rewardAmount = Math.round(landmineType.price * 1.5);
+                rankPointsReward = Math.round(landmineType.price / 100); // 1 rank point per 100 coins of item price
+            }
+        } else if (itemType === "missile") {
+            const missileType = await prisma.missileType.findUnique({
+                where: { name: type },
+            });
+            if (missileType) {
+                rewardAmount = Math.round(missileType.price * 1.5);
+                rankPointsReward = Math.round(missileType.price / 50); // 1 rank point per 50 coins of item price (missiles are more valuable)
+            }
+        }
+
+        if (rewardAmount === 0) {
+            return res.status(400).json({ success: false, message: "Invalid item type or type" });
+        }
+
+        // Update sender's money and rank points
+        await prisma.gameplayUser.update({
+            where: { id: sender.id },
+            data: {
+                money: { increment: rewardAmount },
+                rankPoints: { increment: rankPointsReward },
+            },
+        });
+
+        // Create a notification for the sender (killer)
+        await prisma.notifications.create({
+            data: {
+                userId: sender.username,
+                title: "Kill Reward",
+                body: `You've been rewarded ${rewardAmount} coins and ${rankPointsReward} rank points for killing ${killedUsername} with your ${itemType}!`,
+                sentby: "server",
+            },
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "Death reward processed successfully",
+            reward: {
+                coins: rewardAmount,
+                rankPoints: rankPointsReward,
+            },
+        });
+
+    } catch (error) {
+        console.error("Death reward processing failed: ", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+});
 }
