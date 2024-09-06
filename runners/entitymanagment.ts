@@ -31,6 +31,13 @@ export function getRandomCoordinates(latitude: number, longitude: number, radius
   return randomPoint;
 }
 
+// Add this helper function at the top of your file
+function interpolatePosition(start: {latitude: number, longitude: number}, end: {latitude: number, longitude: number}, fraction: number): {latitude: number, longitude: number} {
+  const distance = geolib.getDistance(start, end);
+  const bearing = geolib.getGreatCircleBearing(start, end);
+  return geolib.computeDestinationPoint(start, distance * fraction, bearing);
+}
+
 export const updateMissilePositions = async () => {
   try {
     const missiles = await prisma.missile.findMany({ where: { status: 'Incoming' } });
@@ -48,26 +55,19 @@ export const updateMissilePositions = async () => {
       const startPosition = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
       const destinationPosition = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
 
-      const totalDistance = geolib.getDistance(startPosition, destinationPosition);
       const totalTravelTime = timeToImpact.getTime() - sentAt.getTime();
       
-      // Calculate speed in meters per millisecond
-      const speed = totalDistance / totalTravelTime;
-
+      // Calculate the fraction of the journey completed
       const elapsedTime = currentTime.getTime() - sentAt.getTime();
-      const distanceTraveled = speed * elapsedTime;
+      const fractionCompleted = Math.min(elapsedTime / totalTravelTime, 1);
 
-      if (currentTime >= timeToImpact) {
+      if (fractionCompleted >= 1) {
         return prisma.missile.update({
           where: { id: missile.id },
           data: { currentLat: missile.destLat, currentLong: missile.destLong, status: 'Hit' }
         });
       } else {
-        const newLocation = geolib.computeDestinationPoint(
-          startPosition, 
-          distanceTraveled, 
-          geolib.getGreatCircleBearing(startPosition, destinationPosition)
-        );
+        const newLocation = interpolatePosition(startPosition, destinationPosition, fractionCompleted);
 
         return prisma.missile.update({
           where: { id: missile.id },
