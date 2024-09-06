@@ -95,22 +95,15 @@ export function setupLeagueApi(app: any) {
 				}
 			}
 
-			const topPlayer = await prisma.gameplayUser.findFirst({
-				where: { leagueId: user.league.id },
-					orderBy: { rankPoints: 'desc' },
-					select: { username: true, rankPoints: true }
-			});
+			const globalTopPlayer = await getGlobalTopPlayer();
 
 			const league = {
 				id: user.league.id,
 				tier: user.league.tier,
 				division: user.league.division,
 				number: user.league.number,
-				topPlayer: topPlayer ? {
-					username: topPlayer.username,
-					points: topPlayer.rankPoints
-				} : null
-				};
+				globalTopPlayer: globalTopPlayer
+			};
 
 			return res.json({ success: true, league });
 		} catch (error) {
@@ -228,7 +221,7 @@ export async function assignUserToLeague(userId: number) {
 	});
 }
 
-export async function checkAndPromoteUsers() {
+export async function checkAndUpdateUserLeagues() {
 	const users = await prisma.gameplayUser.findMany({
 		include: { league: true }
 	});
@@ -238,9 +231,37 @@ export async function checkAndPromoteUsers() {
 		const newDivision = getDivisionFromRankPoints(user.rankPoints);
 
 		if (user.league && (user.league.tier !== newTier || user.league.division !== newDivision)) {
+			// Remove user from current league
+			await prisma.gameplayUser.update({
+				where: { id: user.id },
+				data: { leagueId: null }
+			});
+
+			// Assign user to new league
 			await assignUserToLeague(user.id);
+
+			console.log(`User ${user.username} moved from ${user.league.tier} ${user.league.division} to ${newTier} ${newDivision}`);
 		}
 	}
+}
+
+export async function getGlobalTopPlayer() {
+	const topPlayer = await prisma.gameplayUser.findFirst({
+		orderBy: { rankPoints: 'desc' },
+		include: { league: true }
+	});
+
+	if (!topPlayer) return null;
+
+	return {
+		username: topPlayer.username,
+		points: topPlayer.rankPoints,
+		league: topPlayer.league ? {
+			tier: topPlayer.league.tier,
+			division: topPlayer.league.division,
+			number: topPlayer.league.number
+		} : null
+	};
 }
 
 function getTierFromRankPoints(rankPoints: number): string {

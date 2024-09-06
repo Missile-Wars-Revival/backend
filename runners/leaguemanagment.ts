@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { assignUserToLeague, checkAndPromoteUsers } from '../server-routes/leagueApi';
+import { assignUserToLeague, checkAndUpdateUserLeagues } from '../server-routes/leagueApi';
 
 const prisma = new PrismaClient();
 
@@ -17,7 +17,7 @@ export async function leagueRunner() {
     }
 
     // Check and promote users
-    await checkAndPromoteUsers();
+    await checkAndUpdateUserLeagues();
 
     console.log('League runner completed successfully.');
   } catch (error) {
