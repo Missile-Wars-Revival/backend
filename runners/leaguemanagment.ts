@@ -4,6 +4,7 @@ import { assignUserToLeague, checkAndPromoteUsers } from '../server-routes/leagu
 const prisma = new PrismaClient();
 
 export async function leagueRunner() {
+  console.log('League runner started at:', new Date().toISOString());
   console.log('Starting league runner...');
 
   try {
