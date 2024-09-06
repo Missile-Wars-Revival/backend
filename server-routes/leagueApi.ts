@@ -186,28 +186,42 @@ export async function assignUserToLeague(userId: number) {
 	const tier = getTierFromRankPoints(user.rankPoints);
 	const division = getDivisionFromRankPoints(user.rankPoints);
 
+	// Find an available league or create a new one if all are full
 	let league = await prisma.league.findFirst({
-		where: { tier, division },
-		include: { _count: { select: { players: true } } }
+		where: { 
+			tier, 
+			division,
+			players: { some: {} } // Ensure the league has at least one player
+		},
+		orderBy: { number: 'desc' },
+		include: { 
+			_count: { select: { players: true } },
+			players: true
+		}
 	});
 
-	if (!league || league._count.players >= 100) {
-		const newLeagueNumber = league ? league.number + 1 : 1;
+	if (!league || league.players.length >= 100) {
+		// If no suitable league found or the league is full, create a new one
+		const lastLeague = await prisma.league.findFirst({
+			where: { tier, division },
+				orderBy: { number: 'desc' }
+		});
+
+		const newLeagueNumber = lastLeague ? lastLeague.number + 1 : 1;
 		league = await prisma.league.create({
 			data: {
 				tier,
 				division,
 				number: newLeagueNumber
 			},
-			include: { _count: { select: { players: true } } }
+			include: { 
+				_count: { select: { players: true } },
+				players: true
+			}
 		});
 	}
 
-	if (!league) {
-		console.error("Failed to create or find a league");
-		return;
-	}
-
+	// Assign user to the league
 	await prisma.gameplayUser.update({
 		where: { id: userId },
 		data: { leagueId: league.id }
@@ -242,3 +256,4 @@ function getDivisionFromRankPoints(rankPoints: number): string {
 	if (tierPoints < 666) return 'II';
 	return 'I';
 }
+
