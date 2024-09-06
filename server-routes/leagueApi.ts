@@ -3,278 +3,275 @@ import { prisma } from "../server";
 import { Request, Response } from "express";
 
 export function setupLeagueApi(app: any) {
-	app.get("/api/topleagues", async (req: Request, res: Response) => {
-		const { token } = req.query;
+  app.get("/api/topleagues", async (req: Request, res: Response) => {
+    const { token } = req.query;
 
-		if (!token) {
-			return res.status(400).json({ success: false, message: "Missing token" });
-		}
+    if (!token) {
+      return res.status(400).json({ success: false, message: "Missing token" });
+    }
 
-		try {
-			const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-			if (typeof decoded === 'string' || !decoded.username) {
-				return res.status(401).json({ success: false, message: "Invalid token" });
-			}
+    try {
+      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
+      if (typeof decoded === 'string' || !decoded.username) {
+        return res.status(401).json({ success: false, message: "Invalid token" });
+      }
 
-			const leagues = await prisma.league.findMany({
-				include: {
-					_count: {
-						select: { players: true }
-					}
-				}
-			});
+      const leagueAggregates = await prisma.league.groupBy({
+        by: ['tier', 'division'],
+        _count: {
+          _all: true
+        },
+        orderBy: [
+          { tier: 'asc' },
+          { division: 'asc' }
+        ]
+      });
 
-			return res.json({ success: true, leagues });
-		} catch (error) {
-			return res.status(500).json({ success: false, message: "Internal server error" });
-		}
-	});
+      const topLeagues = leagueAggregates.map(league => ({
+        name: `${league.tier} ${league.division}`,
+        playerCount: league._count._all
+      }));
 
-	app.get("/api/leagues/user", async (req: Request, res: Response) => {
-		const { token } = req.query;
+      return res.json({ success: true, leagues: topLeagues });
+    } catch (error) {
+      console.error('Error in /api/topleagues:', error);
+      return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+  });
 
-		if (!token) {
-			return res.status(400).json({ success: false, message: "Missing token" });
-		}
+  app.get("/api/leagues/current", async (req: Request, res: Response) => {
+    const { token } = req.query;
 
-		try {
-			const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-			if (typeof decoded === 'string' || !decoded.username) {
-				return res.status(401).json({ success: false, message: "Invalid token" });
-			}
+    if (!token) {
+      return res.status(400).json({ success: false, message: "Missing token" });
+    }
 
-			const user = await prisma.gameplayUser.findUnique({
-				where: { username: decoded.username },
-				include: { league: true }
-			});
+    try {
+      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
+      if (typeof decoded === 'string' || !decoded.username) {
+        return res.status(401).json({ success: false, message: "Invalid token" });
+      }
 
-			if (!user) {
-				return res.status(404).json({ success: false, message: "User not found" });
-			}
+      let user = await prisma.gameplayUser.findUnique({
+        where: { username: decoded.username },
+        include: { league: true }
+      });
 
-			return res.json({ success: true, league: user.league });
-		} catch (error) {
-			return res.status(500).json({ success: false, message: "Internal server error" });
-		}
-	});
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
 
-	app.get("/api/leagues/current", async (req: Request, res: Response) => {
-		const { token } = req.query;
+      if (!user.league) {
+        // If user doesn't have a league, assign them to one
+        await assignUserToLeague(user.id);
+        // Fetch the user again with the newly assigned league
+        user = await prisma.gameplayUser.findUnique({
+          where: { id: user.id },
+          include: { league: true }
+        });
 
-		if (!token) {
-			return res.status(400).json({ success: false, message: "Missing token" });
-		}
+        if (!user || !user.league) {
+          console.error(`Failed to assign user to league: ${user?.id}`);
+          return res.status(404).json({ success: false, message: "Failed to assign user to a league" });
+        }
+      }
 
-		try {
-			const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-			if (typeof decoded === 'string' || !decoded.username) {
-				return res.status(401).json({ success: false, message: "Invalid token" });
-			}
+      // Fetch other players in the same league
+      const leaguePlayers = await prisma.gameplayUser.findMany({
+        where: { leagueId: user.league.id },
+        orderBy: { rankPoints: 'desc' },
+        select: { 
+          username: true, 
+          rankPoints: true,
+          rank: true
+        },
+        take: 100 // Limit to top 100 players in the league
+      });
 
-			let user = await prisma.gameplayUser.findUnique({
-				where: { username: decoded.username },
-				include: { league: true }
-			});
+      const globalTopPlayer = await getGlobalTopPlayer();
 
-			if (!user) {
-				return res.status(404).json({ success: false, message: "User not found" });
-			}
+      const league = {
+        id: user.league.id,
+        tier: user.league.tier,
+        division: user.league.division,
+        number: user.league.number,
+        players: leaguePlayers,
+        globalTopPlayer: globalTopPlayer
+      };
 
-			if (!user.league) {
-				// If user doesn't have a league, assign them to one
-				await assignUserToLeague(user.id);
-				// Fetch the user again with the newly assigned league
-				user = await prisma.gameplayUser.findUnique({
-					where: { id: user.id },
-					include: { league: true }
-				});
+      return res.json({ success: true, league });
+    } catch (error) {
+      console.error('Error in /api/leagues/current:', error);
+      return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+  });
 
-				if (!user || !user.league) {
-					console.error(`Failed to assign user to league: ${user?.id}`);
-					return res.status(404).json({ success: false, message: "Failed to assign user to a league" });
-				}
-			}
+  app.get("/api/leagues/players", async (req: Request, res: Response) => {
+    const { token } = req.query;
 
-			const globalTopPlayer = await getGlobalTopPlayer();
+    if (!token) {
+      return res.status(400).json({ success: false, message: "Missing token" });
+    }
 
-			const league = {
-				id: user.league.id,
-				tier: user.league.tier,
-				division: user.league.division,
-				number: user.league.number,
-				globalTopPlayer: globalTopPlayer
-			};
+    try {
+      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
+      if (typeof decoded === 'string' || !decoded.username) {
+        return res.status(401).json({ success: false, message: "Invalid token" });
+      }
 
-			return res.json({ success: true, league });
-		} catch (error) {
-			return res.status(500).json({ success: false, message: "Internal server error" });
-		}
-	});
+      let user = await prisma.gameplayUser.findUnique({
+        where: { username: decoded.username },
+        include: { league: true }
+      });
 
-	app.get("/api/leagues/players", async (req: Request, res: Response) => {
-		const { token } = req.query;
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
 
-		if (!token) {
-			return res.status(400).json({ success: false, message: "Missing token" });
-		}
+      if (!user.league) {
+        // If user doesn't have a league, assign them to one
+        await assignUserToLeague(user.id);
+        // Fetch the user again with the newly assigned league
+        user = await prisma.gameplayUser.findUnique({
+          where: { id: user.id },
+          include: { league: true }
+        });
 
-		try {
-			const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-			if (typeof decoded === 'string' || !decoded.username) {
-				return res.status(401).json({ success: false, message: "Invalid token" });
-			}
+        if (!user || !user.league) {
+          return res.status(404).json({ success: false, message: "Failed to assign user to a league" });
+        }
+      }
 
-			let user = await prisma.gameplayUser.findUnique({
-				where: { username: decoded.username },
-				include: { league: true }
-			});
+      const players = await prisma.gameplayUser.findMany({
+        where: { leagueId: user.league.id },
+        select: {
+          id: true,
+          username: true,
+          rankPoints: true,
+        },
+        orderBy: { rankPoints: 'desc' }
+      });
 
-			if (!user) {
-				return res.status(404).json({ success: false, message: "User not found" });
-			}
+      const formattedPlayers = players.map(player => ({
+        id: player.id.toString(),
+        username: player.username,
+        points: player.rankPoints,
+        isCurrentUser: player.username === decoded.username
+      }));
 
-			if (!user.league) {
-				// If user doesn't have a league, assign them to one
-				await assignUserToLeague(user.id);
-				// Fetch the user again with the newly assigned league
-				user = await prisma.gameplayUser.findUnique({
-					where: { id: user.id },
-					include: { league: true }
-				});
-
-				if (!user || !user.league) {
-					return res.status(404).json({ success: false, message: "Failed to assign user to a league" });
-				}
-			}
-
-			const players = await prisma.gameplayUser.findMany({
-				where: { leagueId: user.league.id },
-				select: {
-					id: true,
-					username: true,
-					rankPoints: true,
-				},
-				orderBy: { rankPoints: 'desc' }
-			});
-
-			const formattedPlayers = players.map(player => ({
-				id: player.id.toString(),
-				username: player.username,
-				points: player.rankPoints,
-				isCurrentUser: player.username === decoded.username
-			}));
-
-			return res.json({ success: true, players: formattedPlayers });
-		} catch (error) {
-			return res.status(500).json({ success: false, message: "Internal server error" });
-		}
-	});
+      return res.json({ success: true, players: formattedPlayers });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+  });
 }
 
 // League management functions
 export async function assignUserToLeague(userId: number) {
-	const user = await prisma.gameplayUser.findUnique({ where: { id: userId } });
-	if (!user) return;
+  const user = await prisma.gameplayUser.findUnique({ where: { id: userId } });
+  if (!user) return;
 
-	const tier = getTierFromRankPoints(user.rankPoints);
-	const division = getDivisionFromRankPoints(user.rankPoints);
+  const tier = getTierFromRankPoints(user.rankPoints);
+  const division = getDivisionFromRankPoints(user.rankPoints);
 
-	// Find an available league or create a new one if all are full
-	let league = await prisma.league.findFirst({
-		where: { 
-			tier, 
-			division,
-			players: { some: {} } // Ensure the league has at least one player
-		},
-		orderBy: { number: 'desc' },
-		include: { 
-			_count: { select: { players: true } },
-			players: true
-		}
-	});
+  // Find an available league or create a new one if all are full
+  let league = await prisma.league.findFirst({
+    where: { 
+      tier, 
+      division,
+      players: { some: {} }, // Ensure the league has at least one player
+    },
+    include: {
+      _count: {
+        select: { players: true }
+      }
+    },
+    orderBy: { number: 'desc' }
+  });
 
-	if (!league || league.players.length >= 100) {
-		// If no suitable league found or the league is full, create a new one
-		const lastLeague = await prisma.league.findFirst({
-			where: { tier, division },
-				orderBy: { number: 'desc' }
-		});
+  if (league && league._count.players >= 100) {
+    league = null; // Set to null if the league is full
+  }
 
-		const newLeagueNumber = lastLeague ? lastLeague.number + 1 : 1;
-		league = await prisma.league.create({
-			data: {
-				tier,
-				division,
-				number: newLeagueNumber
-			},
-			include: { 
-				_count: { select: { players: true } },
-				players: true
-			}
-		});
-	}
+  if (!league) {
+    // If no suitable league found, create a new one
+    const lastLeague = await prisma.league.findFirst({
+      where: { tier, division },
+      orderBy: { number: 'desc' }
+    });
 
-	// Assign user to the league
-	await prisma.gameplayUser.update({
-		where: { id: userId },
-		data: { leagueId: league.id }
-	});
+    const newLeagueNumber = lastLeague ? lastLeague.number + 1 : 1;
+    league = await prisma.league.create({
+      data: {
+        tier,
+        division,
+        number: newLeagueNumber
+      },
+      include: { _count: { select: { players: true } } }
+    });
+  }
+
+  // Assign user to the league
+  await prisma.gameplayUser.update({
+    where: { id: userId },
+    data: { leagueId: league.id }
+  });
 }
 
 export async function checkAndUpdateUserLeagues() {
-	const users = await prisma.gameplayUser.findMany({
-		include: { league: true }
-	});
+  const users = await prisma.gameplayUser.findMany({
+    include: { league: true }
+  });
 
-	for (const user of users) {
-		const newTier = getTierFromRankPoints(user.rankPoints);
-		const newDivision = getDivisionFromRankPoints(user.rankPoints);
+  for (const user of users) {
+    const newTier = getTierFromRankPoints(user.rankPoints);
+    const newDivision = getDivisionFromRankPoints(user.rankPoints);
 
-		if (user.league && (user.league.tier !== newTier || user.league.division !== newDivision)) {
-			// Remove user from current league
-			await prisma.gameplayUser.update({
-				where: { id: user.id },
-				data: { leagueId: null }
-			});
+    if (user.league && (user.league.tier !== newTier || user.league.division !== newDivision)) {
+      // Remove user from current league
+      await prisma.gameplayUser.update({
+        where: { id: user.id },
+        data: { leagueId: null }
+      });
 
-			// Assign user to new league
-			await assignUserToLeague(user.id);
+      // Assign user to new league
+      await assignUserToLeague(user.id);
 
-			console.log(`User ${user.username} moved from ${user.league.tier} ${user.league.division} to ${newTier} ${newDivision}`);
-		}
-	}
+      console.log(`User ${user.username} moved from ${user.league.tier} ${user.league.division} to ${newTier} ${newDivision}`);
+    }
+  }
 }
 
 export async function getGlobalTopPlayer() {
-	const topPlayer = await prisma.gameplayUser.findFirst({
-		orderBy: { rankPoints: 'desc' },
-		include: { league: true }
-	});
+  const topPlayer = await prisma.gameplayUser.findFirst({
+    orderBy: { rankPoints: 'desc' },
+    include: { league: true }
+  });
 
-	if (!topPlayer) return null;
+  if (!topPlayer) return null;
 
-	return {
-		username: topPlayer.username,
-		points: topPlayer.rankPoints,
-		league: topPlayer.league ? {
-			tier: topPlayer.league.tier,
-			division: topPlayer.league.division,
-			number: topPlayer.league.number
-		} : null
-	};
+  return {
+    username: topPlayer.username,
+    points: topPlayer.rankPoints,
+    league: topPlayer.league ? {
+      tier: topPlayer.league.tier,
+      division: topPlayer.league.division,
+      number: topPlayer.league.number
+    } : null
+  };
 }
 
 function getTierFromRankPoints(rankPoints: number): string {
-	if (rankPoints < 1000) return 'Bronze';
-	if (rankPoints < 2000) return 'Silver';
-	if (rankPoints < 3000) return 'Gold';
-	return 'Diamond';
+  if (rankPoints < 1000) return 'Bronze';
+  if (rankPoints < 2000) return 'Silver';
+  if (rankPoints < 3000) return 'Gold';
+  return 'Diamond';
 }
 
 function getDivisionFromRankPoints(rankPoints: number): string {
-	const tierPoints = rankPoints % 1000;
-	if (tierPoints < 333) return 'III';
-	if (tierPoints < 666) return 'II';
-	return 'I';
+  const tierPoints = rankPoints % 1000;
+  if (tierPoints < 333) return 'III';
+  if (tierPoints < 666) return 'II';
+  return 'I';
 }
 
