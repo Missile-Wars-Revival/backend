@@ -1,6 +1,5 @@
 import Expo from "expo-server-sdk";
-import { prisma } from "./server";
-import { v4 as uuidv4 } from 'uuid';
+import { prisma } from "../server";
 
 const expo = new Expo();
 
