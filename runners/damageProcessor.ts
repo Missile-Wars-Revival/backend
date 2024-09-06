@@ -2,10 +2,14 @@ import { prisma } from "../server";
 import { haversine } from "./entitymanagment";
 import { sendNotification } from "./notificationhelper";
 import { getMutualFriends } from "../server-routes/friendsApi";
+import { v4 as uuidv4 } from 'uuid';
 
 const DAMAGE_INTERVAL = 30000; // 30 seconds in milliseconds
 const TWO_MINUTES = 2 * 60 * 1000; // 2 minutes in milliseconds
 const PROCESS_INTERVAL = 15000; // 15 seconds in milliseconds
+
+const processedMissiles = new Map<string, Map<string, number>>();
+const processedLandmines = new Map<string, Set<string>>();
 
 export const processDamage = async () => {
   try {
@@ -102,24 +106,47 @@ export const processDamage = async () => {
 };
 
 async function handleMissileDamage(user: any, missile: any) {
-  const message = `You're in a missile impact zone! You will start taking damage in 30 seconds.`;
-  await sendNotification(user.username, "Missile Impact Alert!", message, "Server");
-
-  setTimeout(async () => {
+  if (!processedMissiles.has(user.username)) {
+    processedMissiles.set(user.username, new Map());
+  }
+  
+  if (!processedMissiles.get(user.username)!.has(missile.id)) {
+    const message = `You're in a missile impact zone! You will start taking damage in 30 seconds.`;
+    await sendNotification(user.username, "Missile Impact Alert!", message, "Server");
+    
+    processedMissiles.get(user.username)!.set(missile.id, Date.now());
+    
+    setTimeout(async () => {
+      await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type);
+    }, DAMAGE_INTERVAL);
+  } else {
+    // Missile already processed, apply damage immediately
     await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type);
-  }, DAMAGE_INTERVAL);
+  }
 }
 
 async function handleLandmineDamage(user: any, landmine: any) {
-  const message = `You've stepped on a landmine! You will take damage in 30 seconds.`;
-  await sendNotification(user.username, "Landmine Alert!", message, "Server");
-
-  setTimeout(async () => {
-    await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type);
-    // Delete the landmine after damage is applied
-    await prisma.landmine.delete({ where: { id: landmine.id } });
-  }, DAMAGE_INTERVAL);
+  if (!processedLandmines.has(user.username)) {
+    processedLandmines.set(user.username, new Set());
+  }
+  
+  if (!processedLandmines.get(user.username)!.has(landmine.id)) {
+    const message = `You've stepped on a landmine! You will take damage in 30 seconds.`;
+    await sendNotification(user.username, "Landmine Alert!", message, "Server");
+    
+    processedLandmines.get(user.username)!.add(landmine.id);
+    
+    setTimeout(async () => {
+      await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type);
+      // Delete the landmine after damage is applied
+      await prisma.landmine.delete({ where: { id: landmine.id } });
+      // Remove the landmine from processed set after it's deleted
+      processedLandmines.get(user.username)!.delete(landmine.id);
+    }, DAMAGE_INTERVAL);
+  }
+  // No else block needed for landmines as they are one-time damage
 }
+
 interface GameplayUser {
     id: number;
     username: string;
@@ -233,6 +260,30 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
 // New function to start the damage processing interval
 export const startDamageProcessing = () => {
-  setInterval(processDamage, PROCESS_INTERVAL);
+  setInterval(() => {
+    processDamage();
+    cleanupProcessedEntities();
+  }, PROCESS_INTERVAL);
   console.log('Damage processing started, running every 15 seconds');
 };
+
+function cleanupProcessedEntities() {
+  const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+  
+  processedMissiles.forEach((missiles, username) => {
+    missiles.forEach((timestamp, missileId) => {
+      if (timestamp < fiveMinutesAgo) {
+        missiles.delete(missileId);
+      }
+    });
+    if (missiles.size === 0) {
+      processedMissiles.delete(username);
+    }
+  });
+  
+  processedLandmines.forEach((landmines, username) => {
+    if (landmines.size === 0) {
+      processedLandmines.delete(username);
+    }
+  });
+}
