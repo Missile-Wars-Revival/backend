@@ -80,7 +80,7 @@ export function setupLeagueApi(app: any) {
 
       return res.json({ 
         success: true, 
-        league: `${user.league.tier} ${user.league.division}`,
+        league: `${user.league.tier}`,
         division: user.league.division
       });
     } catch (error) {
@@ -245,10 +245,11 @@ export async function getGlobalTopPlayer() {
 }
 
 function getTierFromRankPoints(rankPoints: number): string {
-  if (rankPoints < 1000) return 'Bronze';
-  if (rankPoints < 2000) return 'Silver';
-  if (rankPoints < 3000) return 'Gold';
-  return 'Diamond';
+  if (rankPoints < 2000) return 'Bronze';
+  if (rankPoints < 4000) return 'Silver';
+  if (rankPoints < 6000) return 'Gold';
+  if (rankPoints < 8000) return 'Diamond';
+  return 'Legend';
 }
 
 function getDivisionFromRankPoints(rankPoints: number): string {
