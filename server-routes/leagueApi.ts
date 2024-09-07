@@ -32,7 +32,10 @@ export function setupLeagueApi(app: any) {
         playerCount: league._count._all
       }));
 
-      return res.json({ success: true, leagues: topLeagues });
+      return res.json({ 
+        success: true, 
+        leagues: topLeagues.slice(0, 10) // Limit to top 10 leagues
+      });
     } catch (error) {
       console.error('Error in /api/topleagues:', error);
       return res.status(500).json({ success: false, message: "Internal server error" });
@@ -71,35 +74,15 @@ export function setupLeagueApi(app: any) {
         });
 
         if (!user || !user.league) {
-          console.error(`Failed to assign user to league: ${user?.id}`);
           return res.status(404).json({ success: false, message: "Failed to assign user to a league" });
         }
       }
 
-      // Fetch other players in the same league
-      const leaguePlayers = await prisma.gameplayUser.findMany({
-        where: { leagueId: user.league.id },
-        orderBy: { rankPoints: 'desc' },
-        select: { 
-          username: true, 
-          rankPoints: true,
-          rank: true
-        },
-        take: 100 // Limit to top 100 players in the league
+      return res.json({ 
+        success: true, 
+        league: `${user.league.tier} ${user.league.division}`,
+        division: user.league.division
       });
-
-      const globalTopPlayer = await getGlobalTopPlayer();
-
-      const league = {
-        id: user.league.id,
-        tier: user.league.tier,
-        division: user.league.division,
-        number: user.league.number,
-        players: leaguePlayers,
-        globalTopPlayer: globalTopPlayer
-      };
-
-      return res.json({ success: true, league });
     } catch (error) {
       console.error('Error in /api/leagues/current:', error);
       return res.status(500).json({ success: false, message: "Internal server error" });

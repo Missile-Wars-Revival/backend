@@ -71,7 +71,7 @@ setInterval(checkPlayerProximity, 15000);
 startNotificationManager();
 
 //manages leagues
-leagueRunner();
+setInterval(leagueRunner, 60 * 60 * 1000);
 
 //manage damage:
 startDamageProcessing();

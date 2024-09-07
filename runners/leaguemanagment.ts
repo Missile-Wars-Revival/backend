@@ -24,9 +24,3 @@ export async function leagueRunner() {
     console.error('Error in league runner:', error);
   }
 }
-
-// Run the league runner every hour
-setInterval(leagueRunner, 60 * 60 * 1000);
-
-// Initial run
-leagueRunner();
