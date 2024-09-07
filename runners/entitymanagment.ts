@@ -2,6 +2,7 @@ import { prisma } from "../server";
 import * as geolib from 'geolib';
 import { getMutualFriends } from "../server-routes/friendsApi";
 import { sendNotification } from "./notificationhelper";
+import * as turf from '@turf/turf';
 
 // Add this at the top of your file or in an appropriate scope
 const notifiedEntities = new Set<string>();
@@ -34,9 +35,12 @@ export function getRandomCoordinates(latitude: number, longitude: number, radius
 // Add this helper function at the top of your file
 function interpolatePosition(start: {latitude: number, longitude: number}, end: {latitude: number, longitude: number}, fraction: number): {latitude: number, longitude: number} {
   const distance = geolib.getDistance(start, end);
-  const bearing = geolib.getGreatCircleBearing(start, end);
+  const bearing = geolib.getRhumbLineBearing(start, end);
   return geolib.computeDestinationPoint(start, distance * fraction, bearing);
 }
+
+const HOLDING_PATTERN_DISTANCE = 1; // km from target to start holding pattern
+const HOLDING_PATTERN_RADIUS = 0.5; // km radius of the holding pattern circle
 
 export const updateMissilePositions = async () => {
   try {
@@ -52,28 +56,50 @@ export const updateMissilePositions = async () => {
         return;
       }
 
-      const startPosition = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
-      const destinationPosition = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
+      const start = turf.point([parseFloat(missile.currentLong), parseFloat(missile.currentLat)]);
+      const end = turf.point([parseFloat(missile.destLong), parseFloat(missile.destLat)]);
+      const totalDistance = turf.distance(start, end, {units: 'kilometers'});
 
       const totalTravelTime = timeToImpact.getTime() - sentAt.getTime();
-      
-      // Calculate the fraction of the journey completed
       const elapsedTime = currentTime.getTime() - sentAt.getTime();
-      const fractionCompleted = Math.min(elapsedTime / totalTravelTime, 1);
+      let fractionCompleted = Math.min(elapsedTime / totalTravelTime, 1);
+
+      let newPosition;
 
       if (fractionCompleted >= 1) {
+        // Missile has reached its target
+        newPosition = end;
         return prisma.missile.update({
           where: { id: missile.id },
-          data: { currentLat: missile.destLat, currentLong: missile.destLong, status: 'Hit' }
+          data: { 
+            currentLat: newPosition.geometry.coordinates[1].toFixed(6), 
+            currentLong: newPosition.geometry.coordinates[0].toFixed(6),
+            status: 'Hit' 
+          }
         });
       } else {
-        const newLocation = interpolatePosition(startPosition, destinationPosition, fractionCompleted);
+        // Calculate position along great circle path
+        const greatCircle = turf.greatCircle(start, end);
+        const coordinates = greatCircle.geometry.coordinates;
+        const line = turf.lineString(coordinates.flat() as [number, number][]);
+        const distanceToTravel = totalDistance * fractionCompleted;
+        newPosition = turf.along(line, distanceToTravel, {units: 'kilometers'});
+
+        // Check if missile is close to target but not yet at impact time
+        const distanceToTarget = turf.distance(newPosition, end, {units: 'kilometers'});
+        
+        if (distanceToTarget <= HOLDING_PATTERN_DISTANCE && currentTime < timeToImpact) {
+          // Enter holding pattern
+          const holdingCenter = turf.destination(end, HOLDING_PATTERN_DISTANCE, 0, {units: 'kilometers'});
+          const angleInPattern = (elapsedTime % 10000) / 10000 * 360; // Complete circle every 10 seconds
+          newPosition = turf.destination(holdingCenter, HOLDING_PATTERN_RADIUS, angleInPattern, {units: 'kilometers'});
+        }
 
         return prisma.missile.update({
           where: { id: missile.id },
           data: { 
-            currentLat: newLocation.latitude.toFixed(6), 
-            currentLong: newLocation.longitude.toFixed(6) 
+            currentLat: newPosition.geometry.coordinates[1].toFixed(6), 
+            currentLong: newPosition.geometry.coordinates[0].toFixed(6) 
           }
         });
       }

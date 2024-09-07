@@ -170,7 +170,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
           });
           if (landmineType) {
             rewardAmount = Math.round(landmineType.price * 1.5);
-            rankPointsReward = 300; // Base rank points for landmine kill
+            rankPointsReward = 150; // Reduced base rank points for landmine kill
           }
         } else if (damageSource === 'missile') {
           const missileType = await prisma.missileType.findUnique({
@@ -178,12 +178,16 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
           });
           if (missileType) {
             rewardAmount = Math.round(missileType.price * 1.5);
-            rankPointsReward = 500; // Base rank points for missile kill
+            rankPointsReward = 200; // Reduced base rank points for missile kill
           }
         }
 
-        // Add bonus rank points based on item price
-        rankPointsReward += Math.round(rewardAmount / 10);
+        // Adjust bonus rank points calculation
+        const bonusPoints = Math.min(300, Math.round(rewardAmount / 20));
+        rankPointsReward += bonusPoints;
+
+        // Ensure the total rank points reward is between 200 and 500
+        rankPointsReward = Math.max(200, Math.min(500, rankPointsReward));
 
         console.log(`Calculated reward: ${rewardAmount} coins, ${rankPointsReward} rank points`);
 
