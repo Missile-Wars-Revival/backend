@@ -219,12 +219,63 @@ export function setupWebSocket(app: any) {
           include: { Locations: true }
         });
 
-        // Mapping to format output
-        const locations = allGameplayUsers.map((gpu) => ({
-          username: gpu.username,
-          ...gpu.Locations,
-          health: gpu.health,
-        }));
+        interface Location {
+          latitude: string;
+          longitude: string;
+          updatedAt: Date;
+          lastUpdated: Date;
+          previousLat?: string;
+          previousLong?: string;
+        }
+
+        const calculateTransportStatus = (currentLocation: Location, previousLocation: Location | null) => {
+          if (!previousLocation) return 'walking';
+
+          const timeDiff = (currentLocation.updatedAt.getTime() - previousLocation.updatedAt.getTime()) / 1000; // in seconds
+          if (timeDiff <= 0) return 'walking'; // Avoid division by zero or negative time
+
+          const distance = calculateDistance(
+            { latitude: parseFloat(previousLocation.latitude), longitude: parseFloat(previousLocation.longitude) },
+            { latitude: parseFloat(currentLocation.latitude), longitude: parseFloat(currentLocation.longitude) }
+          );
+          const speed = distance / timeDiff; // in meters per second
+
+          if (speed > 250) return 'plane';     // Approx. 900 km/h
+          if (speed > 83) return 'highspeed';  // Approx. 300 km/h (high-speed train)
+          if (speed > 28) return 'car';        // Approx. 100 km/h
+          if (speed > 4) return 'bicycle';     // Approx. 15 km/h
+          if (isInSea({ latitude: parseFloat(currentLocation.latitude), longitude: parseFloat(currentLocation.longitude) })) {
+            if (speed > 15) return 'ship';     // Fast boat or ship
+            return 'boat';                     // Slow boat
+          }
+          return 'walking';
+        };
+
+        // Mapping to format output with transport status
+        const locations = allGameplayUsers.map((gpu) => {
+          const currentLocation = gpu.Locations;
+          if (!currentLocation) return null; // Skip this user if no location data
+
+          const previousLocation: Location | null = currentLocation.previousLat && currentLocation.previousLong
+            ? {
+                latitude: currentLocation.previousLat,
+                longitude: currentLocation.previousLong,
+                updatedAt: currentLocation.lastUpdated,
+                lastUpdated: currentLocation.lastUpdated
+              }
+            : null;
+
+          const transportStatus = calculateTransportStatus(currentLocation, previousLocation);
+
+          return {
+            username: gpu.username,
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude,
+            updatedAt: currentLocation.updatedAt,
+            health: gpu.health,
+            transportStatus
+          };
+        }).filter(Boolean); // Remove any null entries
 
         // Add AI bots to the locations
         const aiLocations = aiBots
@@ -233,7 +284,8 @@ export function setupWebSocket(app: any) {
             username: bot.username,
             latitude: bot.latitude.toFixed(6),
             longitude: bot.longitude.toFixed(6),
-            updatedAt: bot.lastUpdate
+            updatedAt: bot.lastUpdate,
+            transportStatus: 'walking' // Assuming AI bots always have 'walking' status
           }));
 
         // Combine real player locations with AI bot locations
@@ -327,13 +379,33 @@ export function setupWebSocket(app: any) {
   });
 }
 
-// setupWebSocket(app);
+function calculateDistance(loc1: { latitude: number; longitude: number }, loc2: { latitude: number; longitude: number }) {
+  const R = 6371e3; // Earth's radius in meters
+  const φ1 = loc1.latitude * Math.PI / 180;
+  const φ2 = loc2.latitude * Math.PI / 180;
+  const Δφ = (loc2.latitude - loc1.latitude) * Math.PI / 180;
+  const Δλ = (loc2.longitude - loc1.longitude) * Math.PI / 180;
 
-// // Set up Rank API
-// setupRankApi(app);
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 
-// // Set up Money API
-// setupMoneyApi(app);
+  return R * c; // Distance in meters
+}
 
-// // Set up Entity API
-// setupEntityApi(app);
+function isInSea(location: { latitude: number; longitude: number }): boolean {
+  // This is a simplified check using major ocean bounding boxes
+  const oceans = [
+    { name: 'Pacific', minLat: -60, maxLat: 60, minLong: -180, maxLong: -80 },
+    { name: 'Atlantic', minLat: -60, maxLat: 60, minLong: -80, maxLong: 20 },
+    { name: 'Indian', minLat: -60, maxLat: 30, minLong: 20, maxLong: 120 },
+    { name: 'Southern', minLat: -90, maxLat: -60, minLong: -180, maxLong: 180 },
+    { name: 'Arctic', minLat: 60, maxLat: 90, minLong: -180, maxLong: 180 }
+  ];
+
+  return oceans.some(ocean => 
+    location.latitude >= ocean.minLat && location.latitude <= ocean.maxLat &&
+    location.longitude >= ocean.minLong && location.longitude <= ocean.maxLong
+  );
+}

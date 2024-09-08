@@ -132,6 +132,8 @@ app.post(
         },
       });
 
+      const now = new Date().toISOString();
+
       if (lastLocation) {
         // User already has a location, update it
         try {
@@ -140,9 +142,12 @@ app.post(
               username: lastLocation.username,
             },
             data: {
+              previousLat: lastLocation.latitude,
+              previousLong: lastLocation.longitude,
               latitude: location.latitude,
               longitude: location.longitude,
-              updatedAt: new Date().toISOString(), // Convert Date object to string
+              lastUpdated: lastLocation.updatedAt,
+              updatedAt: now,
             },
           });
         } catch (error) {
@@ -157,7 +162,9 @@ app.post(
               username: (decoded as JwtPayload).username as string,
               latitude: location.latitude,
               longitude: location.longitude,
-              updatedAt: new Date().toISOString(), // Convert Date object to string
+              updatedAt: now,
+              lastUpdated: now,
+              // previousLat and previousLong will use their default values
             },
           });
         } catch (error) {
@@ -166,7 +173,6 @@ app.post(
         }
       }
       res.status(200).json({ message: "Location dispatched" });
-      //console.log("Location dispatched")
     } else {
       res.status(404).json({ message: "User not found" });
       console.log("user not found")
