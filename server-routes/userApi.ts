@@ -10,6 +10,7 @@ interface Statistics {
   numLandminesPlaced: number;
   numMissilesPlaced: number;
   numLootPickups: number;
+  league: string; 
 }
 
 interface UserProfile {
@@ -74,7 +75,8 @@ export function setupUserApi(app: any) {
           include: {
             GameplayUser: {
               include: {
-                Statistics: true
+                Statistics: true,
+                league: true  
               }
             }
           }
@@ -94,13 +96,16 @@ export function setupUserApi(app: any) {
         numLandminesPlaced: targetUser.GameplayUser?.Statistics[0]?.numLandminesPlaced || 0,
         numMissilesPlaced: targetUser.GameplayUser?.Statistics[0]?.numMissilesPlaced || 0,
         numLootPickups: targetUser.GameplayUser?.Statistics[0]?.numLootPickups || 0,
+        league: targetUser.GameplayUser?.league 
+          ? `${targetUser.GameplayUser.league.tier} ${targetUser.GameplayUser.league.division}`
+          : "Unranked"  
       };
 
       const userProfile: UserProfile = {
         username: targetUser.username,
         rankpoints: targetUser.GameplayUser?.rankPoints || 0,
         mutualFriends: mutualFriends,
-        statistics: statistics
+        statistics: statistics,
       };
 
       res.status(200).json({ success: true, userProfile });
@@ -128,7 +133,8 @@ export function setupUserApi(app: any) {
         include: {
           GameplayUser: {
             include: {
-              Statistics: true
+              Statistics: true,
+              league: true  
             }
           }
         }
@@ -150,6 +156,9 @@ export function setupUserApi(app: any) {
         numLandminesPlaced: latestStats.numLandminesPlaced || 0,
         numMissilesPlaced: latestStats.numMissilesPlaced || 0,
         numLootPickups: latestStats.numLootPickups || 0,
+        league: user.GameplayUser.league 
+        ? `${user.GameplayUser.league.tier} ${user.GameplayUser.league.division}`
+        : "Unranked"  
       };
 
       const userProfile: SelfProfile = {
@@ -157,7 +166,7 @@ export function setupUserApi(app: any) {
         email: user.email,
         rankpoints: user.GameplayUser?.rankPoints || 0,
         mutualFriends: mutualFriends,
-        statistics: statistics
+        statistics: statistics,
       };
 
       res.status(200).json({ success: true, userProfile });

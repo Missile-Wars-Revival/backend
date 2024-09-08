@@ -544,7 +544,7 @@ export function setupEntityApi(app: any) {
             });
             if (landmineType) {
                 rewardAmount = Math.round(landmineType.price * 1.5);
-                rankPointsReward = 300; // Base rank points for landmine kill
+                rankPointsReward = 30; // Base rank points for landmine kill
             }
         } else if (itemType === "missile") {
             const missileType = await prisma.missileType.findUnique({
@@ -552,7 +552,7 @@ export function setupEntityApi(app: any) {
             });
             if (missileType) {
                 rewardAmount = Math.round(missileType.price * 1.5);
-                rankPointsReward = 500; // Base rank points for missile kill
+                rankPointsReward = 40; // Base rank points for missile kill
             }
         }
 
@@ -560,8 +560,12 @@ export function setupEntityApi(app: any) {
             return res.status(400).json({ success: false, message: "Invalid item type or type" });
         }
 
-        // Add bonus rank points based on item price
-        rankPointsReward += Math.round(rewardAmount / 10); // 1 additional rank point per 10 coins of reward
+        // Add bonus rank points based on item price, but cap it
+        const bonusPoints = Math.min(Math.round(rewardAmount / 100), 20); // 1 additional point per 100 coins, max 20 bonus points
+        rankPointsReward += bonusPoints;
+
+        // Cap total rank points reward
+        rankPointsReward = Math.min(rankPointsReward, 67); // Ensure it never exceeds 67 points
 
         // Update sender's money and rank points
         await prisma.gameplayUser.update({

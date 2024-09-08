@@ -66,6 +66,7 @@ export const updateMissilePositions = async () => {
       if (missiles.length === 0) break;
 
       const updates = missiles.map(async (missile) => {
+        const currentTime = new Date();
         const timeToImpact = new Date(missile.timeToImpact);
         const remainingTime = timeToImpact.getTime() - currentTime.getTime();
 
@@ -96,20 +97,19 @@ export const updateMissilePositions = async () => {
 
         let newPosition;
 
-        if (fractionCompleted >= 1) {
-          newPosition = end;
-        } else {
-          const line = turf.lineString([start.geometry.coordinates, end.geometry.coordinates]);
-          const distanceToTravel = totalDistance * fractionCompleted;
-          newPosition = turf.along(line, distanceToTravel, {units: 'kilometers'});
+        // Calculate the distance the missile should have traveled by now
+        const distanceTraveled = totalDistance * fractionCompleted;
 
-          const distanceToTarget = turf.distance(newPosition, end, {units: 'kilometers'});
-          
-          if (distanceToTarget <= HOLDING_PATTERN_DISTANCE && remainingTime > 0) {
-            const holdingCenter = turf.destination(end, HOLDING_PATTERN_DISTANCE, 0, {units: 'kilometers'});
-            const angleInPattern = (currentTime.getTime() % 10000) / 10000 * 360;
-            newPosition = turf.destination(holdingCenter, HOLDING_PATTERN_RADIUS, angleInPattern, {units: 'kilometers'});
-          }
+        // Check if the missile is close enough to enter the holding pattern
+        const timeToEnterHoldingPattern = 5 * 60 * 1000; // 5 minutes before impact
+        if (remainingTime <= timeToEnterHoldingPattern && distanceTraveled >= totalDistance - HOLDING_PATTERN_DISTANCE) {
+          const holdingCenter = turf.destination(end, HOLDING_PATTERN_DISTANCE, 0, {units: 'kilometers'});
+          const angleInPattern = (currentTime.getTime() % 10000) / 10000 * 360;
+          newPosition = turf.destination(holdingCenter, HOLDING_PATTERN_RADIUS, angleInPattern, {units: 'kilometers'});
+        } else {
+          // If not in holding pattern, calculate position along the path
+          const line = turf.lineString([start.geometry.coordinates, end.geometry.coordinates]);
+          newPosition = turf.along(line, distanceTraveled, {units: 'kilometers'});
         }
 
         const newLat = newPosition.geometry.coordinates[1].toString();
@@ -123,7 +123,7 @@ export const updateMissilePositions = async () => {
             data: { 
               currentLat: newLat,
               currentLong: newLong,
-              status: fractionCompleted >= 1 ? 'Hit' : 'Incoming'
+              status: 'Incoming'
             }
           });
         }
@@ -366,9 +366,7 @@ export const checkPlayerProximity = async () => {
             }
           } else { // missile.status === 'Hit'
             if (distance <= missile.radius / 1000 + MISSILE_ALERT_DISTANCE) { // Convert missile.radius from meters to km
-              const message = distance <= missile.radius / 1000
-                ? "You're in a missile impact zone! Check the app to avoid damage."
-                : "You're near a missile impact zone! Proceed with caution.";
+              const message = "A missile has impacted nearby! Proceed with caution.";
               await sendNotification(user.username, "Missile Impact Alert!", message, "Server");
               notifiedEntities.add(entityId);
             }
