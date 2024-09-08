@@ -16,10 +16,11 @@ export function setupLeagueApi(app: any) {
         return res.status(401).json({ success: false, message: "Invalid token" });
       }
 
-      const leagueAggregates = await prisma.league.groupBy({
-        by: ['tier', 'division'],
-        _count: {
-          _all: true
+      const leagues = await prisma.league.findMany({
+        include: {
+          _count: {
+            select: { players: true }
+          }
         },
         orderBy: [
           { tier: 'asc' },
@@ -27,10 +28,22 @@ export function setupLeagueApi(app: any) {
         ]
       });
 
-      const topLeagues = leagueAggregates.map(league => ({
-        name: `${league.tier} ${league.division}`,
-        playerCount: league._count._all
-      }));
+      const uniqueLeagues = new Map();
+
+      leagues.forEach(league => {
+        const key = `${league.tier} ${league.division}`;
+        if (!uniqueLeagues.has(key) || league._count.players > uniqueLeagues.get(key).playerCount) {
+          uniqueLeagues.set(key, {
+            name: key,
+            playerCount: league._count.players
+          });
+        }
+      });
+
+      const topLeagues = Array.from(uniqueLeagues.values());
+
+      // Sort by player count in descending order
+      topLeagues.sort((a, b) => b.playerCount - a.playerCount);
 
       return res.json({ 
         success: true, 
@@ -107,22 +120,8 @@ export function setupLeagueApi(app: any) {
         include: { league: true }
       });
 
-      if (!user) {
-        return res.status(404).json({ success: false, message: "User not found" });
-      }
-
-      if (!user.league) {
-        // If user doesn't have a league, assign them to one
-        await assignUserToLeague(user.id);
-        // Fetch the user again with the newly assigned league
-        user = await prisma.gameplayUser.findUnique({
-          where: { id: user.id },
-          include: { league: true }
-        });
-
-        if (!user || !user.league) {
-          return res.status(404).json({ success: false, message: "Failed to assign user to a league" });
-        }
+      if (!user || !user.league) {
+        return res.status(404).json({ success: false, message: "User or league not found" });
       }
 
       const players = await prisma.gameplayUser.findMany({
@@ -142,8 +141,56 @@ export function setupLeagueApi(app: any) {
         isCurrentUser: player.username === decoded.username
       }));
 
+      //console.log('Full league players response:', JSON.stringify(formattedPlayers, null, 2));
+
       return res.json({ success: true, players: formattedPlayers });
     } catch (error) {
+      console.error('Error in /api/leagues/players:', error);
+      return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+  });
+  
+  app.get("/api/top100players", async (req: Request, res: Response) => {
+    const { token } = req.query;
+
+    if (!token) {
+      return res.status(400).json({ success: false, message: "Missing token" });
+    }
+
+    try {
+      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
+      if (typeof decoded === 'string' || !decoded.username) {
+        return res.status(401).json({ success: false, message: "Invalid token" });
+      }
+
+      const top100Players = await prisma.gameplayUser.findMany({
+        select: {
+          id: true,
+          username: true,
+          rankPoints: true,
+          league: {
+            select: {
+              tier: true,
+              division: true
+            }
+          }
+        },
+        orderBy: { rankPoints: 'desc' },
+        take: 100
+      });
+
+      const formattedPlayers = top100Players.map((player, index) => ({
+        rank: index + 1,
+        id: player.id.toString(),
+        username: player.username,
+        points: player.rankPoints,
+        league: player.league ? `${player.league.tier} ${player.league.division}` : null,
+        isCurrentUser: player.username === decoded.username
+      }));
+
+      return res.json({ success: true, players: formattedPlayers });
+    } catch (error) {
+      console.error('Error in /api/top100players:', error);
       return res.status(500).json({ success: false, message: "Internal server error" });
     }
   });
