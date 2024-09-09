@@ -3,7 +3,7 @@ import * as geolib from 'geolib';
 import { getMutualFriends } from "../server-routes/friendsApi";
 import { sendNotification } from "./notificationhelper";
 import * as turf from '@turf/turf';
-import { getRandomLoot } from './lootConfig';
+import { getRandomLoot } from "./lootconfig";
 
 // Define our own Position interface
 interface Position extends Array<number> {
