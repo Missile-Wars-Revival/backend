@@ -3,6 +3,7 @@ import * as geolib from 'geolib';
 import { getMutualFriends } from "../server-routes/friendsApi";
 import { sendNotification } from "./notificationhelper";
 import * as turf from '@turf/turf';
+import { getRandomLoot } from './lootConfig';
 
 // Define our own Position interface
 interface Position extends Array<number> {
@@ -386,10 +387,12 @@ export const checkPlayerProximity = async () => {
         }
       }
 
+      const LOOT_RADIUS = 0.02; // 20 meters = 0.02 km
       const LOOT_NEARBY_DISTANCE = 0.5; // 0.5 km = 500 meters
-      const LOOT_COLLECTIBLE_DISTANCE = 0.05; // 0.05 km = 50 meters
       let nearbyLootCount = 0;
-      let collectibleLootCount = 0;
+      let collectedLoot = [];
+      let totalRankPointsGained = 0;
+      let totalCoinsGained = 0;
 
       for (const item of loot) {
         const lootCoords = { latitude: parseFloat(item.locLat), longitude: parseFloat(item.locLong) };
@@ -397,14 +400,60 @@ export const checkPlayerProximity = async () => {
         const entityId = `loot-${item.id}-${user.id}`;
         
         if (!notifiedEntities.has(entityId)) {
-          if (distance <= LOOT_COLLECTIBLE_DISTANCE) {
-            collectibleLootCount++;
+          if (distance <= LOOT_RADIUS) {
+            // Collect the loot
+            const randomLoot = getRandomLoot(item.rarity);
+            if (randomLoot) {
+              // Check if the item already exists in the user's inventory
+              const existingItem = await prisma.inventoryItem.findFirst({
+                where: {
+                  userId: user.id,
+                  name: randomLoot.name,
+                  category: randomLoot.category
+                }
+              });
+
+              if (existingItem) {
+                // If the item exists, update its quantity
+                await prisma.inventoryItem.update({
+                  where: { id: existingItem.id },
+                  data: { quantity: existingItem.quantity + 1 }
+                });
+              } else {
+                // If the item doesn't exist, create a new entry
+                await prisma.inventoryItem.create({
+                  data: {
+                    userId: user.id,
+                    name: randomLoot.name,
+                    category: randomLoot.category,
+                    quantity: 1
+                  }
+                });
+              }
+              collectedLoot.push(randomLoot);
+
+              // Add rank points and coins
+              totalRankPointsGained += 50;
+              totalCoinsGained += 200;
+            }
+            await prisma.loot.delete({ where: { id: item.id } });
             notifiedEntities.add(entityId);
           } else if (distance <= LOOT_NEARBY_DISTANCE) {
             nearbyLootCount++;
             notifiedEntities.add(entityId);
           }
         }
+      }
+
+      // Update user's rank points and money
+      if (totalRankPointsGained > 0 || totalCoinsGained > 0) {
+        await prisma.gameplayUser.update({
+          where: { id: user.id },
+          data: {
+            rankPoints: { increment: totalRankPointsGained },
+            money: { increment: totalCoinsGained }
+          }
+        });
       }
 
       // Send a notification for nearby loot
@@ -417,12 +466,13 @@ export const checkPlayerProximity = async () => {
         );
       }
 
-      // Send a separate notification for collectible loot
-      if (collectibleLootCount > 0) {
+      // Send a notification for collected loot
+      if (collectedLoot.length > 0) {
+        const lootMessage = collectedLoot.map(item => `${item.name} (${item.category})`).join(', ');
         await sendNotification(
           user.username, 
-          "Loot Within Reach!", 
-          `There ${collectibleLootCount === 1 ? 'is' : 'are'} ${collectibleLootCount} loot item${collectibleLootCount === 1 ? '' : 's'} within 50 meters! Open the app to collect.`, 
+          "Loot Collected!", 
+          `You've collected: ${lootMessage}. You gained ${totalRankPointsGained} rank points and ${totalCoinsGained} coins!`, 
           "Server"
         );
       }
