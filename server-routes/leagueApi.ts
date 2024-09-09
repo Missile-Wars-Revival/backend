@@ -277,9 +277,13 @@ export async function assignUserToLeague(userId: number) {
 }
 
 export async function checkAndUpdateUserLeagues() {
+  console.log("Starting hourly league update check...");
+
   const users = await prisma.gameplayUser.findMany({
     include: { league: true }
   });
+
+  let updatedCount = 0;
 
   for (const user of users) {
     const newTier = getTierFromRankPoints(user.rankPoints);
@@ -293,11 +297,16 @@ export async function checkAndUpdateUserLeagues() {
       });
 
       // Assign user to new league
-      await assignUserToLeague(user.id);
+      const newLeague = await assignUserToLeague(user.id);
 
-      console.log(`User ${user.username} moved from ${user.league.tier} ${user.league.division} to ${newTier} ${newDivision}`);
+      if (newLeague) {
+        console.log(`User ${user.username} moved from ${user.league.tier} ${user.league.division} to ${newLeague.tier} ${newLeague.division}`);
+        updatedCount++;
+      }
     }
   }
+
+  console.log(`Hourly league update completed. ${updatedCount} users were moved.`);
 }
 
 export async function getGlobalTopPlayer() {
