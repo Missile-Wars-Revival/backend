@@ -105,4 +105,24 @@ export function setupInventoryApi(app: any) {
             res.status(500).json({ message: "Failed to fetch inventory" });
         }
     });
+
+    app.get("/api/getWeaponTypes", async (req: Request, res: Response) => {
+        try {
+            // Fetch all missile types
+            const missileTypes = await prisma.missileType.findMany();
+
+            // Fetch all landmine types
+            const landmineTypes = await prisma.landmineType.findMany();
+
+            // Return both missile types and landmine types
+            res.status(200).json({
+                missileTypes,
+                landmineTypes
+            });
+        } catch (error) {
+            console.error("Failed to fetch weapon types: ", error);
+            res.status(500).json({ message: "Failed to fetch weapon types" });
+        }
+    });
+    
 }
