@@ -246,12 +246,12 @@ export const addRandomLoot = async () => {
   const userLocations = await prisma.locations.findMany({
     where: {
       updatedAt: { gte: twoDaysAgo },
-      username: {
-        notIn: (await prisma.users.findMany({
-          where: { role: "bot" }, // filter for bots
-          select: { username: true }
-        })).map(user => user.username)
-      }
+      // username: {
+      //   notIn: (await prisma.users.findMany({
+      //     where: { role: "bot" }, // filter for bots
+      //     select: { username: true }
+      //   })).map(user => user.username)
+      // }
     }
   });
 
