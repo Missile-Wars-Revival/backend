@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { sendNotification } from "./runners/notificationhelper";
 import * as geolib from "geolib";
 import { sample } from "lodash";
+import * as tf from '@tensorflow/tfjs-node';
 
 interface AIBot {
   id: number;
@@ -20,34 +21,74 @@ interface AIBot {
   };
   missilesFiredToday: number;
   lastMissileFiredAt: Date | null;
+  money: number;
+  inventory: {
+    missiles: any[];
+    // Add other inventory categories as needed
+  };
+}
+
+class NeuralNetwork {
+  model: tf.Sequential;
+
+  constructor() {
+    this.model = this.createModel();
+  }
+
+  createModel(): tf.Sequential {
+    const model = tf.sequential();
+    model.add(tf.layers.dense({ inputShape: [10], units: 16, activation: 'relu' }));
+    model.add(tf.layers.dense({ units: 8, activation: 'relu' }));
+    model.add(tf.layers.dense({ units: 5, activation: 'softmax' }));
+    model.compile({ optimizer: 'adam', loss: 'categoricalCrossentropy' });
+    return model;
+  }
+
+  predict(input: number[]): number[] {
+    const inputTensor = tf.tensor2d([input]);
+    const prediction = this.model.predict(inputTensor) as tf.Tensor;
+    return Array.from(prediction.dataSync());
+  }
+
+  // Add methods for training the model if needed
 }
 
 class BehaviorTree {
   private bot: AIBot;
+  private neuralNetwork: NeuralNetwork;
 
   constructor(bot: AIBot) {
     this.bot = bot;
+    this.neuralNetwork = new NeuralNetwork();
   }
 
   async execute() {
-    const actions = [
-      { action: this.explore.bind(this), weight: this.bot.personality.curiosity },
-      { action: this.attack.bind(this), weight: this.bot.personality.aggressiveness },
-      { action: this.socialize.bind(this), weight: this.bot.personality.sociability },
-      { action: this.collectLoot.bind(this), weight: this.bot.personality.tacticalAwareness },
-      { action: this.idle.bind(this), weight: 1 - (this.bot.personality.curiosity + this.bot.personality.aggressiveness + this.bot.personality.sociability + this.bot.personality.tacticalAwareness) / 4 },
-    ];
+    const input = this.getStateInput();
+    const actionProbabilities = this.neuralNetwork.predict(input);
+    const actionIndex = tf.argMax(actionProbabilities).dataSync()[0];
 
-    const totalWeight = actions.reduce((sum, action) => sum + action.weight, 0);
-    let random = Math.random() * totalWeight;
-
-    for (const { action, weight } of actions) {
-      if (random < weight) {
-        await action();
-        return;
-      }
-      random -= weight;
+    switch (actionIndex) {
+      case 0: await this.explore(); break;
+      case 1: await this.attack(); break;
+      case 2: await this.socialize(); break;
+      case 3: await this.collectLoot(); break;
+      case 4: await this.manageMissiles(); break;
     }
+  }
+
+  private getStateInput(): number[] {
+    return [
+      this.bot.personality.aggressiveness,
+      this.bot.personality.curiosity,
+      this.bot.personality.sociability,
+      this.bot.personality.tacticalAwareness,
+      this.bot.personality.riskTolerance,
+      this.bot.missilesFiredToday / config.maxMissilesPerDay,
+      this.bot.money / 1000, // Normalize money
+      this.bot.inventory.missiles.length / 10, // Normalize missile count
+      Math.random(), // Add some randomness
+      this.bot.lastMissileFiredAt ? (Date.now() - this.bot.lastMissileFiredAt.getTime()) / (24 * 60 * 60 * 1000) : 1, // Time since last missile fired, normalized to 1 day
+    ];
   }
 
   private async explore() {
@@ -57,8 +98,13 @@ class BehaviorTree {
   }
 
   private async attack() {
-    if (this.bot.missilesFiredToday >= 3) {
+    if (this.bot.missilesFiredToday >= config.maxMissilesPerDay) {
       console.log(`${this.bot.username} has reached the daily missile limit.`);
+      return;
+    }
+
+    if (this.bot.inventory.missiles.length === 0) {
+      console.log(`${this.bot.username} has no missiles to fire.`);
       return;
     }
 
@@ -70,11 +116,12 @@ class BehaviorTree {
 
     const player = await getRandomPlayer();
     if (player) {
-      const missileType = await getRandomMissileType();
-      if (missileType) {
-        await fireMissileAtPlayer(this.bot, player, missileType);
+      const missile = this.bot.inventory.missiles.pop(); // Use a missile from inventory
+      if (missile) {
+        await fireMissileAtPlayer(this.bot, player, missile);
         this.bot.missilesFiredToday++;
         this.bot.lastMissileFiredAt = now;
+        console.log(`${this.bot.username} fired a ${missile.name} at ${player.username}`);
       }
     }
   }
@@ -106,6 +153,38 @@ class BehaviorTree {
 
   private async idle() {
     console.log(`${this.bot.username} is idling.`);
+  }
+
+  private async manageMissiles() {
+    if (this.bot.inventory.missiles.length < 3 && this.bot.money >= 100) {
+      await this.buyMissile();
+    }
+  }
+
+  private async buyMissile() {
+    const missileTypes = await prisma.missileType.findMany();
+    const affordableMissiles = missileTypes.filter(m => m.price <= this.bot.money);
+    if (affordableMissiles.length > 0) {
+      const missileType = sample(affordableMissiles);
+      if (missileType) {
+        this.bot.money -= missileType.price;
+        this.bot.inventory.missiles.push(missileType);
+        await prisma.gameplayUser.update({
+          where: { username: this.bot.username },
+          data: { 
+            money: this.bot.money,
+            InventoryItem: {
+              create: {
+                name: missileType.name,
+                quantity: 1,
+                category: 'missile'
+              }
+            }
+          }
+        });
+        console.log(`${this.bot.username} bought a ${missileType.name} missile for $${missileType.price}`);
+      }
+    }
   }
 }
 
@@ -157,7 +236,7 @@ async function getActiveMissileCount() {
   return activeMissiles;
 }
 
-async function fireMissileAtPlayer(bot: AIBot, player: any, missileType: any) {
+async function fireMissileAtPlayer(bot: AIBot, player: any, missile: any) {
   for (let attempt = 0; attempt < config.maxRetries; attempt++) {
     try {
       if (!bot.latitude || !bot.longitude || !player.latitude || !player.longitude) {
@@ -168,15 +247,15 @@ async function fireMissileAtPlayer(bot: AIBot, player: any, missileType: any) {
         { latitude: bot.latitude, longitude: bot.longitude },
         { latitude: player.latitude, longitude: player.longitude }
       );
-      const timeToImpact = Math.round(distance / missileType.speed * 1000); // time in milliseconds
+      const timeToImpact = Math.round(distance / missile.speed * 1000); // time in milliseconds
 
       await prisma.missile.create({
         data: {
           destLat: player.latitude.toString(),
           destLong: player.longitude.toString(),
-          radius: missileType.radius,
-          damage: missileType.damage,
-          type: missileType.name,
+          radius: missile.radius,
+          damage: missile.damage,
+          type: missile.name,
           sentBy: bot.username,
           sentAt: new Date(),
           status: "Incoming",
@@ -189,6 +268,29 @@ async function fireMissileAtPlayer(bot: AIBot, player: any, missileType: any) {
       console.log(`Missile fired successfully from ${bot.username} to ${player.username}`);
 
       await sendNotification(player.username, "Incoming Missile!", `A missile has been fired at you by ${bot.username}!`, bot.username);
+
+      // After successfully firing the missile:
+      const inventoryItem = await prisma.inventoryItem.findFirst({
+        where: {
+          GameplayUser: { username: bot.username },
+          name: missile.name,
+          category: 'missile'
+        }
+      });
+
+      if (inventoryItem) {
+        if (inventoryItem.quantity > 1) {
+          await prisma.inventoryItem.update({
+            where: { id: inventoryItem.id },
+            data: { quantity: { decrement: 1 } }
+          });
+        } else {
+          await prisma.inventoryItem.delete({
+            where: { id: inventoryItem.id }
+          });
+        }
+      }
+
       return; // Success, exit the function
     } catch (error) {
       console.error(`Attempt ${attempt + 1} failed to fire missile from ${bot.username} to ${player.username}:`, error);
@@ -336,6 +438,11 @@ async function createBot() {
     personality: generateRandomPersonality(),
     missilesFiredToday: 0,
     lastMissileFiredAt: null,
+    money: 0,
+    inventory: {
+      missiles: [],
+      // Add other inventory categories as needed
+    },
   };
   bot.behaviorTree = new BehaviorTree(bot); // Now we can pass the full bot object
 
@@ -475,6 +582,8 @@ async function updateBotsInBatch(bots: AIBot[]) {
 }
 
 async function manageAIBots() {
+  await loadExistingBots();
+
   setInterval(async () => {
     const activePlayers = await prisma.users.count({
       where: { role: "player" },
@@ -535,6 +644,11 @@ async function manageAIBots() {
     for (const bot of botsToUpdate) {
       if (bot.isOnline) {
         await bot.behaviorTree.execute();
+        // This assumes you have a way to check if a bot has defeated a player
+        if (botHasDefeatedPlayer(bot)) {
+          const defeatedPlayer = getDefeatedPlayer(bot);
+          await earnMoneyFromDefeat(bot, defeatedPlayer);
+        }
       } else if (Math.random() < 0.1) {
         bot.isOnline = true;
         console.log(`${bot.username} is back online.`);
@@ -764,4 +878,63 @@ async function getMutualFriends(bot: AIBot): Promise<string[]> {
   return mutualFriends.map(friend => friend.username);
 }
 
-export { manageAIBots, aiBots, deleteAllBots };
+async function loadExistingBots() {
+  const existingBots = await prisma.users.findMany({
+    where: { role: "bot" },
+    include: {
+      GameplayUser: {
+        include: {
+          Locations: true,
+          InventoryItem: true,
+        },
+      },
+    },
+  });
+
+  aiBots.length = 0; // Clear existing bots
+
+  for (const botData of existingBots) {
+    const bot: AIBot = {
+      id: botData.id,
+      username: botData.username,
+      latitude: parseFloat(botData.GameplayUser?.Locations?.latitude || "0"),
+      longitude: parseFloat(botData.GameplayUser?.Locations?.longitude || "0"),
+      lastUpdate: new Date(),
+      isOnline: true,
+      behaviorTree: new BehaviorTree({} as AIBot), // Temporary placeholder
+      personality: generateRandomPersonality(),
+      missilesFiredToday: 0,
+      lastMissileFiredAt: null,
+      money: botData.GameplayUser?.money || 0,
+      inventory: {
+        missiles: botData.GameplayUser?.InventoryItem.filter(item => item.category === "missile") || [],
+        // Add other inventory categories as needed
+      },
+    };
+    bot.behaviorTree = new BehaviorTree(bot);
+    aiBots.push(bot);
+  }
+}
+
+async function earnMoneyFromDefeat(bot: AIBot, defeatedPlayer: any) {
+  const earnedAmount = Math.floor(Math.random() * 50) + 50; // Earn 50-100 money units for defeating a player
+  bot.money += earnedAmount;
+  await prisma.gameplayUser.update({
+    where: { username: bot.username },
+    data: { money: { increment: earnedAmount } },
+  });
+  console.log(`${bot.username} earned $${earnedAmount} for defeating ${defeatedPlayer.username}`);
+}
+
+// You'll need to implement these functions based on your game logic:
+function botHasDefeatedPlayer(bot: AIBot): any {
+  // Check if the bot has defeated a player recently
+  // This could involve checking a battle log or some other game state
+}
+
+function getDefeatedPlayer(bot: AIBot): any {
+  // Retrieve information about the player the bot has defeated
+  // This could come from a battle log or game state
+}
+
+export { manageAIBots, aiBots, deleteAllBots, createBot };
