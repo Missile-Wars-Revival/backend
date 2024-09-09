@@ -42,7 +42,13 @@ export function setupEntityApi(app: any) {
       }
 
       const distance = haversine(userLocation.latitude, userLocation.longitude, destLat, destLong);
-      const timeToImpact = Math.round(distance / missileType.speed * 1000); // time in milliseconds
+      let timeToImpact = Math.round(distance / missileType.speed * 1000); // time in milliseconds
+      
+      // Add minimum time of 5-10 minutes
+      const minAdditionalTime = 5 * 60 * 1000; // 5 minutes in milliseconds
+      const maxAdditionalTime = 10 * 60 * 1000; // 10 minutes in milliseconds
+      const additionalTime = Math.floor(Math.random() * (maxAdditionalTime - minAdditionalTime + 1)) + minAdditionalTime;
+      timeToImpact += additionalTime;
 
       const existingItem = await prisma.inventoryItem.findFirst({
         where: { name: type, userId: user.id }
@@ -140,7 +146,13 @@ export function setupEntityApi(app: any) {
       // Calculate distance and time to impact
       const distance = haversine(userLocation.latitude, userLocation.longitude,
         playerlocation.latitude, playerlocation.longitude);
-      const timeToImpact = distance / missileType.speed * 1000; // time in milliseconds
+      let timeToImpact = Math.round(distance / missileType.speed * 1000); // time in milliseconds
+
+      // Add minimum time of 5-10 minutes
+      const minAdditionalTime = 5 * 60 * 1000; // 5 minutes in milliseconds
+      const maxAdditionalTime = 10 * 60 * 1000; // 10 minutes in milliseconds
+      const additionalTime = Math.floor(Math.random() * (maxAdditionalTime - minAdditionalTime + 1)) + minAdditionalTime;
+      timeToImpact += additionalTime;
 
       // Update inventory and create missile entry
       await prisma.inventoryItem.update({
