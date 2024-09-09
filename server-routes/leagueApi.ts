@@ -198,30 +198,42 @@ export function setupLeagueApi(app: any) {
 
 // League management functions
 export async function assignUserToLeague(userId: number) {
-  const user = await prisma.gameplayUser.findUnique({ where: { id: userId } });
+  const user = await prisma.gameplayUser.findUnique({
+    where: { id: userId },
+    include: { Users: { select: { friends: true } } }
+  });
   if (!user) return;
 
   const tier = getTierFromRankPoints(user.rankPoints);
   const division = getDivisionFromRankPoints(user.rankPoints);
 
-  // Find an available league or create a new one if all are full
-  let league = await prisma.league.findFirst({
+  // Find leagues in the new tier and division
+  const availableLeagues = await prisma.league.findMany({
     where: { 
       tier, 
       division,
-      players: { some: {} }, // Ensure the league has at least one player
+      players: { some: {} },
     },
     include: {
+      players: {
+        select: { username: true },
+        where: { username: { in: user.Users.friends } }
+      },
       _count: {
         select: { players: true }
       }
     },
-    orderBy: { number: 'desc' }
+    orderBy: { number: 'asc' }
   });
 
-  if (league && league._count.players >= 100) {
-    league = null; // Set to null if the league is full
-  }
+  // Sort leagues by number of mutual friends, then by available space
+  availableLeagues.sort((a, b) => {
+    const friendDiff = b.players.length - a.players.length;
+    if (friendDiff !== 0) return friendDiff;
+    return (100 - b._count.players) - (100 - a._count.players);
+  });
+
+  let league = availableLeagues.find(l => l._count.players < 100);
 
   if (!league) {
     // If no suitable league found, create a new one
@@ -231,14 +243,28 @@ export async function assignUserToLeague(userId: number) {
     });
 
     const newLeagueNumber = lastLeague ? lastLeague.number + 1 : 1;
-    league = await prisma.league.create({
+    const newLeague = await prisma.league.create({
       data: {
         tier,
         division,
         number: newLeagueNumber
       },
-      include: { _count: { select: { players: true } } }
+      include: {
+        players: {
+          select: { username: true },
+          where: { username: { in: user.Users.friends } }
+        },
+        _count: {
+          select: { players: true }
+        }
+      }
     });
+
+    league = {
+      ...newLeague,
+      players: [],
+      _count: { players: 0 }
+    };
   }
 
   // Assign user to the league
@@ -246,6 +272,8 @@ export async function assignUserToLeague(userId: number) {
     where: { id: userId },
     data: { leagueId: league.id }
   });
+
+  return league;
 }
 
 export async function checkAndUpdateUserLeagues() {
