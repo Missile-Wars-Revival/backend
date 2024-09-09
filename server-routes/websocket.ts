@@ -141,6 +141,9 @@ export function setupWebSocket(app: any) {
         where: {
           username: username as string,
         },
+        include: {
+          league: true
+        }
       });
 
       if (user) {
@@ -165,8 +168,8 @@ export function setupWebSocket(app: any) {
           include: { GameplayUser: true }
         });
 
-        if (!currentUser) {
-          return
+        if (!currentUser || !user.league) {
+          return;
         }
         //friends data
         const friendsData = await prisma.users.findMany({
@@ -203,6 +206,7 @@ export function setupWebSocket(app: any) {
           whereClause = {
             AND: [
               { username: { not: { equals: currentUser.username } } }, // Exclude current user
+              //{ league: { tier: user.league.tier, division: user.league.division } }, // Filter by user's league and division
               { isAlive: true },
               {
                 OR: [
