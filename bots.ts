@@ -147,6 +147,17 @@ class BehaviorTree {
     console.log(`${this.bot.username}'s current money: ${this.bot.money}`);
     console.log(`${this.bot.username}'s current inventory:`, this.bot.inventory);
 
+    const currentTime = new Date().getTime();
+    if (this.bot.lastMissileFiredAt && currentTime - this.bot.lastMissileFiredAt.getTime() < config.missileCooldownPeriod) {
+      console.log(`${this.bot.username} is still on cooldown for firing missiles.`);
+      return; // Exit the method early
+    }
+
+    if (this.bot.missilesFiredToday >= config.maxMissilesPerDay) {
+      console.log(`${this.bot.username} has reached the daily missile firing limit.`);
+      return; // Exit the method early
+    }
+
     const target = await this.selectTarget();
 
     if (!target) {
@@ -162,17 +173,6 @@ class BehaviorTree {
     }
 
     console.log(`${this.bot.username} selected ${missile.name} missile.`);
-
-    const currentTime = new Date().getTime();
-    if (this.bot.lastMissileFiredAt && currentTime - this.bot.lastMissileFiredAt.getTime() < config.missileCooldownPeriod) {
-      console.log(`${this.bot.username} is still on cooldown for firing missiles.`);
-      return;
-    }
-
-    if (this.bot.missilesFiredToday >= config.maxMissilesPerDay) {
-      console.log(`${this.bot.username} has reached the daily missile firing limit.`);
-      return;
-    }
 
     try {
       await fireMissileAtPlayer(this.bot, target, missile);
