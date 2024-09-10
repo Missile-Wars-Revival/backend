@@ -459,78 +459,67 @@ export function setupEntityApi(app: any) {
   app.post("/api/placeshield", async (req: Request, res: Response) => {
     const { token, type, locLat, locLong } = req.body;
 
-    console.log(`placing shield ${type}`)
-    const ONE_HOUR_IN_MS = 60 * 60 * 1000; // 3600000
-    const TWENTY_FOUR_HOUR_IN_MS = 24 * 60 * 60 * 1000; // 86400000
-    try {
-      // Verify the token and ensure it's decoded as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    const ONE_HOUR_IN_MS = 60 * 60 * 1000;
+    const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000;
 
-      if (typeof decoded === 'string' || !decoded.username) {
+    try {
+      // Verify the token and decode it
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
+      if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
 
-      // Retrieve the user from the database
-      const user = await prisma.gameplayUser.findFirst({
-        where: {
-          username: decoded.username,
-        },
-      });
+      // Retrieve the user and their inventory item in parallel
+      const [user, existingItem] = await Promise.all([
+        prisma.gameplayUser.findUnique({ where: { username: decoded.username } }),
+        prisma.inventoryItem.findFirst({
+          where: {
+            name: type,
+            category: "Other",
+            userId: { equals: decoded.username },
+          },
+        }),
+      ]);
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Check if the item is in the user's inventory
-      const existingItem = await prisma.inventoryItem.findFirst({
-        where: {
-          category: "Other",
-          userId: user.id,
-        },
-      });
+      if (!existingItem || existingItem.quantity < 1) {
+        return res.status(400).json({ message: "Shield not available in inventory" });
+      }
 
-      if (existingItem) {
-        // If item exists, update the quantity -1
-        await prisma.inventoryItem.update({
+      // Define shield properties based on type
+      const shieldProperties = {
+        Shield: { radius: 10, duration: ONE_HOUR_IN_MS },
+        UltraShield: { radius: 20, duration: TWENTY_FOUR_HOURS_IN_MS },
+      };
+
+      if (!(type in shieldProperties)) {
+        return res.status(400).json({ message: "Invalid shield type" });
+      }
+
+      // Update inventory and create shield in a transaction
+      await prisma.$transaction([
+        prisma.inventoryItem.update({
           where: { id: existingItem.id },
-          data: { quantity: existingItem.quantity - 1 },
-        });
-
-        if (type === "Shield") {
-          console.log("placing shield")
-        await prisma.other.create({
+          data: { quantity: { decrement: 1 } },
+        }),
+        prisma.other.create({
           data: {
-            locLat: locLat,
-            locLong: locLong,
-            type: "Shield",
-            radius: 10,
-            Expires: new Date(new Date().getTime() + ONE_HOUR_IN_MS)
-          }
-        });
-      }
+            locLat,
+            locLong,
+            type,
+            radius: shieldProperties[type as keyof typeof shieldProperties].radius,
+            Expires: new Date(Date.now() + shieldProperties[type as keyof typeof shieldProperties].duration),
+          },
+        }),
+      ]);
 
-      if (type === "UltraShield") {
-        console.log("placing ultrashield")
-        await prisma.other.create({
-          data: {
-            locLat: locLat,
-            locLong: locLong,
-            type: "UltraShield",
-            radius: 20,
-            Expires: new Date(new Date().getTime() + TWENTY_FOUR_HOUR_IN_MS)
-          }
-        });
-      }
-
-      } else {
-        // If item does not exist
-      }
-
-      // Successful add item response
-      res.status(200).json({ message: "Loot placed successfully" });
+      res.status(200).json({ message: `${type} placed successfully` });
     } catch (error) {
-      console.error("Add item failed: ", error);
-      res.status(500).json({ message: "Add loot to map failed" });
+      console.error("Shield placement failed:", error);
+      res.status(500).json({ message: "Shield placement failed" });
     }
   });
 
