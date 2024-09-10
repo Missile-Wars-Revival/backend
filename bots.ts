@@ -147,23 +147,17 @@ class BehaviorTree {
     console.log(`${this.bot.username}'s current money: ${this.bot.money}`);
     console.log(`${this.bot.username}'s current inventory:`, this.bot.inventory);
 
-    const nearbyPlayers = await getNearbyPlayers(this.bot);
-    console.log(`${this.bot.username} found ${nearbyPlayers.length} nearby players.`);
+    const target = await this.selectTarget();
 
-    if (nearbyPlayers.length === 0) {
-      console.log(`${this.bot.username} couldn't find any nearby players to attack.`);
-      return;
-    }
-    const target = sample(nearbyPlayers);
     if (!target) {
-        console.log(`${this.bot.username} couldn't select a target.`);
-        return;
+      console.log(`${this.bot.username} couldn't select a target.`);
+      return;
     }
     console.log(`${this.bot.username} selected ${target.username} as the target.`);
 
     const missile = await this.selectMissile();
     if (!missile) {
-        console.log(`${this.bot.username} couldn't select a missile to fire.`);
+      console.log(`${this.bot.username} couldn't select a missile to fire.`);
       return;
     }
 
