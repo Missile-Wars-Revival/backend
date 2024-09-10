@@ -308,47 +308,62 @@ class BehaviorTree {
     }
   }
 
-   async collectLoot() {
-    const initialMoney = this.bot.money;
-    const initialInput = await this.getStateInput();
+async collectLoot() {
+  const initialMoney = this.bot.money;
+  const initialInput = await this.getStateInput();
 
-    const loot = await findNearbyLoot(this.bot, 2000);
-    if (loot) {
-      const lootPosition = {
-        latitude: parseFloat(loot.locLat),
-        longitude: parseFloat(loot.locLong)
-      };
+  const loot = await findNearbyLoot(this.bot, 2000);
+  if (loot) {
+    const lootPosition = {
+      latitude: parseFloat(loot.locLat),
+      longitude: parseFloat(loot.locLong)
+    };
   
-      while (geolib.getDistance(
-        { latitude: this.bot.latitude, longitude: this.bot.longitude },
-        lootPosition
-      ) > 1) {
-        const newPosition = calculateNewPosition(this.bot, lootPosition);
-        await updateBotPosition(this.bot, newPosition);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-  
-      console.log(`${this.bot.username} collected ${loot.id} worth ${loot.rarity}`);
-      await this.updateBotMoney();
-      console.log(`${this.bot.username} collected loot. Current money: ${this.bot.money}`);
-  
-      // Try to buy a missile after collecting loot
-      await this.buyMissile();
-  
-      // Add a chance to collect more loot immediately
-      if (Math.random() < 0.5) {  // 50% chance
-        console.log(`${this.bot.username} is searching for more loot!`);
-        await this.collectLoot();
-      }
-    } else {
-      console.log(`${this.bot.username} couldn't find any loot nearby. Moving to a new location.`);
-      await this.explore();
+    console.log(`${this.bot.username} moving towards loot at ${lootPosition.latitude}, ${lootPosition.longitude}`);
+    
+    while (geolib.getDistance(
+      { latitude: this.bot.latitude, longitude: this.bot.longitude },
+      lootPosition
+    ) > 1) {
+      const newPosition = calculateNewPosition(this.bot, lootPosition);
+      await updateBotPosition(this.bot, newPosition);
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
-
-    const moneyGained = this.bot.money - initialMoney;
-    const reward = moneyGained / 1000;  // Normalize the reward
-    await this.bot.neuralNetwork.trainOnLootCollection(initialInput, reward);
+  
+    console.log(`${this.bot.username} has reached loot location`);
+    
+    // Wait for a moment to simulate loot collection
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Fetch the updated bot information
+    const updatedBot = await prisma.gameplayUser.findUnique({
+      where: { username: this.bot.username },
+      select: { money: true }
+    });
+    
+    if (updatedBot) {
+      this.bot.money = updatedBot.money;
+      console.log(`${this.bot.username}'s current money: ${this.bot.money}`);
+    }
+  
+    // Try to buy a missile after potentially collecting loot
+    await this.buyMissile();
+  
+    // Add a chance to look for more loot immediately
+    if (Math.random() < 0.5) {  // 50% chance
+      console.log(`${this.bot.username} is searching for more loot!`);
+      await this.collectLoot();
+    }
+  } else {
+    console.log(`${this.bot.username} couldn't find any loot nearby. Moving to a new location.`);
+    await this.explore();
   }
+
+  const moneyGained = this.bot.money - initialMoney;
+  console.log(`${this.bot.username} gained ${moneyGained} from loot collection attempt`);
+  const reward = moneyGained / 1000;  // Normalize the reward
+  await this.bot.neuralNetwork.trainOnLootCollection(initialInput, reward);
+}
 
   private async idle() {
     console.log(`${this.bot.username} is idling.`);
@@ -691,7 +706,7 @@ const config = {
     { latitude: 43.6532, longitude: -79.3832, name: "Toronto" },
     { latitude: 59.9139, longitude: 10.7522, name: "Oslo" },
   ],
-  movementStepSize: 0.0004,
+  movementStepSize: 0.0002,
   movementSpeed: 5,
   missileCooldownPeriod: 4 * 60 * 60 * 1000,
   maxRetries: 3,
