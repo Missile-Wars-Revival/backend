@@ -71,13 +71,24 @@ export const processDamage = async () => {
         }
       });
 
+      // Fetch active shields
+      const activeShields = await prisma.other.findMany({
+        where: {
+          type: 'Shield',
+          Expires: { gt: new Date() }
+        }
+      });
+
       // Check missiles
       for (const missile of activeMissiles) {
         const missileCoords = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
         const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), missileCoords.latitude.toString(), missileCoords.longitude.toString());
 
         if (distance <= missile.radius) {
-          await handleMissileDamage(user, missile);
+          const isProtected = isUserProtectedByShield(userCoords, activeShields);
+          if (!isProtected) {
+            await handleMissileDamage(user, missile);
+          }
         }
       }
 
@@ -96,7 +107,10 @@ export const processDamage = async () => {
         const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), landmineCoords.latitude.toString(), landmineCoords.longitude.toString());
 
         if (distance <= 10) { // Assuming 10 meters activation radius for landmines
-          await handleLandmineDamage(user, landmine);
+          const isProtected = isUserProtectedByShield(userCoords, activeShields);
+          if (!isProtected) {
+            await handleLandmineDamage(user, landmine);
+          }
         }
       }
     }
@@ -104,6 +118,22 @@ export const processDamage = async () => {
     console.error('Failed to process damage:', error);
   }
 };
+
+function isUserProtectedByShield(userCoords: { latitude: number, longitude: number }, shields: any[]): boolean {
+  for (const shield of shields) {
+    const shieldCoords = { latitude: parseFloat(shield.locLat), longitude: parseFloat(shield.locLong) };
+    const distance = haversine(
+      userCoords.latitude.toString(),
+      userCoords.longitude.toString(),
+      shieldCoords.latitude.toString(),
+      shieldCoords.longitude.toString()
+    );
+    if (distance <= shield.radius) {
+      return true; // User is protected by this shield
+    }
+  }
+  return false; // User is not protected by any shield
+}
 
 async function handleMissileDamage(user: any, missile: any) {
   if (!processedMissiles.has(user.username)) {

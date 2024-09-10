@@ -456,6 +456,68 @@ export function setupEntityApi(app: any) {
     }
   });
 
+  app.post("/api/placeshield", async (req: Request, res: Response) => {
+    const { token, locLat, locLong } = req.body;
+
+    console.log("placing loot")
+    const ONE_HOUR_IN_MS = 60 * 60 * 1000; // 3600000
+
+    try {
+      // Verify the token and ensure it's decoded as an object
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+
+      if (typeof decoded === 'string' || !decoded.username) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      // Retrieve the user from the database
+      const user = await prisma.gameplayUser.findFirst({
+        where: {
+          username: decoded.username,
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Check if the item is in the user's inventory
+      const existingItem = await prisma.inventoryItem.findFirst({
+        where: {
+          category: "Other",
+          userId: user.id,
+        },
+      });
+
+      if (existingItem) {
+        // If item exists, update the quantity -1
+        await prisma.inventoryItem.update({
+          where: { id: existingItem.id },
+          data: { quantity: existingItem.quantity - 1 },
+        });
+
+        await prisma.other.create({
+          data: {
+            locLat: locLat,
+            locLong: locLong,
+            type: "Shield",
+            radius: 30,
+            Expires: new Date(new Date().getTime() + ONE_HOUR_IN_MS)
+          }
+        });
+
+      } else {
+        // If item does not exist
+      }
+
+      // Successful add item response
+      res.status(200).json({ message: "Loot placed successfully" });
+    } catch (error) {
+      console.error("Add item failed: ", error);
+      res.status(500).json({ message: "Add loot to map failed" });
+    }
+  });
+
   app.post("/api/lootpickup", async (req: Request, res: Response) => {
     const { token, lootid, amount } = req.body;
 
