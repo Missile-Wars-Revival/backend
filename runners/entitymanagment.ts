@@ -329,9 +329,6 @@ export const checkPlayerProximity = async () => {
         landmines = await prisma.landmine.findMany({ where: { placedBy: { in: relevantUsernames } } });
       }
 
-      // Fetch loot (regardless of friendsOnly setting)
-      const loot = await prisma.loot.findMany();
-
       // Check proximity to missiles
       for (const missile of missiles) {
         const missileCoords = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
@@ -386,6 +383,8 @@ export const checkPlayerProximity = async () => {
           notifiedEntities.add(entityId);
         }
       }
+      //fetch regardless of privacy settings
+      const loot = await prisma.loot.findMany();
 
       const LOOT_RADIUS = 0.02; // 20 meters = 0.02 km
       const LOOT_NEARBY_DISTANCE = 0.5; // 0.5 km = 500 meters
@@ -393,6 +392,7 @@ export const checkPlayerProximity = async () => {
       let collectedLoot = [];
       let totalRankPointsGained = 0;
       let totalCoinsGained = 0;
+      let totalHealthGained = 0;
 
       for (const item of loot) {
         const lootCoords = { latitude: parseFloat(item.locLat), longitude: parseFloat(item.locLong) };
@@ -432,9 +432,10 @@ export const checkPlayerProximity = async () => {
               }
               collectedLoot.push(randomLoot);
 
-              // Add rank points and coins
+              // Add rank points, coins, and health
               totalRankPointsGained += 50;
               totalCoinsGained += 200;
+              totalHealthGained += 40;
             }
             await prisma.loot.delete({ where: { id: item.id } });
             notifiedEntities.add(entityId);
@@ -445,15 +446,41 @@ export const checkPlayerProximity = async () => {
         }
       }
 
-      // Update user's rank points and money
-      if (totalRankPointsGained > 0 || totalCoinsGained > 0) {
-        await prisma.gameplayUser.update({
-          where: { id: user.id },
-          data: {
-            rankPoints: { increment: totalRankPointsGained },
-            money: { increment: totalCoinsGained }
-          }
-        });
+      // Fetch current user health
+      const currentUser = await prisma.gameplayUser.findUnique({
+        where: { id: user.id },
+        select: { health: true }
+      });
+
+      if (currentUser) {
+        const newHealth = Math.min(currentUser.health + totalHealthGained, 100);
+        const actualHealthGained = newHealth - currentUser.health;
+
+        // Update user's rank points, money, and health
+        if (totalRankPointsGained > 0 || totalCoinsGained > 0 || actualHealthGained > 0) {
+          await prisma.gameplayUser.update({
+            where: { id: user.id },
+            data: {
+              rankPoints: { increment: totalRankPointsGained },
+              money: { increment: totalCoinsGained },
+              health: newHealth
+            }
+          });
+        }
+
+        // Update the notification message to include health gained
+        if (collectedLoot.length > 0) {
+          const lootMessage = collectedLoot.map(item => `${item.name} (${item.category})`).join(', ');
+          const healthMessage = actualHealthGained > 0 
+            ? `and ${actualHealthGained} health`
+            : '(health already at maximum)';
+          await sendNotification(
+            user.username, 
+            "Loot Collected!", 
+            `You've collected: ${lootMessage}. You gained ${totalRankPointsGained} rank points, ${totalCoinsGained} coins, ${healthMessage}!`, 
+            "Server"
+          );
+        }
       }
 
       // Send a notification for nearby loot
@@ -462,17 +489,6 @@ export const checkPlayerProximity = async () => {
           user.username, 
           "Loot Nearby!", 
           `There ${nearbyLootCount === 1 ? 'is' : 'are'} ${nearbyLootCount} loot item${nearbyLootCount === 1 ? '' : 's'} within 500 meters of you!`, 
-          "Server"
-        );
-      }
-
-      // Send a notification for collected loot
-      if (collectedLoot.length > 0) {
-        const lootMessage = collectedLoot.map(item => `${item.name} (${item.category})`).join(', ');
-        await sendNotification(
-          user.username, 
-          "Loot Collected!", 
-          `You've collected: ${lootMessage}. You gained ${totalRankPointsGained} rank points and ${totalCoinsGained} coins!`, 
           "Server"
         );
       }
