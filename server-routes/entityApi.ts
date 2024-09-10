@@ -459,7 +459,7 @@ export function setupEntityApi(app: any) {
   app.post("/api/placeshield", async (req: Request, res: Response) => {
     const { token, type, locLat, locLong } = req.body;
 
-    console.log("placing shield")
+    console.log(`placing shield ${type}`)
     const ONE_HOUR_IN_MS = 60 * 60 * 1000; // 3600000
     const TWENTY_FOUR_HOUR_IN_MS = 24 * 60 * 60 * 1000; // 86400000
     try {
@@ -497,7 +497,7 @@ export function setupEntityApi(app: any) {
         });
 
         if (type === "Shield") {
-
+          console.log("placing shield")
         await prisma.other.create({
           data: {
             locLat: locLat,
@@ -510,7 +510,7 @@ export function setupEntityApi(app: any) {
       }
 
       if (type === "UltraShield") {
-
+        console.log("placing ultrashield")
         await prisma.other.create({
           data: {
             locLat: locLat,
