@@ -312,57 +312,66 @@ async collectLoot() {
   const initialMoney = this.bot.money;
   const initialInput = await this.getStateInput();
 
-  const loot = await findNearbyLoot(this.bot, 2000);
-  if (loot) {
-    const lootPosition = {
-      latitude: parseFloat(loot.locLat),
-      longitude: parseFloat(loot.locLong)
-    };
-  
-    console.log(`${this.bot.username} moving towards loot at ${lootPosition.latitude}, ${lootPosition.longitude}`);
+  let attempts = 0;
+  const maxAttempts = 3;
+
+  while (attempts < maxAttempts) {
+    const loot = await findNearbyLoot(this.bot, 2000);
+    if (loot) {
+      const lootPosition = {
+        latitude: parseFloat(loot.locLat),
+        longitude: parseFloat(loot.locLong)
+      };
     
-    while (geolib.getDistance(
-      { latitude: this.bot.latitude, longitude: this.bot.longitude },
-      lootPosition
-    ) > 1) {
-      const newPosition = calculateNewPosition(this.bot, lootPosition);
-      await updateBotPosition(this.bot, newPosition);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log(`${this.bot.username} moving towards loot at ${lootPosition.latitude}, ${lootPosition.longitude}`);
+      
+      while (geolib.getDistance(
+        { latitude: this.bot.latitude, longitude: this.bot.longitude },
+        lootPosition
+      ) > 1) {
+        const newPosition = calculateNewPosition(this.bot, lootPosition);
+        await updateBotPosition(this.bot, newPosition);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    
+      console.log(`${this.bot.username} has reached loot location`);
+      
+      // Wait for a moment to simulate loot collection
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Fetch the updated bot information
+      const updatedBot = await prisma.gameplayUser.findUnique({
+        where: { username: this.bot.username },
+        select: { money: true }
+      });
+      
+      if (updatedBot) {
+        this.bot.money = updatedBot.money;
+        console.log(`${this.bot.username}'s current money: ${this.bot.money}`);
+        
+        if (this.bot.money > initialMoney) {
+          console.log(`${this.bot.username} successfully collected loot!`);
+          break; // Exit the loop if money has increased
+        }
+      }
+    } else {
+      console.log(`${this.bot.username} couldn't find any loot nearby.`);
+      break; // Exit the loop if no loot is found
     }
-  
-    console.log(`${this.bot.username} has reached loot location`);
-    
-    // Wait for a moment to simulate loot collection
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Fetch the updated bot information
-    const updatedBot = await prisma.gameplayUser.findUnique({
-      where: { username: this.bot.username },
-      select: { money: true }
-    });
-    
-    if (updatedBot) {
-      this.bot.money = updatedBot.money;
-      console.log(`${this.bot.username}'s current money: ${this.bot.money}`);
+
+    attempts++;
+    if (attempts < maxAttempts) {
+      console.log(`${this.bot.username} is trying again to collect loot. Attempt ${attempts + 1} of ${maxAttempts}`);
     }
-  
-    // Try to buy a missile after potentially collecting loot
-    await this.buyMissile();
-  
-    // Add a chance to look for more loot immediately
-    if (Math.random() < 0.5) {  // 50% chance
-      console.log(`${this.bot.username} is searching for more loot!`);
-      await this.collectLoot();
-    }
-  } else {
-    console.log(`${this.bot.username} couldn't find any loot nearby. Moving to a new location.`);
-    await this.explore();
   }
 
   const moneyGained = this.bot.money - initialMoney;
   console.log(`${this.bot.username} gained ${moneyGained} from loot collection attempt`);
   const reward = moneyGained / 1000;  // Normalize the reward
   await this.bot.neuralNetwork.trainOnLootCollection(initialInput, reward);
+
+  // Simply return without calling any other method
+  return;
 }
 
   private async idle() {
