@@ -62,10 +62,10 @@ class BehaviorTree {
       case 4: await this.idle(); break;
     }
 
-    // Add a chance to perform an additional action
-    if (Math.random() < 0.3) {  // 30% chance
-      await this.performAdditionalAction();
-    }
+    // Remove the chance to perform an additional action
+    // if (Math.random() < 0.3) {  // 30% chance
+    //   await this.performAdditionalAction();
+    // }
   }
 
   private async performAdditionalAction() {
@@ -1514,7 +1514,22 @@ async function getNearbyPlayers(bot: AIBot) {
 }
 
 async function findNearbyLoot(bot: AIBot, radius: number) {
-  const nearbyLoot = await prisma.loot.findMany();
+  const nearbyLoot = await prisma.loot.findMany({
+    where: {
+      locLat: {
+        gte: (bot.latitude - radius / 111000).toString(),
+        lte: (bot.latitude + radius / 111000).toString(),
+      },
+      locLong: {
+        gte: (bot.longitude - radius / 111000).toString(),
+        lte: (bot.longitude + radius / 111000).toString(),
+      },
+    },
+    orderBy: {
+      id: 'asc', // or any other consistent ordering
+    },
+    take: 5, // Limit the number of results
+  });
 
   const closeLoot = nearbyLoot.filter(loot => 
     geolib.isPointWithinRadius(
@@ -1524,7 +1539,7 @@ async function findNearbyLoot(bot: AIBot, radius: number) {
     )
   );
 
-  return closeLoot.length > 0 ? closeLoot[0] : null;
+  return closeLoot.length > 0 ? sample(closeLoot) : null; // Return a random loot from the close ones
 }
 
 async function getMutualFriends(bot: AIBot): Promise<string[]> {
