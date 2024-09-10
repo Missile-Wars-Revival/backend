@@ -58,27 +58,28 @@ if (process.env.NODE_ENV === "development") {
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 }
 
-//this function manages entities on the map
-setInterval(deleteExpiredMissiles, 30000);
-setInterval(addRandomLoot, 60000);
-setInterval(deleteExpiredLandmines, 30000);
-setInterval(deleteExpiredLoot, 30000);
-setInterval(updateMissilePositions, 30000);
-//player notificaitons
-setInterval(checkPlayerProximity, 15000);
+// // //this function manages entities on the map
+// setInterval(deleteExpiredMissiles, 30000);
+// setInterval(addRandomLoot, 60000);
+// setInterval(deleteExpiredLandmines, 30000);
+// setInterval(deleteExpiredLoot, 30000);
+// setInterval(updateMissilePositions, 30000);
 
-//manages notifications
-startNotificationManager();
+// //player notificaitons
+// setInterval(checkPlayerProximity, 15000);
 
-//manages leagues
-setInterval(leagueRunner, 60 * 60 * 1000);
-leagueRunner();
+// //manages notifications
+// startNotificationManager();
 
-//manage damage:
-startDamageProcessing();
+// //manages leagues
+// setInterval(leagueRunner, 60 * 60 * 1000);
+// leagueRunner();
+
+// //manage damage:
+// startDamageProcessing();
 
 //Bots:
-//manageAIBots();
+manageAIBots();
 
 //deleteAllBots();
 
