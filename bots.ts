@@ -47,28 +47,11 @@ class BehaviorTree {
     await this.checkForIncomingMissiles();
     await this.updateBotMoney();
     await this.updateBotInventory();
+    await this.checkFinances();
 
     const input = await this.getStateInput();
-    let prediction = await this.bot.neuralNetwork.predict(input);
+    const prediction = await this.bot.neuralNetwork.predict(input);
     
-    // Adjust probabilities to increase loot collection and missile firing
-    const tensor = prediction as tf.Tensor;
-    let adjustedPrediction = tensor.arraySync();
-    
-    if (Array.isArray(adjustedPrediction) && adjustedPrediction.length > 0 && Array.isArray(adjustedPrediction[0])) {
-      // Increase probability of collecting loot
-      adjustedPrediction[0][3] = Number(adjustedPrediction[0][3]) * 1.5;
-      
-      // Increase probability of attacking (to fire more missiles)
-      adjustedPrediction[0][1] = Number(adjustedPrediction[0][1]) * 1.5;
-      
-      // Normalize probabilities
-      const sum = adjustedPrediction[0].reduce((a, b) => Number(a) + Number(b), 0);
-      adjustedPrediction[0] = adjustedPrediction[0].map((p) => Number(p) / Number(sum));
-      
-      prediction = tf.tensor2d([adjustedPrediction[0]]);
-    }
-
     const action = tf.argMax(prediction as tf.Tensor, 1).dataSync()[0];
 
     switch(action) {
@@ -119,19 +102,9 @@ class BehaviorTree {
   }
 
   private async getStateInput(): Promise<number[]> {
-    const nearbyMissiles = await prisma.missile.count({
-      where: {
-        status: "Incoming",
-        destLat: {
-          gte: (this.bot.latitude - 0.1).toString(),
-          lte: (this.bot.latitude + 0.1).toString(),
-        },
-        destLong: {
-          gte: (this.bot.longitude - 0.1).toString(),
-          lte: (this.bot.longitude + 0.1).toString(),
-        },
-      },
-    });
+    const nearbyPlayers = await getNearbyPlayers(this.bot);
+    const nearbyLoot = await findNearbyLoot(this.bot, 2000);
+    const nearbyMissiles = await getNearbyMissiles(this.bot);
 
     return [
       this.bot.latitude,
@@ -142,9 +115,13 @@ class BehaviorTree {
       this.bot.personality.tacticalAwareness,
       this.bot.personality.riskTolerance,
       this.bot.missilesFiredToday,
-      this.bot.inventory['missile'] || 0,
+      this.bot.inventory['Missiles'] || 0,
       this.bot.money,
-      nearbyMissiles,
+      nearbyPlayers.length,
+      nearbyLoot ? 1 : 0,
+      nearbyMissiles.length,
+      this.bot.health,
+      this.bot.rankpoints
     ];
   }
 
@@ -152,6 +129,13 @@ class BehaviorTree {
     const newLocation = getRandomLandCoordinates();
     await updateBotPosition(this.bot, newLocation);
     console.log(`${this.bot.username} is exploring a new location.`);
+
+    // Check for loot in the new location
+    const loot = await findNearbyLoot(this.bot, 2000);
+    if (loot) {
+      console.log(`${this.bot.username} found loot while exploring!`);
+      await this.collectLoot();
+    }
   }
 
   private async attack() {
@@ -159,7 +143,7 @@ class BehaviorTree {
     await this.updateBotMoney();
 
     const missiles = Object.entries(this.bot.inventory).filter(([name, quantity]) => 
-      quantity > 0 && name.toLowerCase().includes('missile')
+      quantity > 0 && name.toLowerCase().includes('missiles')
     );
 
     if (missiles.length > 0) {
@@ -168,6 +152,8 @@ class BehaviorTree {
         const missileType = await this.selectMissile();
         if (missileType) {
           await fireMissileAtPlayer(this.bot, player, missileType);
+          console.log(`Bot ${this.bot.username} attacked player ${player.username} with ${missileType.name}`);
+          // Add a database log or update here
           
           const inventoryItem = await prisma.inventoryItem.findFirst({
             where: {
@@ -322,7 +308,10 @@ class BehaviorTree {
     }
   }
 
-  private async collectLoot() {
+   async collectLoot() {
+    const initialMoney = this.bot.money;
+    const initialInput = await this.getStateInput();
+
     const loot = await findNearbyLoot(this.bot, 2000);
     if (loot) {
       const lootPosition = {
@@ -342,10 +331,10 @@ class BehaviorTree {
       console.log(`${this.bot.username} collected ${loot.id} worth ${loot.rarity}`);
       await this.updateBotMoney();
       console.log(`${this.bot.username} collected loot. Current money: ${this.bot.money}`);
-
+  
       // Try to buy a missile after collecting loot
       await this.buyMissile();
-
+  
       // Add a chance to collect more loot immediately
       if (Math.random() < 0.5) {  // 50% chance
         console.log(`${this.bot.username} is searching for more loot!`);
@@ -355,6 +344,10 @@ class BehaviorTree {
       console.log(`${this.bot.username} couldn't find any loot nearby. Moving to a new location.`);
       await this.explore();
     }
+
+    const moneyGained = this.bot.money - initialMoney;
+    const reward = moneyGained / 1000;  // Normalize the reward
+    await this.bot.neuralNetwork.trainOnLootCollection(initialInput, reward);
   }
 
   private async idle() {
@@ -380,7 +373,7 @@ class BehaviorTree {
 
       scoredMissiles.sort((a, b) => b.score - a.score);
 
-      const affordableMissile = scoredMissiles.find(missile => this.bot.money >= missile.price);
+      const affordableMissile = scoredMissiles.find(missile => this.bot.money >= missile.price && this.bot.money - missile.price >= 100);
 
       if (affordableMissile) {
         await prisma.$transaction(async (prisma) => {
@@ -423,7 +416,9 @@ class BehaviorTree {
         await this.updateBotInventory();
         console.log(`${this.bot.username} bought a ${affordableMissile.name} missile. Money: ${this.bot.money}, Missiles: ${this.bot.inventory[affordableMissile.name]}`);
       } else {
-        console.log(`${this.bot.username} couldn't afford any missiles. Money: ${this.bot.money}`);
+        console.log(`${this.bot.username} couldn't afford any missiles or would have too little money left. Money: ${this.bot.money}`);
+        console.log(`${this.bot.username} is going to look for loot instead.`);
+        await this.collectLoot();
       }
     } catch (error) {
       console.error(`Error while ${this.bot.username} was trying to buy a missile:`, error);
@@ -533,6 +528,24 @@ class BehaviorTree {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
+
+  private async checkFinances() {
+    await this.updateBotMoney();
+    if (this.bot.money < 100) {  // Set a threshold, e.g., 100
+      console.log(`${this.bot.username} is low on funds. Current money: ${this.bot.money}`);
+      await this.earnMoney();
+    }
+  }
+
+  private async earnMoney() {
+    console.log(`${this.bot.username} is attempting to earn money.`);
+    const action = Math.random();
+    if (action < 0.7) {  // 70% chance to collect loot
+      await this.collectLoot();
+    } else {  // 30% chance to attack a player
+      await this.attack();
+    }
+  }
 }
 
 class NeuralNetwork {
@@ -605,7 +618,7 @@ class NeuralNetwork {
 
   private initializeModel(): tf.Sequential {
     const model = tf.sequential();
-    model.add(tf.layers.dense({ units: 64, activation: 'relu', inputShape: [11] }));
+    model.add(tf.layers.dense({ units: 64, activation: 'relu', inputShape: [15] }));
     model.add(tf.layers.dense({ units: 32, activation: 'relu' }));
     model.add(tf.layers.dense({ units: 5, activation: 'softmax' }));
     model.compile({ optimizer: 'adam', loss: 'categoricalCrossentropy' });
@@ -619,6 +632,28 @@ class NeuralNetwork {
     }
     sequentialModel.compile({ optimizer: 'adam', loss: 'categoricalCrossentropy' });
     return sequentialModel;
+  }
+
+  async trainOnLootCollection(input: number[], reward: number) {
+    if (this.isTraining) {
+      console.log("Training already in progress. Skipping loot collection training.");
+      return;
+    }
+
+    const prediction = await this.predict(input);
+    const target = prediction.clone();
+    const collectLootIndex = 3;  // Assuming 3 is the index for collectLoot action
+    
+    // Create a 2D tensor with the same shape as the prediction
+    const updatedTarget = target.arraySync() as number[][];
+    updatedTarget[0][collectLootIndex] = reward;
+
+    const targetTensor = tf.tensor2d(updatedTarget);
+
+    await this.train([input], updatedTarget, 1);
+    
+    target.dispose();
+    targetTensor.dispose();
   }
 }
 
@@ -1039,6 +1074,12 @@ async function updateSingleBot(bot: AIBot, maxRetries: number, baseDelay: number
         return;
       }
 
+      if (bot.isOnline) {
+        const target = getRandomLandCoordinates(); // Or any other way you determine the bot's target
+        await updateBotPosition(bot, target);
+        await bot.behaviorTree.execute(); // Execute behavior tree regardless of movement
+      }
+
       await prisma.locations.upsert({
         where: { username: bot.username },
         update: {
@@ -1180,6 +1221,7 @@ async function manageAIBots() {
       if (bot.isOnline) {
         const target = getRandomLandCoordinates(); // Or any other way you determine the bot's target
         await updateBotPosition(bot, target);
+        await bot.behaviorTree.execute(); // Execute behavior tree for each online bot
         
         // Periodically train the bot (e.g., every 10 executions)
         if (Math.random() < 0.1) {  // 10% chance to train on each cycle
@@ -1207,7 +1249,30 @@ async function manageAIBots() {
       });
       console.log("Daily missile counts reset for all bots.");
     }
+
+    for (const bot of aiBots) {
+      if (bot.isOnline) {
+        const nearbyLoot = await findNearbyLoot(bot, 2000);
+        if (nearbyLoot) {
+          console.log(`${bot.username} has detected nearby loot!`);
+          await bot.behaviorTree.collectLoot();
+        }
+      }
+    }
   }, config.updateInterval);
+
+  // Check for loot less frequently than main update
+  setInterval(async () => {
+    for (const bot of aiBots) {
+      if (bot.isOnline) {
+        const nearbyLoot = await findNearbyLoot(bot, 2000);
+        if (nearbyLoot) {
+          console.log(`${bot.username} has detected nearby loot!`);
+          await bot.behaviorTree.collectLoot();
+        }
+      }
+    }
+  }, config.updateInterval * 2);
 }
 
 async function trainBot(bot: AIBot) {
@@ -1216,45 +1281,90 @@ async function trainBot(bot: AIBot) {
     return;
   }
 
-  const trainingData = generateTrainingData(bot); // Pass the bot to generate relevant training data
+  const trainingData = await generateTrainingData(bot);
   const inputs = trainingData.map(data => data.input);
   const outputs = trainingData.map(data => data.output);
   await bot.neuralNetwork.train(inputs, outputs);
   console.log(`${bot.username} completed a training cycle.`);
 }
 
-function generateTrainingData(bot: AIBot): { input: number[], output: number[] }[] {
+async function generateTrainingData(bot: AIBot): Promise<{ input: number[], output: number[] }[]> {
   const trainingData = [];
   for (let i = 0; i < 100; i++) {  // Generate 100 training samples
+    const nearbyPlayers = await getNearbyPlayers(bot);
+    const nearbyLoot = await findNearbyLoot(bot, 2000);
+    const nearbyMissiles = await getNearbyMissiles(bot);
+
     const input = [
-      Math.random(), // Simulated latitude
-      Math.random(), // Simulated longitude
+      bot.latitude,
+      bot.longitude,
       bot.personality.aggressiveness,
       bot.personality.curiosity,
       bot.personality.sociability,
       bot.personality.tacticalAwareness,
       bot.personality.riskTolerance,
-      Math.floor(Math.random() * 5), // Simulated missiles fired today
-      Math.floor(Math.random() * 10), // Simulated missile inventory
-      Math.random() * 1000, // Simulated money
-      Math.floor(Math.random() * 3), // Simulated nearby missiles (0-2)
+      bot.missilesFiredToday,
+      bot.inventory['missile'] || 0,
+      bot.money,
+      nearbyPlayers.length,
+      nearbyLoot ? 1 : 0,
+      nearbyMissiles.length,
+      bot.health,
+      bot.rankpoints
     ];
     
-    const output = [
-      Math.random() * 0.8,     // Probability of exploring (slightly reduced)
-      Math.random() * 1.2,     // Probability of attacking (increased)
-      Math.random() * 0.8,     // Probability of socializing (slightly reduced)
-      Math.random() * 1.2,     // Probability of collecting loot (increased)
-      Math.random() * 0.8      // Probability of idling (slightly reduced)
-    ];
+    const output = calculateOutputProbabilities(bot, nearbyPlayers, nearbyLoot, nearbyMissiles);
     
-    // Normalize output probabilities
-    const sum = output.reduce((a, b) => a + b, 0);
-    const normalizedOutput = output.map(v => v / sum);
-    
-    trainingData.push({ input, output: normalizedOutput });
+    trainingData.push({ input, output });
   }
   return trainingData;
+}
+
+function calculateOutputProbabilities(bot: AIBot, nearbyPlayers: any[], nearbyLoot: any, nearbyMissiles: any[]): number[] {
+  let explore = 0.2;
+  let attack = 0.2;
+  let socialize = 0.2;
+  let collectLoot = 0.2;
+  let idle = 0.2;
+
+  // Adjust probabilities based on game state and bot personality
+  if (nearbyPlayers.length > 0) {
+    attack += bot.personality.aggressiveness * 0.3;
+    socialize += bot.personality.sociability * 0.2;
+  }
+
+  if (nearbyLoot) {
+    collectLoot += bot.personality.curiosity * 0.3;
+    collectLoot += Math.max(0, (1000 - bot.money) / 1000) * 0.3;  // Increase probability when bot has less money
+  }
+
+  if (nearbyMissiles.length > 0) {
+    explore += bot.personality.riskTolerance * 0.2;
+  }
+
+  if (bot.health < 50) {
+    idle += 0.3;
+  }
+
+  // Normalize probabilities
+  const sum = explore + attack + socialize + collectLoot + idle;
+  return [explore, attack, socialize, collectLoot, idle].map(p => p / sum);
+}
+
+async function getNearbyMissiles(bot: AIBot): Promise<any[]> {
+  return await prisma.missile.findMany({
+    where: {
+      status: "Incoming",
+      destLat: {
+        gte: (bot.latitude - 0.1).toString(),
+        lte: (bot.latitude + 0.1).toString(),
+      },
+      destLong: {
+        gte: (bot.longitude - 0.1).toString(),
+        lte: (bot.longitude + 0.1).toString(),
+      },
+    },
+  });
 }
 
 function setBotSleeping(bot: AIBot) {
