@@ -139,48 +139,51 @@ class BehaviorTree {
   }
 
   private async attack() {
-    console.log(`${this.bot.username} is attempting to attack.`);
+    console.log(`[ATTACK] ${this.bot.username} is attempting to attack.`);
 
     await this.updateBotInventory();
     await this.updateBotMoney();
 
-    console.log(`${this.bot.username}'s current money: ${this.bot.money}`);
-    console.log(`${this.bot.username}'s current inventory:`, this.bot.inventory);
+    console.log(`[ATTACK] ${this.bot.username}'s current money: ${this.bot.money}`);
+    console.log(`[ATTACK] ${this.bot.username}'s current inventory:`, this.bot.inventory);
 
     const currentTime = new Date().getTime();
     if (this.bot.lastMissileFiredAt && currentTime - this.bot.lastMissileFiredAt.getTime() < config.missileCooldownPeriod) {
-      console.log(`${this.bot.username} is still on cooldown for firing missiles.`);
+      console.log(`[ATTACK] ${this.bot.username} is still on cooldown for firing missiles.`);
       return; // Exit the method early
     }
 
     if (this.bot.missilesFiredToday >= config.maxMissilesPerDay) {
-      console.log(`${this.bot.username} has reached the daily missile firing limit.`);
+      console.log(`[ATTACK] ${this.bot.username} has reached the daily missile firing limit.`);
       return; // Exit the method early
     }
 
     const target = await this.selectTarget();
 
     if (!target) {
-      console.log(`${this.bot.username} couldn't select a target.`);
+      console.log(`[ATTACK] ${this.bot.username} couldn't select a target.`);
       return;
     }
-    console.log(`${this.bot.username} selected ${target.username} as the target.`);
+    console.log(`[ATTACK] ${this.bot.username} selected ${target.username} as the target.`);
 
     const missile = await this.selectMissile();
     if (!missile) {
-      console.log(`${this.bot.username} couldn't select a missile to fire.`);
+      console.log(`[ATTACK] ${this.bot.username} couldn't select a missile to fire.`);
       return;
     }
 
-    console.log(`${this.bot.username} selected ${missile.name} missile.`);
+    console.log(`[ATTACK] ${this.bot.username} selected ${missile.name} missile.`);
+
+    console.log(`[ATTACK] Attempting to fire missile. Bot coordinates: ${this.bot.latitude}, ${this.bot.longitude}`);
+    console.log(`[ATTACK] Target details:`, JSON.stringify(target, null, 2));
 
     try {
       await fireMissileAtPlayer(this.bot, target, missile);
       this.bot.lastMissileFiredAt = new Date(currentTime);
       this.bot.missilesFiredToday++;
-      console.log(`${this.bot.username} successfully fired a missile at ${target.username}.`);
+      console.log(`[ATTACK] ${this.bot.username} successfully fired a missile at ${target.username}.`);
     } catch (error) {
-      console.error(`Error firing missile for ${this.bot.username}:`, error);
+      console.error(`[ATTACK] Error firing missile for ${this.bot.username}:`, error);
     }
   }
 
@@ -719,6 +722,11 @@ const config = {
 };
 
 async function fireMissileAtPlayer(bot: AIBot, player: any, missileType: any) {
+  console.log(`[FIRE_MISSILE] Attempting to fire missile from ${bot.username} to ${player.username}`);
+  console.log(`[FIRE_MISSILE] Bot coordinates: ${bot.latitude}, ${bot.longitude}`);
+  console.log(`[FIRE_MISSILE] Player details:`, JSON.stringify(player, null, 2));
+  console.log(`[FIRE_MISSILE] Missile type:`, JSON.stringify(missileType, null, 2));
+
   for (let attempt = 0; attempt < config.maxRetries; attempt++) {
     try {
       if (!bot.latitude || !bot.longitude || !player.Locations || !player.Locations.latitude || !player.Locations.longitude) {
@@ -731,31 +739,36 @@ async function fireMissileAtPlayer(bot: AIBot, player: any, missileType: any) {
       );
       const timeToImpact = Math.round(distance / missileType.speed * 1000);
 
-      await prisma.missile.create({
-        data: {
-          destLat: player.Locations.latitude,
-          destLong: player.Locations.longitude,
-          radius: 80,
-          damage: missileType.damage,
-          type: missileType.name,
-          sentBy: bot.username,
-          sentAt: new Date(),
-          status: "Incoming",
-          currentLat: bot.latitude.toString(),
-          currentLong: bot.longitude.toString(),
-          timeToImpact: new Date(new Date().getTime() + timeToImpact)
-        },
-      });
+      console.log(`[FIRE_MISSILE] Calculated distance: ${distance}, Time to impact: ${timeToImpact}`);
 
-      console.log(`Missile fired successfully from ${bot.username} to ${player.username}`);
+      const missileData = {
+        destLat: player.Locations.latitude,
+        destLong: player.Locations.longitude,
+        radius: 80,
+        damage: missileType.damage,
+        type: missileType.name,
+        sentBy: bot.username,
+        sentAt: new Date(),
+        status: "Incoming",
+        currentLat: bot.latitude.toString(),
+        currentLong: bot.longitude.toString(),
+        timeToImpact: new Date(new Date().getTime() + timeToImpact)
+      };
+
+      console.log(`[FIRE_MISSILE] Missile data to be created:`, JSON.stringify(missileData, null, 2));
+
+      await prisma.missile.create({ data: missileData });
+
+      console.log(`[FIRE_MISSILE] Missile fired successfully from ${bot.username} to ${player.username}`);
 
       await sendNotification(player.username, "Incoming Missile!", `A missile has been fired at you by ${bot.username}!`, bot.username);
       return;
     } catch (error) {
-      console.error(`Attempt ${attempt + 1} failed to fire missile from ${bot.username} to ${player.username}:`, error);
+      console.error(`[FIRE_MISSILE] Attempt ${attempt + 1} failed to fire missile from ${bot.username} to ${player.username}:`, error);
       if (attempt === config.maxRetries - 1) {
-        console.error(`All attempts to fire missile from ${bot.username} to ${player.username} have failed.`);
+        console.error(`[FIRE_MISSILE] All attempts to fire missile from ${bot.username} to ${player.username} have failed.`);
       } else {
+        console.log(`[FIRE_MISSILE] Retrying in ${config.retryDelay}ms...`);
         await new Promise(resolve => setTimeout(resolve, config.retryDelay));
       }
     }
