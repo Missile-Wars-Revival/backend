@@ -139,57 +139,54 @@ class BehaviorTree {
   }
 
   private async attack() {
+    console.log(`${this.bot.username} is attempting to attack.`);
+
     await this.updateBotInventory();
     await this.updateBotMoney();
 
-    const missiles = Object.entries(this.bot.inventory).filter(([name, quantity]) => 
-      quantity > 0 && name.toLowerCase().includes('missiles')
-    );
+    console.log(`${this.bot.username}'s current money: ${this.bot.money}`);
+    console.log(`${this.bot.username}'s current inventory:`, this.bot.inventory);
 
-    if (missiles.length > 0) {
-      const player = await this.selectTarget();
-      if (player) {
-        const missileType = await this.selectMissile();
-        if (missileType) {
-          await fireMissileAtPlayer(this.bot, player, missileType);
-          console.log(`Bot ${this.bot.username} attacked player ${player.username} with ${missileType.name}`);
-          // Add a database log or update here
-          
-          const inventoryItem = await prisma.inventoryItem.findFirst({
-            where: {
-              userId: this.bot.id,
-              name: missileType.name,
-              category: 'Missiles'
-            }
-          });
+    const nearbyPlayers = await getNearbyPlayers(this.bot);
+    console.log(`${this.bot.username} found ${nearbyPlayers.length} nearby players.`);
 
-          if (inventoryItem) {
-            await prisma.inventoryItem.update({
-              where: { id: inventoryItem.id },
-              data: { quantity: { decrement: 1 } }
-            });
-          }
+    if (nearbyPlayers.length === 0) {
+      console.log(`${this.bot.username} couldn't find any nearby players to attack.`);
+      return;
+    }
+    const target = sample(nearbyPlayers);
+    if (!target) {
+        console.log(`${this.bot.username} couldn't select a target.`);
+        return;
+    }
+    console.log(`${this.bot.username} selected ${target.username} as the target.`);
 
-          await this.updateBotInventory();
-          await this.updateBotMoney();
-          
-          console.log(`${this.bot.username} attacked ${player.username}. Missiles left: ${this.bot.inventory[missileType.name]}, Money: ${this.bot.money}`);
-          
-          // Add a chance to fire another missile immediately
-          if (Math.random() < 0.3) {  // 30% chance
-            console.log(`${this.bot.username} is preparing to fire another missile!`);
-            await this.attack();
-          }
-        }
-      }
-    } else {
-      console.log(`${this.bot.username} has no missiles, attempting to buy`);
-      await this.buyMissile();
-      
-      if (Object.values(this.bot.inventory).every(quantity => quantity === 0)) {
-        console.log(`${this.bot.username} couldn't afford missiles. Changing strategy.`);
-        await this.handleLowFunds();
-      }
+    const missile = await this.selectMissile();
+    if (!missile) {
+        console.log(`${this.bot.username} couldn't select a missile to fire.`);
+      return;
+    }
+
+    console.log(`${this.bot.username} selected ${missile.name} missile.`);
+
+    const currentTime = new Date().getTime();
+    if (this.bot.lastMissileFiredAt && currentTime - this.bot.lastMissileFiredAt.getTime() < config.missileCooldownPeriod) {
+      console.log(`${this.bot.username} is still on cooldown for firing missiles.`);
+      return;
+    }
+
+    if (this.bot.missilesFiredToday >= config.maxMissilesPerDay) {
+      console.log(`${this.bot.username} has reached the daily missile firing limit.`);
+      return;
+    }
+
+    try {
+      await fireMissileAtPlayer(this.bot, target, missile);
+      this.bot.lastMissileFiredAt = new Date(currentTime);
+      this.bot.missilesFiredToday++;
+      console.log(`${this.bot.username} successfully fired a missile at ${target.username}.`);
+    } catch (error) {
+      console.error(`Error firing missile for ${this.bot.username}:`, error);
     }
   }
 
