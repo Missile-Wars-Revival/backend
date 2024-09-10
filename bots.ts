@@ -186,7 +186,7 @@ class BehaviorTree {
 
   private async selectTarget(): Promise<any> {
     const recentAttacker = await this.getRecentAttacker();
-    if (recentAttacker) {
+    if (recentAttacker && recentAttacker.isAlive) {
       console.log(`${this.bot.username} is retaliating against ${recentAttacker.username}`);
       return recentAttacker;
     }
@@ -198,7 +198,7 @@ class BehaviorTree {
       return target;
     }
 
-    return getRandomPlayer();
+    return getRandomAlivePlayer();
   }
 
   private async getRecentAttacker(): Promise<any> {
@@ -223,19 +223,24 @@ class BehaviorTree {
     const detectionRadius = 200;
     return await prisma.gameplayUser.findMany({
       where: {
-        Locations: {
-          latitude: {
-            gte: (this.bot.latitude - 0.002).toString(),
-            lte: (this.bot.latitude + 0.002).toString(),
-          },
-          longitude: {
-            gte: (this.bot.longitude - 0.002).toString(),
-            lte: (this.bot.longitude + 0.002).toString(),
+        AND: [
+          { username: { not: this.bot.username } },
+          { isAlive: true },
+          {
+            Locations: {
+              latitude: {
+                gte: (this.bot.latitude - 0.002).toString(),
+                lte: (this.bot.latitude + 0.002).toString(),
+              },
+              longitude: {
+                gte: (this.bot.longitude - 0.002).toString(),
+                lte: (this.bot.longitude + 0.002).toString(),
+              }
+            }
           }
-        },
-        username: { not: this.bot.username }
+        ]
       },
-      include: { Locations: true }
+      include: { Locations: true, Users: true }
     });
   }
 
@@ -1572,6 +1577,17 @@ async function getPlayerByUsername(username: string) {
     };
   }
   return null;
+}
+
+async function getRandomAlivePlayer() {
+  const alivePlayers = await prisma.gameplayUser.findMany({
+    where: { 
+      isAlive: true,
+      Users: { role: { not: "bot" } }
+    },
+    include: { Locations: true, Users: true }
+  });
+  return sample(alivePlayers);
 }
 
 export { manageAIBots, aiBots, deleteAllBots };
