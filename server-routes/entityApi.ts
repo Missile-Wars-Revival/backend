@@ -469,21 +469,23 @@ export function setupEntityApi(app: any) {
         return res.status(401).json({ message: "Invalid token" });
       }
 
-      // Retrieve the user and their inventory item in parallel
-      const [user, existingItem] = await Promise.all([
-        prisma.gameplayUser.findUnique({ where: { username: decoded.username } }),
-        prisma.inventoryItem.findFirst({
-          where: {
-            name: type,
-            category: "Other",
-            userId: decoded.username,
-          },
-        }),
-      ]);
+      // Retrieve the user first
+      const user = await prisma.gameplayUser.findUnique({ 
+        where: { username: decoded.username } 
+      });
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
+
+      // Now find the inventory item using the user's id
+      const existingItem = await prisma.inventoryItem.findFirst({
+        where: {
+          name: type,
+          category: "Other",
+          userId: user.id, // Use the user's id here
+        },
+      });
 
       if (!existingItem || existingItem.quantity < 1) {
         return res.status(400).json({ message: "Shield not available in inventory" });
