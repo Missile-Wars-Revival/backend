@@ -537,9 +537,11 @@ class BehaviorTree {
 
 class NeuralNetwork {
   model: tf.Sequential;
+  isTraining: boolean;
 
   constructor() {
     this.model = this.initializeModel();
+    this.isTraining = false;
   }
 
   predict(input: number[]): tf.Tensor {
@@ -547,20 +549,32 @@ class NeuralNetwork {
   }
 
   async train(inputs: number[][], outputs: number[][], epochs: number = 100) {
-    const xs = tf.tensor2d(inputs);
-    const ys = tf.tensor2d(outputs);
+    if (this.isTraining) {
+      console.log("Training already in progress. Skipping this request.");
+      return;
+    }
 
-    await this.model.fit(xs, ys, {
-      epochs: epochs,
-      callbacks: {
-        onEpochEnd: (epoch, logs) => {
-          console.log(`Epoch ${epoch}: loss = ${logs?.loss}`);
+    this.isTraining = true;
+    try {
+      const xs = tf.tensor2d(inputs);
+      const ys = tf.tensor2d(outputs);
+
+      await this.model.fit(xs, ys, {
+        epochs: epochs,
+        callbacks: {
+          onEpochEnd: (epoch, logs) => {
+            console.log(`Epoch ${epoch}: loss = ${logs?.loss}`);
+          }
         }
-      }
-    });
+      });
 
-    xs.dispose();
-    ys.dispose();
+      xs.dispose();
+      ys.dispose();
+    } catch (error) {
+      console.error("Error during training:", error);
+    } finally {
+      this.isTraining = false;
+    }
   }
 
   async saveModel(botUsername: string) {
@@ -1169,7 +1183,7 @@ async function manageAIBots() {
         
         // Periodically train the bot (e.g., every 10 executions)
         if (Math.random() < 0.1) {  // 10% chance to train on each cycle
-          await trainBot(bot);
+          trainBot(bot).catch(error => console.error(`Error training bot ${bot.username}:`, error));
         }
       } else if (Math.random() < 0.1) {
         bot.isOnline = true;
@@ -1197,6 +1211,11 @@ async function manageAIBots() {
 }
 
 async function trainBot(bot: AIBot) {
+  if (bot.neuralNetwork.isTraining) {
+    console.log(`${bot.username} is already training. Skipping this training cycle.`);
+    return;
+  }
+
   const trainingData = generateTrainingData(bot); // Pass the bot to generate relevant training data
   const inputs = trainingData.map(data => data.input);
   const outputs = trainingData.map(data => data.output);
