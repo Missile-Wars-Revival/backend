@@ -457,7 +457,7 @@ export function setupEntityApi(app: any) {
   });
 
   app.post("/api/placeshield", async (req: Request, res: Response) => {
-    const { token, type, locLat, locLong } = req.body;
+    const { token, type, loclat, loclong } = req.body;
 
     const ONE_HOUR_IN_MS = 60 * 60 * 1000;
     const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000;
@@ -476,7 +476,7 @@ export function setupEntityApi(app: any) {
           where: {
             name: type,
             category: "Other",
-            userId: { equals: decoded.username },
+            userId: decoded.username,
           },
         }),
       ]);
@@ -507,8 +507,8 @@ export function setupEntityApi(app: any) {
         }),
         prisma.other.create({
           data: {
-            locLat,
-            locLong,
+            locLat: loclat,
+            locLong: loclong,
             type,
             radius: shieldProperties[type as keyof typeof shieldProperties].radius,
             Expires: new Date(Date.now() + shieldProperties[type as keyof typeof shieldProperties].duration),
