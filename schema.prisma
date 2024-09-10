@@ -105,6 +105,15 @@ model Loot {
   locLong String   @default("")
 }
 
+model Other {
+  id      Int      @id @default(sequence(maxValue: 2147483647))
+  type    String
+  radius  Int
+  Expires DateTime
+  locLat  String   @default("")
+  locLong String   @default("")
+}
+
 model Messages {
   id        Int    @id @default(sequence(maxValue: 2147483647))
   sender    String @default("")

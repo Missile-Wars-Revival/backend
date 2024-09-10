@@ -39,13 +39,6 @@ export function getRandomCoordinates(latitude: number, longitude: number, radius
   return randomPoint;
 }
 
-// Add this helper function at the top of your file
-function interpolatePosition(start: {latitude: number, longitude: number}, end: {latitude: number, longitude: number}, fraction: number): {latitude: number, longitude: number} {
-  const distance = geolib.getDistance(start, end);
-  const bearing = geolib.getRhumbLineBearing(start, end);
-  return geolib.computeDestinationPoint(start, distance * fraction, bearing);
-}
-
 const HOLDING_PATTERN_DISTANCE = 1; // km from target to start holding pattern
 const HOLDING_PATTERN_RADIUS = 0.5; // km radius of the holding pattern circle
 
@@ -210,6 +203,26 @@ export const deleteExpiredLoot = async () => {
     console.log(`${result.count} loot deleted.`);
   } catch (error) {
     console.error('Failed to delete expired loot:', error);
+  }
+};
+
+export const deleteExpiredOther = async () => {
+  try {
+    // Current time
+    const now = new Date();
+
+    // Find and delete other
+    const result = await prisma.other.deleteMany({
+      where: {
+        Expires: {
+          lt: new Date(now.getTime()) // other that impacted more than 5 seconds ago
+        }
+      }
+    });
+
+    console.log(`${result.count} other deleted.`);
+  } catch (error) {
+    console.error('Failed to delete expired other:', error);
   }
 };
 

@@ -109,7 +109,9 @@ export function setupWebSocket(app: any) {
       const processedMissiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
 
       let allLoot = await prisma.loot.findMany();
+      let allOther = await prisma.other.findMany();
       let processedLoot = allLoot.map((loot: any) => middleearth.Loot.from_db(loot));
+      let processedOther = allOther.map((other: any) => middleearth.Other.from_db(other));
 
       let allLandmines = await prisma.landmine.findMany({
         where: {
@@ -123,6 +125,7 @@ export function setupWebSocket(app: any) {
       // Prepare the data bundle
       let dataBundle = new middleearth.WebSocketMessage([
         new middleearth.WSMsg('loot', processedLoot),
+        new middleearth.WSMsg('other', processedOther),
         new middleearth.WSMsg('landmines', processedLandmines),
         new middleearth.WSMsg('missiles', processedMissiles),
       ]);
