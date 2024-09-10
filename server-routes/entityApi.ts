@@ -457,11 +457,11 @@ export function setupEntityApi(app: any) {
   });
 
   app.post("/api/placeshield", async (req: Request, res: Response) => {
-    const { token, locLat, locLong } = req.body;
+    const { token, type, locLat, locLong } = req.body;
 
-    console.log("placing loot")
+    console.log("placing shield")
     const ONE_HOUR_IN_MS = 60 * 60 * 1000; // 3600000
-
+    const TWENTY_FOUR_HOUR_IN_MS = 24 * 60 * 60 * 1000; // 86400000
     try {
       // Verify the token and ensure it's decoded as an object
       const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
@@ -496,15 +496,31 @@ export function setupEntityApi(app: any) {
           data: { quantity: existingItem.quantity - 1 },
         });
 
+        if (type === "Shield") {
+
         await prisma.other.create({
           data: {
             locLat: locLat,
             locLong: locLong,
             type: "Shield",
-            radius: 30,
+            radius: 10,
             Expires: new Date(new Date().getTime() + ONE_HOUR_IN_MS)
           }
         });
+      }
+
+      if (type === "UltraShield") {
+
+        await prisma.other.create({
+          data: {
+            locLat: locLat,
+            locLong: locLong,
+            type: "UltraShield",
+            radius: 20,
+            Expires: new Date(new Date().getTime() + TWENTY_FOUR_HOUR_IN_MS)
+          }
+        });
+      }
 
       } else {
         // If item does not exist
