@@ -721,20 +721,20 @@ const config = {
 async function fireMissileAtPlayer(bot: AIBot, player: any, missileType: any) {
   for (let attempt = 0; attempt < config.maxRetries; attempt++) {
     try {
-      if (!bot.latitude || !bot.longitude || !player.latitude || !player.longitude) {
+      if (!bot.latitude || !bot.longitude || !player.Locations || !player.Locations.latitude || !player.Locations.longitude) {
         throw new Error("Bot or player coordinates are missing");
       }
 
       const distance = geolib.getDistance(
         { latitude: bot.latitude, longitude: bot.longitude },
-        { latitude: player.latitude, longitude: player.longitude }
+        { latitude: parseFloat(player.Locations.latitude), longitude: parseFloat(player.Locations.longitude) }
       );
       const timeToImpact = Math.round(distance / missileType.speed * 1000);
 
       await prisma.missile.create({
         data: {
-          destLat: player.latitude.toString(),
-          destLong: player.longitude.toString(),
+          destLat: player.Locations.latitude,
+          destLong: player.Locations.longitude,
           radius: 80,
           damage: missileType.damage,
           type: missileType.name,
@@ -1587,7 +1587,12 @@ async function getRandomAlivePlayer() {
     },
     include: { Locations: true, Users: true }
   });
-  return sample(alivePlayers);
+  
+  const playersWithCoordinates = alivePlayers.filter(player => 
+    player.Locations && player.Locations.latitude && player.Locations.longitude
+  );
+  
+  return sample(playersWithCoordinates);
 }
 
 export { manageAIBots, aiBots, deleteAllBots };
