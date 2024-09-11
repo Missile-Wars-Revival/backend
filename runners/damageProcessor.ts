@@ -74,7 +74,7 @@ export const processDamage = async () => {
       // Fetch active shields
       const activeShields = await prisma.other.findMany({
         where: {
-          type: 'Shield',
+          type: { in: ['Shield', 'UltraShield'] },
           Expires: { gt: new Date() }
         }
       });
@@ -177,6 +177,18 @@ interface GameplayUser {
 async function applyDamage(user: GameplayUser, damage: number, attackerUsername: string, damageSource: 'missile' | 'landmine', receivedType: string) {
   try {
     const applyDamageRecursively = async () => {
+      // Fetch the latest user data
+      const currentUser = await prisma.gameplayUser.findUnique({
+        where: { id: user.id },
+        include: { Locations: true }
+      });
+
+      // Check if the user is not alive, and if so, stop the damage application
+      if (!currentUser || !currentUser.isAlive) {
+        console.log(`User ${user.username} is not alive. Stopping damage application.`);
+        return;
+      }
+
       const updatedUser = await prisma.gameplayUser.update({
         where: { id: user.id },
         data: { health: { decrement: damage } },

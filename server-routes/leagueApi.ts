@@ -1,6 +1,7 @@
 import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { Request, Response } from "express";
+import { sendNotification } from "../runners/notificationhelper";
 
 export function setupLeagueApi(app: any) {
   app.get("/api/topleagues", async (req: Request, res: Response) => {
@@ -290,6 +291,8 @@ export async function checkAndUpdateUserLeagues() {
     const newDivision = getDivisionFromRankPoints(user.rankPoints);
 
     if (user.league && (user.league.tier !== newTier || user.league.division !== newDivision)) {
+      const oldLeague = `${user.league.tier} ${user.league.division}`;
+      
       // Remove user from current league
       await prisma.gameplayUser.update({
         where: { id: user.id },
@@ -300,13 +303,30 @@ export async function checkAndUpdateUserLeagues() {
       const newLeague = await assignUserToLeague(user.id);
 
       if (newLeague) {
-        console.log(`User ${user.username} moved from ${user.league.tier} ${user.league.division} to ${newLeague.tier} ${newLeague.division}`);
+        const newLeagueStr = `${newLeague.tier} ${newLeague.division}`;
+        console.log(`User ${user.username} moved from ${oldLeague} to ${newLeagueStr}`);
         updatedCount++;
+
+        // Determine if it's a promotion or demotion
+        const isPromotion = newLeague.tier > user.league.tier || 
+          (newLeague.tier === user.league.tier && newLeague.division < user.league.division);
+
+        // Send notification
+        await sendLeagueChangeNotification(user.username, oldLeague, newLeagueStr, isPromotion);
       }
     }
   }
 
   console.log(`Hourly league update completed. ${updatedCount} users were moved.`);
+}
+
+async function sendLeagueChangeNotification(username: string, oldLeague: string, newLeague: string, isPromotion: boolean) {
+  const title = isPromotion ? 'League Promotion!' : 'League Change';
+  const body = isPromotion
+    ? `Congratulations! You've been promoted from ${oldLeague} to ${newLeague}.`
+    : `You've been moved from ${oldLeague} to ${newLeague}.`;
+
+  await sendNotification(username, title, body, 'Server');
 }
 
 export async function getGlobalTopPlayer() {
