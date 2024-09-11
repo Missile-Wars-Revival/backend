@@ -357,9 +357,9 @@ function getTierFromRankPoints(rankPoints: number): string {
 }
 
 function getDivisionFromRankPoints(rankPoints: number): string {
-  const tierPoints = rankPoints % 1000;
-  if (tierPoints < 333) return 'III';
-  if (tierPoints < 666) return 'II';
+  const tierPoints = rankPoints % 2000;
+  if (tierPoints < 666) return 'III';
+  if (tierPoints < 1333) return 'II';
   return 'I';
 }
 
