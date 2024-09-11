@@ -188,8 +188,10 @@ class BehaviorTree {
   }
 
   private async selectTarget(): Promise<any> {
+    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+
     const recentAttacker = await this.getRecentAttacker();
-    if (recentAttacker && recentAttacker.isAlive) {
+    if (recentAttacker && recentAttacker.isAlive && recentAttacker.Locations?.updatedAt >= twoDaysAgo) {
       console.log(`${this.bot.username} is retaliating against ${recentAttacker.username}`);
       return recentAttacker;
     }
@@ -224,6 +226,7 @@ class BehaviorTree {
 
   private async getNearbyPlayers(): Promise<any[]> {
     const detectionRadius = 200;
+    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
     return await prisma.gameplayUser.findMany({
       where: {
         AND: [
@@ -238,7 +241,8 @@ class BehaviorTree {
               longitude: {
                 gte: (this.bot.longitude - 0.002).toString(),
                 lte: (this.bot.longitude + 0.002).toString(),
-              }
+              },
+              updatedAt: { gte: twoDaysAgo }
             }
           }
         ]
@@ -818,35 +822,6 @@ function setBotOffline(bot: AIBot) {
   setTimeout(() => {
     bot.isOnline = true;
   }, getRandomOfflineDuration());
-}
-
-async function getRandomPlayer() {
-  const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
-  const players = await prisma.users.findMany({
-    where: { role: { not: "bot" } },
-    include: {
-      GameplayUser: {
-        include: {
-          Locations: {
-            where: {
-              updatedAt: { gte: twoDaysAgo },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const activePlayers = players.filter(player => player.GameplayUser && player.GameplayUser.Locations);
-  const player = sample(activePlayers);
-  if (player && player.GameplayUser && player.GameplayUser.Locations) {
-    return {
-      ...player,
-      latitude: parseFloat(player.GameplayUser.Locations.latitude),
-      longitude: parseFloat(player.GameplayUser.Locations.longitude),
-    };
-  }
-  return null;
 }
 
 async function createBot() {
@@ -1593,10 +1568,15 @@ async function getPlayerByUsername(username: string) {
 }
 
 async function getRandomAlivePlayer() {
+  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+
   const alivePlayers = await prisma.gameplayUser.findMany({
     where: { 
       isAlive: true,
-      Users: { role: { not: "bot" } }
+      Users: { role: { not: "bot" } },
+      Locations: {
+        updatedAt: { gte: twoDaysAgo }
+      }
     },
     include: { Locations: true, Users: true }
   });
