@@ -249,9 +249,9 @@ export function setupUserApi(app: any) {
     }
   });
 
-  app.post("/api/getlocActive", async (req: Request, res: Response) => {
+  app.get("/api/getlocActive", async (req: Request, res: Response) => {
     try {
-      const { token } = req.body;
+      const token = req.query.token as string;
       if (!token) {
         return res.status(400).json({ message: "Token is required" });
       }
