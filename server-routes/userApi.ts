@@ -11,7 +11,7 @@ interface Statistics {
   numLandminesPlaced: number;
   numMissilesPlaced: number;
   numLootPickups: number;
-  league: string; 
+  league: string;
 }
 
 interface UserProfile {
@@ -77,7 +77,7 @@ export function setupUserApi(app: any) {
             GameplayUser: {
               include: {
                 Statistics: true,
-                league: true  
+                league: true
               }
             }
           }
@@ -97,9 +97,9 @@ export function setupUserApi(app: any) {
         numLandminesPlaced: targetUser.GameplayUser?.Statistics[0]?.numLandminesPlaced || 0,
         numMissilesPlaced: targetUser.GameplayUser?.Statistics[0]?.numMissilesPlaced || 0,
         numLootPickups: targetUser.GameplayUser?.Statistics[0]?.numLootPickups || 0,
-        league: targetUser.GameplayUser?.league 
+        league: targetUser.GameplayUser?.league
           ? `${targetUser.GameplayUser.league.tier} ${targetUser.GameplayUser.league.division}`
-          : "Unranked"  
+          : "Unranked"
       };
 
       const userProfile: UserProfile = {
@@ -135,7 +135,7 @@ export function setupUserApi(app: any) {
           GameplayUser: {
             include: {
               Statistics: true,
-              league: true  
+              league: true
             }
           }
         }
@@ -157,9 +157,9 @@ export function setupUserApi(app: any) {
         numLandminesPlaced: latestStats.numLandminesPlaced || 0,
         numMissilesPlaced: latestStats.numMissilesPlaced || 0,
         numLootPickups: latestStats.numLootPickups || 0,
-        league: user.GameplayUser.league 
-        ? `${user.GameplayUser.league.tier} ${user.GameplayUser.league.division}`
-        : "Unranked"  
+        league: user.GameplayUser.league
+          ? `${user.GameplayUser.league.tier} ${user.GameplayUser.league.division}`
+          : "Unranked"
       };
 
       const userProfile: SelfProfile = {
@@ -183,96 +183,98 @@ export function setupUserApi(app: any) {
         username: username?.toString(),
       },
     });
-  
+
     const fmtUser = {
       username: user?.username,
       id: user?.id,
       role: user?.role,
       avatar: user?.avatar,
     };
-  
+
     if (user) {
       res.status(200).json({ ...fmtUser });
     } else {
       res.status(404).json({ message: "User not found" });
     }
   });
-  
+
   app.patch("/api/locActive", async (req: Request, res: Response) => {
     const token = req.query.token;
 
     // Check if token is provided and is a valid string
     if (typeof token !== 'string' || !token.trim()) {
-        return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
     }
 
     try {
-        // Verify the token
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      // Verify the token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-        // Ensure the token contains a username
-        if (typeof decoded === 'string' || !decoded.username) {
-            return res.status(401).json({ message: "Invalid token" });
+      // Ensure the token contains a username
+      if (typeof decoded === 'string' || !decoded.username) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      console.log("locActive value:", req.body.locActive);
+
+      if (typeof req.body.locActive !== 'boolean') {
+        return res.status(400).json({ message: "locActive status must be provided and be a boolean." });
+      }
+
+      const updatedUser = await prisma.gameplayUser.update({
+        where: {
+          username: decoded.username
+        },
+        data: {
+          locActive: req.body.locActive
         }
+      });
 
-        if (typeof req.body.locActive !== 'boolean') {
-            return res.status(400).json({ message: "locActive status must be provided and be a boolean." });
+      // If no user is found or updated, send a 404 error
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Return the updated user info
+      res.status(200).json({
+        message: "locActive status updated successfully",
+        user: {
+          username: updatedUser.username,
+          locActive: updatedUser.locActive
         }
-
-        const updatedUser = await prisma.gameplayUser.update({
-            where: {
-                username: decoded.username
-            },
-            data: {
-                locActive: req.body.locActive
-            }
-        });
-
-        // If no user is found or updated, send a 404 error
-        if (!updatedUser) {
-            return res.status(404).json({ message: "User not found" });
-        }
-
-        // Return the updated user info
-        res.status(200).json({
-            message: "locActive status updated successfully",
-            user: {
-                username: updatedUser.username,
-                locActive: updatedUser.locActive
-            }
-        });
+      });
     } catch (error) {
-        console.error("Error updating locActive status:", error);
-        res.status(500).json({ message: "Internal server error" });
+      console.error("Error updating locActive status:", error);
+      res.status(500).json({ message: "Internal server error" });
     }
-});
+  });
 
-app.post("/api/getlocActive", async (req: Request, res: Response) => {
-  try {
-    const { token } = req.body;
-    if (!token) {
-      return res.status(400).json({ message: "Token is required" });
+  app.post("/api/getlocActive", async (req: Request, res: Response) => {
+    try {
+      const { token } = req.body;
+      if (!token) {
+        return res.status(400).json({ message: "Token is required" });
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      if (!decoded) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      const user = await prisma.gameplayUser.findFirst({
+        where: {
+          username: (decoded as JwtPayload).username as string,
+        },
+      });
+
+      if (user) {
+        res.status(200).json({ locActive: user.locActive });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
+    } catch (error) {
+      console.error("Error in getlocActive:", error);
+      res.status(500).json({ message: "Internal server error" });
     }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid token" });
-    }
-
-    const user = await prisma.gameplayUser.findFirst({
-      where: {
-        username: (decoded as JwtPayload).username as string,
-      },
-    });
-
-    if (user) {
-      res.status(200).json({ locActive: user.locActive });
-    } else {
-      res.status(404).json({ message: "User not found" });
-    }
-  } catch (error) {
-    console.error("Error in getlocActive:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
-});
+  });
 }
