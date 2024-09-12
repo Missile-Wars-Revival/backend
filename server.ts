@@ -8,7 +8,7 @@ import * as jwt from "jsonwebtoken";
 import { JwtPayload } from "jsonwebtoken";
 import { Expo } from 'expo-server-sdk';
 import { AuthWithLocation, AuthWithLocationSchema } from "./interfaces/api";
-import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates, checkPlayerProximity, deleteExpiredOther } from "./runners/entitymanagment";
+import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates, checkPlayerProximity, deleteExpiredOther, checkAndCollectLoot } from "./runners/entitymanagment";
 import { startNotificationManager } from "./runners/notificationhelper";
 import { deleteAllBots, manageAIBots } from "./bots";
 import { setupNotificationApi } from "./server-routes/notificaitonApi";
@@ -60,7 +60,7 @@ if (process.env.NODE_ENV === "development") {
 
 // // //this function manages entities on the map
 setInterval(deleteExpiredMissiles, 30000);
-setInterval(addRandomLoot, 60000);
+setInterval(addRandomLoot, 30000);
 setInterval(deleteExpiredLandmines, 30000);
 setInterval(deleteExpiredLoot, 30000);
 setInterval(deleteExpiredOther, 30000);
@@ -68,6 +68,8 @@ setInterval(updateMissilePositions, 30000);
 
 //player notificaitons
 setInterval(checkPlayerProximity, 15000);
+//player loot
+setInterval(checkAndCollectLoot, 15000);
 
 //manages notifications
 startNotificationManager();

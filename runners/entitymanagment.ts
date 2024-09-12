@@ -326,7 +326,6 @@ export const checkPlayerProximity = async () => {
 
       const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
       
-      console.log(`Checking loot for user ${user.username}`);
       console.log(`User coordinates: ${JSON.stringify(userCoords)}`);
 
       // Fetch relevant entities based on friendsOnly setting
@@ -403,6 +402,38 @@ export const checkPlayerProximity = async () => {
       const loot = await prisma.loot.findMany();
       console.log(`Total loot items: ${loot.length}`);
 
+    }
+  } catch (error) {
+    console.error('Error in checkPlayerProximity:', error);
+  }
+};
+
+// Add this function to clear notifications when appropriate (e.g., when a missile is removed)
+function clearNotification(entityType: string, entityId: string) {
+  notifiedEntities.forEach((notifiedEntityId) => {
+    if (notifiedEntityId.startsWith(`${entityType}-${entityId}-`)) {
+      notifiedEntities.delete(notifiedEntityId);
+    }
+  });
+}
+
+export const checkAndCollectLoot = async () => {
+  try {
+    const allUsers = await prisma.gameplayUser.findMany({
+      include: { Users: true, Locations: true }
+    });
+
+    for (const user of allUsers) {
+      if (!user.Locations) continue;
+
+      const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
+      
+      console.log(`Checking loot for user ${user.username}`);
+      console.log(`User coordinates: ${JSON.stringify(userCoords)}`);
+
+      const loot = await prisma.loot.findMany();
+      console.log(`Total loot items: ${loot.length}`);
+
       const LOOT_RADIUS = 0.05; // 50 meters = 0.05 km
       const LOOT_NEARBY_DISTANCE = 0.5; // 0.5 km = 500 meters
       let nearbyLootCount = 0;
@@ -414,60 +445,55 @@ export const checkPlayerProximity = async () => {
       for (const item of loot) {
         const lootCoords = { latitude: parseFloat(item.locLat), longitude: parseFloat(item.locLong) };
         const distance = haversineDistance(userCoords, lootCoords); // This returns distance in km
-        const entityId = `loot-${item.id}-${user.id}`;
         
         console.log(`Distance to loot: ${distance} km`);
         
-        // if (!notifiedEntities.has(entityId)) {
-          if (distance <= LOOT_RADIUS) {
-            // Collect the loot
-            const randomLoot = getRandomLoot(item.rarity);
-            if (randomLoot) {
-              // Check if the item already exists in the user's inventory
-              const existingItem = await prisma.inventoryItem.findFirst({
-                where: {
+        if (distance <= LOOT_RADIUS) {
+          // Collect the loot
+          const randomLoot = getRandomLoot(item.rarity);
+          if (randomLoot) {
+            // Check if the item already exists in the user's inventory
+            const existingItem = await prisma.inventoryItem.findFirst({
+              where: {
+                userId: user.id,
+                name: randomLoot.name,
+                category: randomLoot.category
+              }
+            });
+
+            if (existingItem) {
+              // If the item exists, update its quantity
+              await prisma.inventoryItem.update({
+                where: { id: existingItem.id },
+                data: { quantity: existingItem.quantity + 1 }
+              });
+            } else {
+              // If the item doesn't exist, create a new entry
+              await prisma.inventoryItem.create({
+                data: {
                   userId: user.id,
                   name: randomLoot.name,
-                  category: randomLoot.category
+                  category: randomLoot.category,
+                  quantity: 1
                 }
               });
-
-              if (existingItem) {
-                // If the item exists, update its quantity
-                await prisma.inventoryItem.update({
-                  where: { id: existingItem.id },
-                  data: { quantity: existingItem.quantity + 1 }
-                });
-              } else {
-                // If the item doesn't exist, create a new entry
-                await prisma.inventoryItem.create({
-                  data: {
-                    userId: user.id,
-                    name: randomLoot.name,
-                    category: randomLoot.category,
-                    quantity: 1
-                  }
-                });
-              }
-              collectedLoot.push(randomLoot);
-
-              // Add rank points, coins, and health
-              totalRankPointsGained += 50;
-              totalCoinsGained += 200;
-              totalHealthGained += 40;
             }
-            try {
-              await prisma.loot.delete({ where: { id: item.id } });
-              console.log(`Loot item ${item.id} deleted successfully`);
-            } catch (error) {
-              console.error(`Failed to delete loot item ${item.id}:`, error);
-            }
-            notifiedEntities.add(entityId);
-          } else if (distance <= LOOT_NEARBY_DISTANCE) {
-            nearbyLootCount++;
-            notifiedEntities.add(entityId);
+            collectedLoot.push(randomLoot);
+
+            // Add rank points, coins, and health
+            totalRankPointsGained += 50;
+            totalCoinsGained += 200;
+            totalHealthGained += 40;
           }
-        // }
+          try {
+            await prisma.loot.delete({ where: { id: item.id } });
+            console.log(`Loot item ${item.id} deleted successfully`);
+          } catch (error) {
+            console.error(`Failed to delete loot item ${item.id}:`, error);
+          }
+        } else if (distance <= LOOT_NEARBY_DISTANCE) {
+          nearbyLootCount++;
+        }
       }
 
       // Fetch current user health
@@ -518,15 +544,6 @@ export const checkPlayerProximity = async () => {
       }
     }
   } catch (error) {
-    console.error('Failed to check player proximity:', error);
+    console.error('Failed to check and collect loot:', error);
   }
 };
-
-// Add this function to clear notifications when appropriate (e.g., when a missile is removed)
-function clearNotification(entityType: string, entityId: string) {
-  notifiedEntities.forEach((notifiedEntityId) => {
-    if (notifiedEntityId.startsWith(`${entityType}-${entityId}-`)) {
-      notifiedEntities.delete(notifiedEntityId);
-    }
-  });
-}
