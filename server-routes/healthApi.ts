@@ -35,31 +35,6 @@ export function setupHealthApi(app: any) {
                 }
             });
 
-            //update death statistic
-            const existingDeaths = await prisma.statistics.findFirst({
-                where: {
-                    userId: decoded.id,
-                },
-            });
-
-            if (!existingDeaths) {
-                await prisma.statistics.create({
-                    data: {
-                        userId: decoded.id,
-                        numDeaths: 1,
-                    },
-                });
-            }
-
-            if (existingDeaths) {
-                await prisma.statistics.update({
-                    where: { id: existingDeaths.id },
-                    data: { numDeaths: existingDeaths.numDeaths + 1 },
-                });
-            } else {
-                //console.error("Error: No statistics record found for the user.");
-            }
-
             // If no user is found or updated, send a 404 error
             if (!updatedUser) {
                 return res.status(404).json({ message: "User not found" });

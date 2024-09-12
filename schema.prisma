@@ -32,6 +32,7 @@ model GameplayUser {
   updatedAt                                                    DateTime         @default(now())
   deletedAt                                                    DateTime         @default(now())
   isAlive                                                      Boolean          @default(true)
+  locActive                                                    Boolean          @default(true)
   leagueId                                                     String?
   BattleSessions_BattleSessions_attackerUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_attackerUsernameToGameplayUser")
   BattleSessions_BattleSessions_defenderUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_defenderUsernameToGameplayUser")
