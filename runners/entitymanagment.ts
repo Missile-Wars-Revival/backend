@@ -326,8 +326,6 @@ export const checkPlayerProximity = async () => {
       if (!user.Locations) continue;
 
       const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
-      
-      console.log(`User coordinates: ${JSON.stringify(userCoords)}`);
 
       // Fetch relevant entities based on friendsOnly setting
       let missiles, landmines;
@@ -399,9 +397,6 @@ export const checkPlayerProximity = async () => {
           notifiedEntities.add(entityId);
         }
       }
-      //fetch regardless of privacy settings
-      const loot = await prisma.loot.findMany();
-      console.log(`Total loot items: ${loot.length}`);
 
     }
   } catch (error) {
