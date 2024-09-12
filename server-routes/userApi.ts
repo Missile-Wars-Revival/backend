@@ -251,30 +251,31 @@ export function setupUserApi(app: any) {
 
   app.get("/api/getlocActive", async (req: Request, res: Response) => {
     try {
-      const token = req.query.token as string;
-      if (!token) {
-        return res.status(400).json({ message: "Token is required" });
-      }
+        const token = req.query.token as string;
+        if (!token) {
+            return res.status(400).json({ message: "Token is required" });
+        }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-      if (!decoded) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+        if (!decoded) {
+            return res.status(401).json({ message: "Invalid token" });
+        }
 
-      const user = await prisma.gameplayUser.findFirst({
-        where: {
-          username: (decoded as JwtPayload).username as string,
-        },
-      });
+        const user = await prisma.gameplayUser.findFirst({
+            where: {
+                username: (decoded as JwtPayload).username as string,
+            },
+        });
 
-      if (user) {
-        res.status(200).json({ locActive: user.locActive });
-      } else {
-        res.status(404).json({ message: "User not found" });
-      }
+        if (user) {
+            console.log("Sending locActive value:", user.locActive);
+            res.status(200).json({ locActive: user.locActive });
+        } else {
+            res.status(404).json({ message: "User not found" });
+        }
     } catch (error) {
-      console.error("Error in getlocActive:", error);
-      res.status(500).json({ message: "Internal server error" });
+        console.error("Error in getlocActive:", error);
+        res.status(500).json({ message: "Internal server error" });
     }
-  });
+});
 }
