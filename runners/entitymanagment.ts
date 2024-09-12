@@ -326,6 +326,9 @@ export const checkPlayerProximity = async () => {
 
       const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
       
+      console.log(`Checking loot for user ${user.username}`);
+      console.log(`User coordinates: ${JSON.stringify(userCoords)}`);
+
       // Fetch relevant entities based on friendsOnly setting
       let missiles, landmines;
       if (user.friendsOnly) {
@@ -398,8 +401,9 @@ export const checkPlayerProximity = async () => {
       }
       //fetch regardless of privacy settings
       const loot = await prisma.loot.findMany();
+      console.log(`Total loot items: ${loot.length}`);
 
-      const LOOT_RADIUS = 0.02; // 20 meters = 0.02 km
+      const LOOT_RADIUS = 0.05; // 50 meters = 0.05 km
       const LOOT_NEARBY_DISTANCE = 0.5; // 0.5 km = 500 meters
       let nearbyLootCount = 0;
       let collectedLoot = [];
@@ -412,7 +416,9 @@ export const checkPlayerProximity = async () => {
         const distance = haversineDistance(userCoords, lootCoords); // This returns distance in km
         const entityId = `loot-${item.id}-${user.id}`;
         
-        if (!notifiedEntities.has(entityId)) {
+        console.log(`Distance to loot: ${distance} km`);
+        
+        // if (!notifiedEntities.has(entityId)) {
           if (distance <= LOOT_RADIUS) {
             // Collect the loot
             const randomLoot = getRandomLoot(item.rarity);
@@ -450,13 +456,18 @@ export const checkPlayerProximity = async () => {
               totalCoinsGained += 200;
               totalHealthGained += 40;
             }
-            await prisma.loot.delete({ where: { id: item.id } });
+            try {
+              await prisma.loot.delete({ where: { id: item.id } });
+              console.log(`Loot item ${item.id} deleted successfully`);
+            } catch (error) {
+              console.error(`Failed to delete loot item ${item.id}:`, error);
+            }
             notifiedEntities.add(entityId);
           } else if (distance <= LOOT_NEARBY_DISTANCE) {
             nearbyLootCount++;
             notifiedEntities.add(entityId);
           }
-        }
+        // }
       }
 
       // Fetch current user health
