@@ -189,91 +189,97 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
         return;
       }
 
-      const updatedUser = await prisma.gameplayUser.update({
-        where: { id: user.id },
-        data: { health: { decrement: damage } },
-        include: { Locations: true }
-      });
-
-      console.log(`User ${user.username} health updated to ${updatedUser.health}`);
-
-      if (updatedUser.health <= 0 || !updatedUser.isAlive) {
-        // Calculate penalties for the eliminated user
-        const moneyLoss = Math.floor(updatedUser.money * 0.4);
-        const rankPointsLoss = Math.min(updatedUser.rankPoints, 100);
-
-        await prisma.gameplayUser.update({
+      // Use a transaction to ensure atomicity
+      await prisma.$transaction(async (prisma) => {
+        const updatedUser = await prisma.gameplayUser.update({
           where: { id: user.id },
-          data: { 
-            isAlive: false, 
-            health: 0,
-            money: updatedUser.money - moneyLoss,
-            rankPoints: updatedUser.rankPoints - rankPointsLoss
-          }
+          data: { health: { decrement: damage } },
+          include: { Locations: true }
         });
 
-        console.log(`User ${user.username} eliminated. Lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`);
+        console.log(`User ${user.username} health updated to ${updatedUser.health}`);
 
-        let rewardAmount = 0;
-        let rankPointsReward = 0;
+        if (updatedUser.health <= 0 && updatedUser.isAlive) {
+          // Calculate penalties for the eliminated user
+          const moneyLoss = Math.floor(updatedUser.money * 0.4);
+          const rankPointsLoss = Math.min(updatedUser.rankPoints, 100);
 
-        if (damageSource === 'landmine') {
-          const landmineType = await prisma.landmineType.findUnique({
-            where: { name: receivedType },
+          await prisma.gameplayUser.update({
+            where: { id: user.id },
+            data: { 
+              isAlive: false, 
+              health: 0,
+              money: updatedUser.money - moneyLoss,
+              rankPoints: updatedUser.rankPoints - rankPointsLoss
+            }
           });
-          if (landmineType) {
-            rewardAmount = Math.round(landmineType.price * 1.5);
-            rankPointsReward = 30; // Base rank points for landmine kill
+
+          console.log(`User ${user.username} eliminated. Lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`);
+
+          let rewardAmount = 0;
+          let rankPointsReward = 0;
+
+          if (damageSource === 'landmine') {
+            const landmineType = await prisma.landmineType.findUnique({
+              where: { name: receivedType },
+            });
+            if (landmineType) {
+              rewardAmount = Math.round(landmineType.price * 1.5);
+              rankPointsReward = 30; // Base rank points for landmine kill
+            }
+          } else if (damageSource === 'missile') {
+            const missileType = await prisma.missileType.findUnique({
+              where: { name: receivedType },
+            });
+            if (missileType) {
+              rewardAmount = Math.round(missileType.price * 1.5);
+              rankPointsReward = 40; // Base rank points for missile kill
+            }
           }
-        } else if (damageSource === 'missile') {
-          const missileType = await prisma.missileType.findUnique({
-            where: { name: receivedType },
+
+          // Add bonus rank points based on item price, but cap it
+          const bonusPoints = Math.min(Math.round(rewardAmount / 100), 20);
+          rankPointsReward += bonusPoints;
+
+          // Cap total rank points reward
+          rankPointsReward = Math.min(rankPointsReward, 67);
+
+          // Update attacker's money and rank points
+          const updatedAttacker = await prisma.gameplayUser.update({
+            where: { username: attackerUsername },
+            data: {
+              money: { increment: rewardAmount + moneyLoss }, // Attacker gets the reward plus the money taken from the eliminated user
+              rankPoints: { increment: rankPointsReward },
+            },
           });
-          if (missileType) {
-            rewardAmount = Math.round(missileType.price * 1.5);
-            rankPointsReward = 40; // Base rank points for missile kill
-          }
+
+          console.log(`Attacker ${attackerUsername} updated. New balance: ${updatedAttacker.money}, New rank points: ${updatedAttacker.rankPoints}`);
+
+          // Create a notification for the attacker
+          await prisma.notifications.create({
+            data: {
+              userId: attackerUsername,
+              title: "Elimination Reward",
+              body: `You've been rewarded ${rewardAmount + moneyLoss} coins and ${rankPointsReward} rank points for eliminating ${user.username} with your ${damageSource}!`,
+              sentby: "server",
+            },
+          });
+
+          // Create a notification for the eliminated user
+          const eliminationMessage = `You have been eliminated by a ${receivedType} ${damageSource} sent by ${attackerUsername}! You lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`;
+          await sendNotification(user.username, "Eliminated!", eliminationMessage, attackerUsername);
+
+          // Update death statistic
+          await updateDeathStatistic(user.id, prisma);
+        } else if (updatedUser.isAlive && damageSource === 'missile') {
+          // Send damage notification
+          const damageMessage = `You have taken ${damage} damage from a ${receivedType} missile sent by ${attackerUsername}!`;
+          await sendNotification(user.username, "Damaged!", damageMessage, attackerUsername);
+
+          // Schedule next damage application after 30 seconds
+          setTimeout(applyDamageRecursively, 30000);
         }
-
-        // Add bonus rank points based on item price, but cap it
-        const bonusPoints = Math.min(Math.round(rewardAmount / 100), 20);
-        rankPointsReward += bonusPoints;
-
-        // Cap total rank points reward
-        rankPointsReward = Math.min(rankPointsReward, 67);
-
-        // Update attacker's money and rank points
-        const updatedAttacker = await prisma.gameplayUser.update({
-          where: { username: attackerUsername },
-          data: {
-            money: { increment: rewardAmount + moneyLoss }, // Attacker gets the reward plus the money taken from the eliminated user
-            rankPoints: { increment: rankPointsReward },
-          },
-        });
-
-        console.log(`Attacker ${attackerUsername} updated. New balance: ${updatedAttacker.money}, New rank points: ${updatedAttacker.rankPoints}`);
-
-        // Create a notification for the attacker
-        await prisma.notifications.create({
-          data: {
-            userId: attackerUsername,
-            title: "Elimination Reward",
-            body: `You've been rewarded ${rewardAmount + moneyLoss} coins and ${rankPointsReward} rank points for eliminating ${user.username} with your ${damageSource}!`,
-            sentby: "server",
-          },
-        });
-
-        // Create a notification for the eliminated user
-        const eliminationMessage = `You have been eliminated by a ${receivedType} ${damageSource} sent by ${attackerUsername}! You lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`;
-        await sendNotification(user.username, "Eliminated!", eliminationMessage, attackerUsername);
-      } else if (damageSource === 'missile') {
-        // Send damage notification
-        const damageMessage = `You have taken ${damage} damage from a ${receivedType} missile sent by ${attackerUsername}!`;
-        await sendNotification(user.username, "Damaged!", damageMessage, attackerUsername);
-
-        // Schedule next damage application after 30 seconds
-        setTimeout(applyDamageRecursively, 30000);
-      }
+      });
     };
 
     // Start the damage cycle immediately for missiles, or apply once for landmines
@@ -290,6 +296,27 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
   } catch (error) {
     console.error("Error in applyDamage function:", error);
+  }
+}
+
+// New helper function to update death statistic
+async function updateDeathStatistic(userId: number, prisma: any) {
+  const existingDeaths = await prisma.statistics.findFirst({
+    where: { userId: userId },
+  });
+
+  if (existingDeaths) {
+    await prisma.statistics.update({
+      where: { id: existingDeaths.id },
+      data: { numDeaths: existingDeaths.numDeaths + 1 },
+    });
+  } else {
+    await prisma.statistics.create({
+      data: {
+        userId: userId,
+        numDeaths: 1,
+      },
+    });
   }
 }
 

@@ -430,7 +430,6 @@ export const checkAndCollectLoot = async () => {
       const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
       
       const loot = await prisma.loot.findMany();
-      console.log(`Total loot items: ${loot.length}`);
 
       const LOOT_RADIUS = 0.05; // 50 meters = 0.05 km
       const LOOT_NEARBY_DISTANCE = 0.5; // 0.5 km = 500 meters

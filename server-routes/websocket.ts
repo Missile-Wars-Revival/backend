@@ -201,6 +201,7 @@ export function setupWebSocket(app: any) {
             AND: [
               { username: { not: { equals: currentUser.username } } }, // Exclude current user
               { username: { in: mutualFriendsUsernames } }, // Filter by mutual friends
+              { locActive: true },
               { isAlive: true } // Only include alive users
             ]
           };
@@ -211,6 +212,7 @@ export function setupWebSocket(app: any) {
               { username: { not: { equals: currentUser.username } } }, // Exclude current user
               //{ league: { tier: user.league.tier, division: user.league.division } }, // Filter by user's league and division
               { isAlive: true },
+              { locActive: true },
               {
                 OR: [
                   { friendsOnly: false },
