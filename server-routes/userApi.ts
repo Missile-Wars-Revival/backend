@@ -197,7 +197,7 @@ export function setupUserApi(app: any) {
       res.status(404).json({ message: "User not found" });
     }
   });
-
+  
   app.patch("/api/locActive", async (req: Request, res: Response) => {
     const token = req.query.token;
 
@@ -215,8 +215,8 @@ export function setupUserApi(app: any) {
             return res.status(401).json({ message: "Invalid token" });
         }
 
-        if (typeof req.body.isAlive !== 'boolean') {
-            return res.status(400).json({ message: "isAlive status must be provided and be a boolean." });
+        if (typeof req.body.locActive !== 'boolean') {
+            return res.status(400).json({ message: "locActive status must be provided and be a boolean." });
         }
 
         const updatedUser = await prisma.gameplayUser.update({
@@ -224,7 +224,7 @@ export function setupUserApi(app: any) {
                 username: decoded.username
             },
             data: {
-                isAlive: req.body.isAlive
+                locActive: req.body.locActive
             }
         });
 
@@ -235,37 +235,44 @@ export function setupUserApi(app: any) {
 
         // Return the updated user info
         res.status(200).json({
-            message: "isAlive status updated successfully",
+            message: "locActive status updated successfully",
             user: {
                 username: updatedUser.username,
-                isAlive: updatedUser.isAlive
+                locActive: updatedUser.locActive
             }
         });
     } catch (error) {
-        console.error("Error updating isAlive status:", error);
+        console.error("Error updating locActive status:", error);
         res.status(500).json({ message: "Internal server error" });
     }
 });
 
 app.post("/api/getlocActive", async (req: Request, res: Response) => {
+  try {
     const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ message: "Token is required" });
+    }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
     if (!decoded) {
-        return res.status(401).json({ message: "Invalid token" });
+      return res.status(401).json({ message: "Invalid token" });
     }
 
     const user = await prisma.gameplayUser.findFirst({
-        where: {
-            username: (decoded as JwtPayload).username as string,
-        },
+      where: {
+        username: (decoded as JwtPayload).username as string,
+      },
     });
 
     if (user) {
-        res.status(200).json({ isAlive: user.isAlive });
+      res.status(200).json({ locActive: user.locActive });
     } else {
-        res.status(404).json({ message: "User not found" });
+      res.status(404).json({ message: "User not found" });
     }
+  } catch (error) {
+    console.error("Error in getlocActive:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
 });
 }
