@@ -431,7 +431,7 @@ export const checkAndCollectLoot = async () => {
       const loot = await prisma.loot.findMany();
       console.log(`Total loot items: ${loot.length}`);
 
-      const LOOT_RADIUS = 0.05; // 50 meters = 0.05 km
+      const LOOT_RADIUS = 0.02; // 50 meters = 0.05 km
       const LOOT_NEARBY_DISTANCE = 0.5; // 0.5 km = 500 meters
       let nearbyLootCount = 0;
       let collectedLoot = [];
