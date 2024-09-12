@@ -13,6 +13,7 @@ interface Position extends Array<number> {
 
 // Add this at the top of your file or in an appropriate scope
 const notifiedEntities = new Set<string>();
+const notifiedLootItems = new Set<string>();
 
 export const haversine = (lat1: string, lon1: string, lat2: string, lon2: string) => {
   const R = 6371e3; // meters
@@ -427,11 +428,11 @@ export const checkAndCollectLoot = async () => {
       if (!user.Locations) continue;
 
       const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
-
+      
       const loot = await prisma.loot.findMany();
       console.log(`Total loot items: ${loot.length}`);
 
-      const LOOT_RADIUS = 0.02; // 50 meters = 0.05 km
+      const LOOT_RADIUS = 0.05; // 50 meters = 0.05 km
       const LOOT_NEARBY_DISTANCE = 0.5; // 0.5 km = 500 meters
       let nearbyLootCount = 0;
       let collectedLoot = [];
@@ -442,6 +443,8 @@ export const checkAndCollectLoot = async () => {
       for (const item of loot) {
         const lootCoords = { latitude: parseFloat(item.locLat), longitude: parseFloat(item.locLong) };
         const distance = haversineDistance(userCoords, lootCoords); // This returns distance in km
+        
+        const lootNotificationId = `${item.id}-${user.id}`;
         
         if (distance <= LOOT_RADIUS) {
           // Collect the loot
@@ -483,11 +486,13 @@ export const checkAndCollectLoot = async () => {
           try {
             await prisma.loot.delete({ where: { id: item.id } });
             console.log(`Loot item ${item.id} deleted successfully`);
+            notifiedLootItems.delete(lootNotificationId); // Remove from notified set if collected
           } catch (error) {
             console.error(`Failed to delete loot item ${item.id}:`, error);
           }
-        } else if (distance <= LOOT_NEARBY_DISTANCE) {
+        } else if (distance <= LOOT_NEARBY_DISTANCE && !notifiedLootItems.has(lootNotificationId)) {
           nearbyLootCount++;
+          notifiedLootItems.add(lootNotificationId);
         }
       }
 
@@ -538,6 +543,17 @@ export const checkAndCollectLoot = async () => {
         );
       }
     }
+
+    // Clean up old notifications
+    const currentTime = Date.now();
+    notifiedLootItems.forEach(async (id) => {
+      const [lootId, userId] = id.split('-');
+      const loot = await prisma.loot.findUnique({ where: { id: parseInt(lootId) } });
+      if (!loot) {
+        notifiedLootItems.delete(id);
+      }
+    });
+
   } catch (error) {
     console.error('Failed to check and collect loot:', error);
   }
