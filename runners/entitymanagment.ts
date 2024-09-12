@@ -446,8 +446,6 @@ export const checkAndCollectLoot = async () => {
         const lootCoords = { latitude: parseFloat(item.locLat), longitude: parseFloat(item.locLong) };
         const distance = haversineDistance(userCoords, lootCoords); // This returns distance in km
         
-        console.log(`Distance to loot: ${distance} km`);
-        
         if (distance <= LOOT_RADIUS) {
           // Collect the loot
           const randomLoot = getRandomLoot(item.rarity);
