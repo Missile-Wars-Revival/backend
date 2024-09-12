@@ -66,79 +66,88 @@ export function setupAuthRoutes(app: any) {
     app.post("/api/register", validateSchema(RegisterSchema), async (req: Request, res: Response) => {
         const register: Register = req.body;
 
-        const existingUser = await prisma.users.findFirst({
-            where: {
-                username: register.username,
-            },
-        });
-
-        if (existingUser) {
-            return res.status(409).json({ message: "User already exists" });
-        }
-
-        if (register.password.length < 8) {
-            return res
-                .status(400)
-                .json({ message: "Password must be at least 8 characters long" });
-        }
-
-        if (register.username.length < 3) {
-            return res
-                .status(400)
-                .json({ message: "Username must be at least 3 characters long" });
-        }
-
-        if (!register.username.match(/^[a-zA-Z0-9]+$/)) {
-            return res
-                .status(400)
-                .json({ message: "Username must only contain letters and numbers" });
-        }
-
-        if (
-            !register.password.match(
-                /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/
-            )
-        ) {
-            return res.status(400).json({
-                message:
-                    "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+        try {
+            const existingUser = await prisma.users.findFirst({
+                where: {
+                    username: register.username,
+                },
             });
+
+            if (existingUser) {
+                return res.status(409).json({ message: "User already exists" });
+            }
+
+            if (register.password.length < 8) {
+                return res
+                    .status(400)
+                    .json({ message: "Password must be at least 8 characters long" });
+            }
+
+            if (register.username.length < 3) {
+                return res
+                    .status(400)
+                    .json({ message: "Username must be at least 3 characters long" });
+            }
+
+            if (!register.username.match(/^[a-zA-Z0-9]+$/)) {
+                return res
+                    .status(400)
+                    .json({ message: "Username must only contain letters and numbers" });
+            }
+
+            if (
+                !register.password.match(
+                    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/
+                )
+            ) {
+                return res.status(400).json({
+                    message:
+                        "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&#)",
+                });
+            }
+
+            if (!register.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+                return res.status(400).json({ message: "Invalid email address" });
+            }
+
+            if (
+                (existingUser as unknown as { email: string })?.email === register.email
+            ) {
+                return res.status(400).json({ message: "Email already exists" });
+            }
+
+            const hashedPassword = await argon2.hash(register.password);
+
+            await prisma.users.create({
+                data: {
+                    username: register.username,
+                    password: hashedPassword,
+                    email: register.email,
+                    notificationToken: register.notificationToken,
+                },
+            });
+
+            await prisma.gameplayUser.create({
+                data: {
+                    username: register.username,
+                    createdAt: new Date().toISOString(),
+                },
+            });
+
+            const token = jwt.sign(
+                { username: register.username, password: register.password },
+                process.env.JWT_SECRET || ""
+            );
+
+            res.status(200).json({ message: "User created", token });
+        } catch (error) {
+            if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002' &&
+                'meta' in error && typeof error.meta === 'object' && error.meta !== null && 'target' in error.meta) {
+                return res.status(409).json({ message: "Username already exists" });
+            }
+            console.error("Registration error:", error);
+            res.status(500).json({ message: "An error occurred during registration" });
         }
-
-        if (!register.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-            return res.status(400).json({ message: "Invalid email address" });
-        }
-
-        if (
-            (existingUser as unknown as { email: string })?.email === register.email
-        ) {
-            return res.status(400).json({ message: "Email already exists" });
-        }
-
-        const hashedPassword = await argon2.hash(register.password);
-
-        await prisma.users.create({
-            data: {
-                username: register.username,
-                password: hashedPassword,
-                email: register.email,
-                notificationToken: register.notificationToken,
-            },
-        });
-
-        await prisma.gameplayUser.create({
-            data: {
-                username: register.username,
-                createdAt: new Date().toISOString(),
-            },
-        });
-
-        const token = jwt.sign(
-            { username: register.username, password: register.password },
-            process.env.JWT_SECRET || ""
-        );
-
-        res.status(200).json({ message: "User created", token });
     });
 
     app.post("/api/requestPasswordReset", async (req: Request, res: Response) => {
