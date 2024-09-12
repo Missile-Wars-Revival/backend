@@ -427,9 +427,6 @@ export const checkAndCollectLoot = async () => {
       if (!user.Locations) continue;
 
       const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
-      
-      console.log(`Checking loot for user ${user.username}`);
-      console.log(`User coordinates: ${JSON.stringify(userCoords)}`);
 
       const loot = await prisma.loot.findMany();
       console.log(`Total loot items: ${loot.length}`);
