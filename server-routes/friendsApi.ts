@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { sendNotification } from "../runners/notificationhelper";
-import geolib from 'geolib';
+import * as geolib from 'geolib';
 
 export async function getMutualFriends(currentUser: { friends: any; username: string; }) {
     const mutualFriends = [];
@@ -243,12 +243,17 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       const filteredNearbyUsers = nearbyUsers.filter(user => {
         const userLoc = user.Locations;
         if (!userLoc) return false;
-  
+
+        const userLatitude = parseFloat(userLoc.latitude);
+        const userLongitude = parseFloat(userLoc.longitude);
+
+        if (isNaN(userLatitude) || isNaN(userLongitude)) return false;
+
         const distance = geolib.getDistance(
           { latitude, longitude },
-          { latitude: parseFloat(userLoc.latitude), longitude: parseFloat(userLoc.longitude) }
+          { latitude: userLatitude, longitude: userLongitude }
         );
-  
+
         return distance <= radiusInMeters;
       });
   
