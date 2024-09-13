@@ -201,21 +201,18 @@ export function setupUserApi(app: any) {
   app.patch("/api/locActive", async (req: Request, res: Response) => {
     const token = req.query.token;
 
-    // Check if token is provided and is a valid string
     if (typeof token !== 'string' || !token.trim()) {
       return res.status(400).json({ message: "Token is required and must be a non-empty string." });
     }
 
     try {
-      // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
 
-      // Ensure the token contains a username
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
+      console.log("Decoded token:", decoded);
+
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token: username not found" });
       }
-
-      console.log("locActive value:", req.body.locActive);
 
       if (typeof req.body.locActive !== 'boolean') {
         return res.status(400).json({ message: "locActive status must be provided and be a boolean." });
@@ -227,24 +224,28 @@ export function setupUserApi(app: any) {
         },
         data: {
           locActive: req.body.locActive
+        },
+        select: {
+          username: true,
+          locActive: true
         }
       });
 
-      // If no user is found or updated, send a 404 error
+      console.log("Updated user:", updatedUser);
+
       if (!updatedUser) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Return the updated user info
       res.status(200).json({
         message: "locActive status updated successfully",
-        user: {
-          username: updatedUser.username,
-          locActive: updatedUser.locActive
-        }
+        user: updatedUser
       });
     } catch (error) {
       console.error("Error updating locActive status:", error);
+      if (error instanceof jwt.JsonWebTokenError) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -252,20 +253,28 @@ export function setupUserApi(app: any) {
   app.get("/api/getlocActive", async (req: Request, res: Response) => {
     try {
         const token = req.query.token as string;
+
         if (!token) {
             return res.status(400).json({ message: "Token is required" });
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-        if (!decoded) {
-            return res.status(401).json({ message: "Invalid token" });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
+
+        if (!decoded.username) {
+            return res.status(401).json({ message: "Invalid token: username not found" });
         }
 
-        const user = await prisma.gameplayUser.findFirst({
+        const user = await prisma.gameplayUser.findUnique({
             where: {
-                username: (decoded as JwtPayload).username as string,
+                username: decoded.username
             },
+            select: {
+                username: true,
+                locActive: true
+            }
         });
+
+        console.log("Retrieve user:", user);
 
         if (user) {
             console.log("Sending locActive value:", user.locActive);
