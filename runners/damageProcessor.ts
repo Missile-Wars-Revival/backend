@@ -202,7 +202,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
         if (updatedUser.health <= 0 && updatedUser.isAlive) {
           // Calculate penalties for the eliminated user
-          const moneyLoss = Math.floor(updatedUser.money * 0.4);
+          const moneyLoss = Math.floor(updatedUser.money * 0.2);
           const maxRankPointsLoss = Math.floor(Math.random() * (200 - 100 + 1)) + 100; // Random value between 100 and 200
           const rankPointsLoss = Math.min(updatedUser.rankPoints, maxRankPointsLoss);
 
@@ -234,8 +234,8 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
               where: { name: receivedType },
             });
             if (missileType) {
-              rewardAmount = Math.round(missileType.price * 1.5);
-              rankPointsReward = 40; // Base rank points for missile kill
+              rewardAmount = Math.round(missileType.price * 1.1);
+              rankPointsReward = 20; // Base rank points for missile kill
             }
           }
 
