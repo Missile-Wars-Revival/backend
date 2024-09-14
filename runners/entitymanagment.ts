@@ -431,7 +431,7 @@ export const checkAndCollectLoot = async () => {
       let nearbyLootCount = 0;
       let collectedLoot = [];
       let totalRankPointsGained = 0;
-      let totalCoinsGained = 0;
+      let totalCoinsGained = 200; // Base amount of 200 coins every time
       let totalHealthGained = 0;
 
       for (const item of loot) {
@@ -444,37 +444,41 @@ export const checkAndCollectLoot = async () => {
           // Collect the loot
           const randomLoot = getRandomLoot(item.rarity);
           if (randomLoot) {
-            // Check if the item already exists in the user's inventory
-            const existingItem = await prisma.inventoryItem.findFirst({
-              where: {
-                userId: user.id,
-                name: randomLoot.name,
-                category: randomLoot.category
-              }
-            });
-
-            if (existingItem) {
-              // If the item exists, update its quantity
-              await prisma.inventoryItem.update({
-                where: { id: existingItem.id },
-                data: { quantity: existingItem.quantity + 1 }
-              });
+            if (randomLoot.category === 'Currency' && randomLoot.name === 'Coins') {
+              // If the loot is Coins, add 1000 to totalCoinsGained
+              totalCoinsGained += 1000;
             } else {
-              // If the item doesn't exist, create a new entry
-              await prisma.inventoryItem.create({
-                data: {
+              // Check if the item already exists in the user's inventory
+              const existingItem = await prisma.inventoryItem.findFirst({
+                where: {
                   userId: user.id,
                   name: randomLoot.name,
-                  category: randomLoot.category,
-                  quantity: 1
+                  category: randomLoot.category
                 }
               });
+
+              if (existingItem) {
+                // If the item exists, update its quantity
+                await prisma.inventoryItem.update({
+                  where: { id: existingItem.id },
+                  data: { quantity: existingItem.quantity + 1 }
+                });
+              } else {
+                // If the item doesn't exist, create a new entry
+                await prisma.inventoryItem.create({
+                  data: {
+                    userId: user.id,
+                    name: randomLoot.name,
+                    category: randomLoot.category,
+                    quantity: 1
+                  }
+                });
+              }
             }
             collectedLoot.push(randomLoot);
 
-            // Add rank points, coins, and health
+            // Add rank points and health
             totalRankPointsGained += 50;
-            totalCoinsGained += 200;
             totalHealthGained += 40;
           }
           try {
@@ -512,9 +516,11 @@ export const checkAndCollectLoot = async () => {
           });
         }
 
-        // Update the notification message to include health gained
+        // Update the notification message to include all collected items
         if (collectedLoot.length > 0) {
-          const lootMessage = collectedLoot.map(item => `${item.name} (${item.category})`).join(', ');
+          const lootMessage = collectedLoot.map(item => 
+            item.category === 'Currency' && item.name === 'Coins' ? '1000 coins' : `${item.name} (${item.category})`
+          ).join(', ');
           const healthMessage = actualHealthGained > 0 
             ? `and ${actualHealthGained} health`
             : '(health already at maximum)';
