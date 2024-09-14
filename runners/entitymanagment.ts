@@ -132,13 +132,36 @@ export const updateMissilePositions = async () => {
     console.log(`Processed ${processedCount} missiles, updated ${updatedCount}`);
 
     // Cleanup expired missiles
-    const cleanupResult = await prisma.missile.deleteMany({
-      where: {
-        status: 'Hit',
-        timeToImpact: { lt: new Date(currentTime.getTime() - 5 * 60 * 1000) } // Delete missiles that hit more than 5 minutes ago
-      }
+    const cleanupResult = await prisma.$transaction(async (prisma) => {
+      const missiles = await prisma.missile.findMany({
+        where: {
+          status: 'Hit',
+        },
+      });
+
+      const deletedMissiles = await Promise.all(
+        missiles.map(async (missile) => {
+          const missileType = await prisma.missileType.findUnique({
+            where: { name: missile.type },
+          });
+
+          if (missileType) {
+            const falloutTimeMs = missileType.fallout * 60 * 1000; // Convert fallout time from minutes to milliseconds
+            const deleteTime = new Date(missile.timeToImpact.getTime() + falloutTimeMs);
+
+            if (currentTime > deleteTime) {
+              return prisma.missile.delete({
+                where: { id: missile.id },
+              });
+            }
+          }
+          return null;
+        })
+      );
+
+      return deletedMissiles.filter(Boolean);
     });
-    console.log(`Cleaned up ${cleanupResult.count} expired missiles`);
+    console.log(`Cleaned up ${cleanupResult.length} expired missiles`);
 
   } catch (error) {
     console.error('Failed to update missile positions:', error);
