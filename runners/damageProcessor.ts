@@ -202,7 +202,8 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
         if (updatedUser.health <= 0 && updatedUser.isAlive) {
           // Calculate penalties for the eliminated user
           const moneyLoss = Math.floor(updatedUser.money * 0.4);
-          const rankPointsLoss = Math.min(updatedUser.rankPoints, 100);
+          const maxRankPointsLoss = Math.floor(Math.random() * (200 - 100 + 1)) + 100; // Random value between 100 and 200
+          const rankPointsLoss = Math.min(updatedUser.rankPoints, maxRankPointsLoss);
 
           await prisma.gameplayUser.update({
             where: { id: user.id },
@@ -210,7 +211,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
               isAlive: false, 
               health: 0,
               money: updatedUser.money - moneyLoss,
-              rankPoints: updatedUser.rankPoints - rankPointsLoss
+              rankPoints: { decrement: rankPointsLoss }
             }
           });
 

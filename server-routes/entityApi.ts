@@ -460,7 +460,8 @@ export function setupEntityApi(app: any) {
     const { token, type, loclat, loclong } = req.body;
 
     const ONE_HOUR_IN_MS = 60 * 60 * 1000;
-    const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000;
+    const TWELVE_HOURS_IN_MS = 12 * 60 * 60 * 1000;
+    
 
     try {
       // Verify the token and decode it
@@ -494,7 +495,7 @@ export function setupEntityApi(app: any) {
       // Define shield properties based on type
       const shieldProperties = {
         Shield: { radius: 10, duration: ONE_HOUR_IN_MS },
-        UltraShield: { radius: 20, duration: TWENTY_FOUR_HOURS_IN_MS },
+        UltraShield: { radius: 20, duration: TWELVE_HOURS_IN_MS },
       };
 
       if (!(type in shieldProperties)) {
@@ -527,7 +528,6 @@ export function setupEntityApi(app: any) {
 
   app.post("/api/lootpickup", async (req: Request, res: Response) => {
     const { token, lootid, amount } = req.body;
-
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
