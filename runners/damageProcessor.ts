@@ -19,7 +19,8 @@ export const processDamage = async () => {
         Locations: {
           updatedAt: { gte: oneWeekAgo }
         },
-        isAlive: true
+        isAlive: true,
+        locActive: true 
       },
       include: { Locations: true }
     });
