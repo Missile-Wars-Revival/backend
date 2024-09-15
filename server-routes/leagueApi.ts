@@ -281,7 +281,7 @@ export async function checkAndUpdateUserLeagues() {
   console.log("Starting hourly league update check...");
 
   const users = await prisma.gameplayUser.findMany({
-    include: { league: true }
+    include: { league: true, Statistics: true }
   });
 
   let updatedCount = 0;
@@ -313,11 +313,57 @@ export async function checkAndUpdateUserLeagues() {
 
         // Send notification
         await sendLeagueChangeNotification(user.username, oldLeague, newLeagueStr, isPromotion);
+
+        // Award badge for the new league
+        await awardLeagueBadge(user.id, newLeague.tier);
       }
     }
   }
 
   console.log(`Hourly league update completed. ${updatedCount} users were moved.`);
+}
+
+async function awardLeagueBadge(userId: number, tier: string) {
+  const badgeMap: { [key: string]: string } = {
+    'Bronze': 'BRONZE_LEAGUE',
+    'Silver': 'SILVER_LEAGUE',
+    'Gold': 'GOLD_LEAGUE',
+    'Diamond': 'DIAMOND_LEAGUE',
+    'Legend': 'LEGEND_LEAGUE',
+  };
+
+  const badge = badgeMap[tier];
+
+  if (!badge) {
+    console.error(`Invalid tier: ${tier}`);
+    return;
+  }
+
+  const user = await prisma.gameplayUser.findUnique({
+    where: { id: userId },
+    include: { Statistics: true }
+  });
+
+  if (!user || !user.Statistics || user.Statistics.length === 0) {
+    console.error(`User or statistics not found for userId: ${userId}`);
+    return;
+  }
+
+  const userStats = user.Statistics[0]; // Assuming there's only one Statistics entry per user
+
+  // Check if the badge already exists
+  if (!userStats.badges.includes(badge)) {
+    // Add the new badge to the array
+    const updatedBadges = [...userStats.badges, badge];
+
+    // Update the user's statistics with the new badge
+    await prisma.statistics.update({
+      where: { id: userStats.id },
+      data: { badges: updatedBadges }
+    });
+
+    console.log(`Awarded ${badge} badge to user ${user.username}`);
+  }
 }
 
 async function sendLeagueChangeNotification(username: string, oldLeague: string, newLeague: string, isPromotion: boolean) {
