@@ -453,8 +453,8 @@ export const checkAndCollectLoot = async () => {
       const LOOT_NEARBY_DISTANCE = 0.5; // 0.5 km = 500 meters
       let nearbyLootCount = 0;
       let collectedLoot = [];
+      let totalCoinsGained = 0; // Initialize to 0
       let totalRankPointsGained = 0;
-      let totalCoinsGained = 200; // Base amount of 200 coins every time
       let totalHealthGained = 0;
 
       for (const item of loot) {
@@ -468,8 +468,7 @@ export const checkAndCollectLoot = async () => {
           const randomLoot = getRandomLoot(item.rarity);
           if (randomLoot) {
             if (randomLoot.category === 'Currency' && randomLoot.name === 'Coins') {
-              // If the loot is Coins, add 1000 to totalCoinsGained
-              totalCoinsGained += 1000;
+              totalCoinsGained += 1000; // Add coins only when collected
             } else {
               // Check if the item already exists in the user's inventory
               const existingItem = await prisma.inventoryItem.findFirst({
@@ -503,6 +502,7 @@ export const checkAndCollectLoot = async () => {
             // Add rank points and health
             totalRankPointsGained += 50;
             totalHealthGained += 40;
+            totalCoinsGained += 200; 
           }
           try {
             await prisma.loot.delete({ where: { id: item.id } });
