@@ -7,9 +7,11 @@ import { v4 as uuidv4 } from 'uuid';
 const DAMAGE_INTERVAL = 30000; // 30 seconds in milliseconds
 const TWO_MINUTES = 2 * 60 * 1000; // 2 minutes in milliseconds
 const PROCESS_INTERVAL = 15000; // 15 seconds in milliseconds
+const FIVE_MINUTES = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 const processedMissiles = new Map<string, Map<string, number>>();
 const processedLandmines = new Map<string, Set<string>>();
+const lastDeathTime = new Map<string, number>();
 
 export const processDamage = async () => {
   try {
@@ -192,8 +194,15 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
         })
       ]);
 
+      // Check if the user is in the grace period
+      const lastDeath = lastDeathTime.get(user.username);
+      if (lastDeath && Date.now() - lastDeath < FIVE_MINUTES) {
+        console.log(`User ${user.username} is in grace period. Stopping damage application.`);
+        return;
+      }
+
       // Check if the user is not alive or protected by a shield, and if so, stop the damage application
-      if (!currentUser || !currentUser.isAlive || !currentUser.Locations) {
+      if (!currentUser || !currentUser.isAlive || !currentUser.Locations ||!currentUser.Locations) {
         console.log(`User ${user.username} is not alive or has no location. Stopping damage application.`);
         return;
       }
@@ -291,6 +300,9 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
           // Update death statistic
           await updateDeathStatistic(user.id, prisma);
+
+          // Set the last death time for the user
+          lastDeathTime.set(user.username, Date.now());
         } else if (updatedUser.isAlive && damageSource === 'missile') {
           // Send damage notification
           const damageMessage = `You have taken ${damage} damage from a ${receivedType} missile sent by ${attackerUsername}!`;
@@ -299,6 +311,8 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
           // Schedule next damage application after 30 seconds
           setTimeout(applyDamageRecursively, 30000);
         }
+      }, {
+        timeout: 10000 // 10 seconds
       });
     };
 
@@ -366,6 +380,13 @@ function cleanupProcessedEntities() {
   processedLandmines.forEach((landmines, username) => {
     if (landmines.size === 0) {
       processedLandmines.delete(username);
+    }
+  });
+
+  // Clean up lastDeathTime
+  lastDeathTime.forEach((timestamp, username) => {
+    if (timestamp < fiveMinutesAgo) {
+      lastDeathTime.delete(username);
     }
   });
 }

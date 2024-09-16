@@ -202,7 +202,7 @@ export function setupWebSocket(app: any) {
               { username: { not: { equals: currentUser.username } } }, // Exclude current user
               { username: { in: mutualFriendsUsernames } }, // Filter by mutual friends
               { locActive: true },
-              { isAlive: true } // Only include alive users
+              { isAlive: true } 
             ]
           };
         } else {
