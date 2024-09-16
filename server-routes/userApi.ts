@@ -291,30 +291,44 @@ export function setupUserApi(app: any) {
 
   app.post("/api/editUser", async (req: Request, res: Response) => {
     const { token, username, updates } = req.body;
-
+  
     if (!token || !username || !updates) {
       return res.status(400).json({ success: false, message: "Missing token, username or updates" });
     }
-
+  
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
-
+  
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token: username not found" });
       }
+  
+      // Separate updates for Users and GameplayUser
+      let userUpdates: any = {};
+      let gameplayUserUpdates: any = {};
 
-      let updatedData: any = { ...updates };
+      // Categorize updates
+      if (updates.email) userUpdates.email = updates.email;
+      if (updates.password) userUpdates.password = updates.password;
+      if (updates.username) userUpdates.username = updates.username;
+      if (updates.avatar) userUpdates.avatar = updates.avatar;
+
+      if (updates.money !== undefined) gameplayUserUpdates.money = updates.money;
+      if (updates.rankPoints !== undefined) gameplayUserUpdates.rankPoints = updates.rankPoints;
+      if (updates.health !== undefined) gameplayUserUpdates.health = updates.health;
+      if (updates.isAlive !== undefined) gameplayUserUpdates.isAlive = updates.isAlive;
+      if (updates.isLocationActive !== undefined) gameplayUserUpdates.locActive = updates.isLocationActive;
 
       // Handle password update
       if (updates.password) {
-        if (updates.password.length < 8 || !updates.password.match(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/)) {
+        if (updates.password.length < 8 || !updates.password.match(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&#]{8,}$/)) {
           return res.status(400).json({
             message: "New password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character",
           });
         }
-        updatedData.password = await argon2.hash(updates.password);
+        userUpdates.password = await argon2.hash(updates.password);
       }
-
+  
       // Handle username update
       if (updates.username) {
         if (updates.username.length < 3 || !updates.username.match(/^[a-zA-Z0-9]+$/)) {
@@ -324,10 +338,10 @@ export function setupUserApi(app: any) {
         }
         const existingUser = await prisma.users.findUnique({ where: { username: updates.username } });
         if (existingUser) {
-          return res.status(409).json({ message: "Username already exists" });
+          return res.status(409).json({ message: "Username already exists", field: "username" });
         }
       }
-
+  
       // Handle email update
       if (updates.email) {
         if (!updates.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
@@ -335,44 +349,86 @@ export function setupUserApi(app: any) {
         }
         const existingUser = await prisma.users.findFirst({ where: { email: updates.email } });
         if (existingUser) {
-          return res.status(409).json({ message: "Email already in use" });
+          return res.status(409).json({ message: "Email already in use", field: "email" });
         }
       }
-
-      const updatedUser = await prisma.users.update({
-        where: { username },
-        data: {
-          ...updatedData,
-          GameplayUser: {
-            update: {
-              ...(updates.money !== undefined && { money: updates.money }),
-              ...(updates.rankPoints !== undefined && { rankPoints: updates.rankPoints }),
-              ...(updates.health !== undefined && { health: updates.health }),
-              ...(updates.isAlive !== undefined && { isAlive: updates.isAlive }),
-            }
-          }
-        },
-        include: {
-          GameplayUser: true
-        }
-      });
-
-      if (!updatedUser) {
-        return res.status(404).json({ success: false, message: "User not found" });
-      }
-
-      // If username was updated, update it in the GameplayUser table as well
+  
+      // Update the Users and related tables
+      let updatedUser;
       if (updates.username) {
-        await prisma.gameplayUser.update({
-          where: { username },
-          data: { username: updates.username },
-        });
-      }
+        // If username is being updated, use a transaction
+        updatedUser = await prisma.$transaction(async (prisma) => {
+          // First, update the Users table
+          const updatedUserRecord = await prisma.users.update({
+            where: { username },
+            data: userUpdates,
+            include: { GameplayUser: true }
+          });
 
+          // Update GameplayUser if necessary
+          if (Object.keys(gameplayUserUpdates).length > 0) {
+            await prisma.gameplayUser.update({
+              where: { username },
+              data: gameplayUserUpdates,
+            });
+          }
+
+          // Update BattleSessions
+          await prisma.battleSessions.updateMany({
+            where: { attackerUsername: username },
+            data: { attackerUsername: updatedUserRecord.username },
+          });
+          
+          await prisma.battleSessions.updateMany({
+            where: { defenderUsername: username },
+            data: { defenderUsername: updatedUserRecord.username },
+          });
+
+          // Update friends arrays
+          await prisma.users.updateMany({
+            where: {
+              friends: {
+                has: username
+              }
+            },
+            data: {
+              friends: {
+                set: await prisma.users.findMany({
+                  where: { friends: { has: username } },
+                  select: { friends: true }
+                }).then(users => 
+                  users.flatMap(user => 
+                    user.friends.map(friend => 
+                      friend === username ? updatedUserRecord.username : friend
+                    )
+                  )
+                )
+              }
+            }
+          });
+
+          return updatedUserRecord;
+        });
+      } else {
+        // If username is not being updated, proceed as before
+        updatedUser = await prisma.users.update({
+          where: { username },
+          data: userUpdates,
+        });
+        
+        // Update GameplayUser if necessary
+        if (Object.keys(gameplayUserUpdates).length > 0) {
+          await prisma.gameplayUser.update({
+            where: { username },
+            data: gameplayUserUpdates,
+          });
+        }
+      }
+  
       res.status(200).json({ success: true, message: "User updated successfully", user: updatedUser });
     } catch (error) {
-      console.error("Failed to edit user:", error);
-      res.status(500).json({ success: false, message: "Failed to edit user" });
+      console.error("Failed to edit or delete user:", error);
+      res.status(500).json({ success: false, message: "Failed to edit or delete user" });
     }
   });
 }
