@@ -121,7 +121,8 @@ class BehaviorTree {
       nearbyLoot ? 1 : 0,
       nearbyMissiles.length,
       this.bot.health,
-      this.bot.rankpoints
+      this.bot.rankpoints,
+      Math.random() // Add a random factor to increase variability
     ];
   }
 
@@ -379,6 +380,19 @@ async collectLoot() {
 
   private async idle() {
     console.log(`${this.bot.username} is idling.`);
+    
+    // Add more varied idle behaviors
+    const idleAction = Math.random();
+    if (idleAction < 0.3) {
+      console.log(`${this.bot.username} is taking a short nap.`);
+      await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 10000));
+    } else if (idleAction < 0.6) {
+      console.log(`${this.bot.username} is observing the surroundings.`);
+      // Potentially update the bot's awareness of nearby entities
+    } else {
+      console.log(`${this.bot.username} is conserving energy.`);
+      // Potentially recover some health or resources
+    }
   }
 
   private async buyMissile() {
@@ -1329,29 +1343,42 @@ async function generateTrainingData(bot: AIBot): Promise<{ input: number[], outp
 }
 
 function calculateOutputProbabilities(bot: AIBot, nearbyPlayers: any[], nearbyLoot: any, nearbyMissiles: any[]): number[] {
-  let explore = 0.2;
-  let attack = 0.2;
-  let socialize = 0.2;
-  let collectLoot = 0.2;
-  let idle = 0.2;
+  let explore = 0.15;
+  let attack = 0.15;
+  let socialize = 0.15;
+  let collectLoot = 0.15;
+  let idle = 0.4; // Increase the base probability of idling
 
   // Adjust probabilities based on game state and bot personality
   if (nearbyPlayers.length > 0) {
-    attack += bot.personality.aggressiveness * 0.3;
-    socialize += bot.personality.sociability * 0.2;
+    attack += bot.personality.aggressiveness * 0.2;
+    socialize += bot.personality.sociability * 0.1;
   }
 
   if (nearbyLoot) {
-    collectLoot += bot.personality.curiosity * 0.3;
-    collectLoot += Math.max(0, (1000 - bot.money) / 1000) * 0.3;  // Increase probability when bot has less money
+    collectLoot += bot.personality.curiosity * 0.2;
+    collectLoot += Math.max(0, (1000 - bot.money) / 1000) * 0.2;
   }
 
   if (nearbyMissiles.length > 0) {
-    explore += bot.personality.riskTolerance * 0.2;
+    explore += bot.personality.riskTolerance * 0.1;
   }
 
   if (bot.health < 50) {
-    idle += 0.3;
+    idle += 0.2;
+  }
+
+  // Add more conditions to increase idling
+  if (bot.money > 5000) {
+    idle += 0.1; // More likely to idle when rich
+  }
+
+  if (bot.inventory['Missiles'] < 2) {
+    idle += 0.1; // More likely to idle when low on missiles
+  }
+
+  if (Math.random() < 0.3) {
+    idle += 0.2; // Random chance to increase idling
   }
 
   // Normalize probabilities
