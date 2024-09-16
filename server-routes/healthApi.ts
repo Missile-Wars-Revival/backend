@@ -144,62 +144,74 @@ export function setupHealthApi(app: any) {
     app.post("/api/removeHealth", async (req: Request, res: Response) => {
         const { token, amount } = req.body;
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-        if (!decoded) {
-            return res.status(401).json({ message: "Invalid token" });
-        }
+            if (typeof decoded === 'object' && 'username' in decoded) {
+                const username = decoded.username;
 
-        const user = await prisma.gameplayUser.findFirst({
-            where: {
-                username: (decoded as JwtPayload).username as string,
-            },
-        });
+                const user = await prisma.gameplayUser.findUnique({
+                    where: { username: username },
+                });
 
-        if (user) {
-            await prisma.gameplayUser.update({
-                where: {
-                    username: (decoded as JwtPayload).username as string,
-                },
-                data: {
-                    health: user.health - amount,
-                },
-            });
+                if (user) {
+                    const newHealth = Math.max(user.health - amount, 0);
+                    const newIsAlive = newHealth > 0;
 
-            res.status(200).json({ message: "Health removed" });
-        } else {
-            res.status(404).json({ message: "User not found" });
+                    await prisma.gameplayUser.update({
+                        where: { username: username },
+                        data: {
+                            health: newHealth,
+                            isAlive: newIsAlive,
+                        },
+                    });
+
+                    res.status(200).json({ message: "Health updated", health: newHealth, isAlive: newIsAlive });
+                } else {
+                    res.status(404).json({ message: "User not found" });
+                }
+            } else {
+                res.status(401).json({ message: "Invalid token" });
+            }
+        } catch (error) {
+            res.status(500).json({ message: "Error updating health" });
         }
     });
 
     app.post("/api/setHealth", async (req: Request, res: Response) => {
         const { token, newHealth } = req.body;
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
 
-        if (!decoded) {
-            return res.status(401).json({ message: "Invalid token" });
-        }
+            if (typeof decoded === 'object' && 'username' in decoded) {
+                const username = decoded.username;
 
-        const user = await prisma.gameplayUser.findFirst({
-            where: {
-                username: (decoded as JwtPayload).username as string,
-            },
-        });
+                const user = await prisma.gameplayUser.findUnique({
+                    where: { username: username },
+                });
 
-        if (user) {
-            await prisma.gameplayUser.update({
-                where: {
-                    username: (decoded as JwtPayload).username as string,
-                },
-                data: {
-                    health: newHealth,
-                },
-            });
+                if (user) {
+                    const clampedHealth = Math.max(0, Math.min(newHealth, 100));
+                    const newIsAlive = clampedHealth > 0;
 
-            res.status(200).json({ message: "Health set" });
-        } else {
-            res.status(404).json({ message: "User not found" });
+                    await prisma.gameplayUser.update({
+                        where: { username: username },
+                        data: {
+                            health: clampedHealth,
+                            isAlive: newIsAlive,
+                        },
+                    });
+
+                    res.status(200).json({ message: "Health set", health: clampedHealth, isAlive: newIsAlive });
+                } else {
+                    res.status(404).json({ message: "User not found" });
+                }
+            } else {
+                res.status(401).json({ message: "Invalid token" });
+            }
+        } catch (error) {
+            res.status(500).json({ message: "Error setting health" });
         }
     });
 }

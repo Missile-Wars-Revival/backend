@@ -178,19 +178,37 @@ interface GameplayUser {
 async function applyDamage(user: GameplayUser, damage: number, attackerUsername: string, damageSource: 'missile' | 'landmine', receivedType: string) {
   try {
     const applyDamageRecursively = async () => {
-      // Fetch the latest user data
-      const currentUser = await prisma.gameplayUser.findUnique({
-        where: { id: user.id },
-        include: { Locations: true }
-      });
+      // Fetch the latest user data and active shields
+      const [currentUser, activeShields] = await Promise.all([
+        prisma.gameplayUser.findUnique({
+          where: { id: user.id },
+          include: { Locations: true }
+        }),
+        prisma.other.findMany({
+          where: {
+            type: { in: ['Shield', 'UltraShield'] },
+            Expires: { gt: new Date() }
+          }
+        })
+      ]);
 
-      // Check if the user is not alive, and if so, stop the damage application
-      if (!currentUser || !currentUser.isAlive) {
-        console.log(`User ${user.username} is not alive. Stopping damage application.`);
+      // Check if the user is not alive or protected by a shield, and if so, stop the damage application
+      if (!currentUser || !currentUser.isAlive || !currentUser.Locations) {
+        console.log(`User ${user.username} is not alive or has no location. Stopping damage application.`);
         return;
       }
 
-      // Use a transaction to ensure atomicity
+      const userCoords = { 
+        latitude: parseFloat(currentUser.Locations.latitude), 
+        longitude: parseFloat(currentUser.Locations.longitude) 
+      };
+
+      if (isUserProtectedByShield(userCoords, activeShields)) {
+        console.log(`User ${user.username} is protected by a shield. Stopping damage application.`);
+        return;
+      }
+
+      // Continue with the existing damage application logic
       await prisma.$transaction(async (prisma) => {
         const updatedUser = await prisma.gameplayUser.update({
           where: { id: user.id },
