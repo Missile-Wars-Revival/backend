@@ -270,49 +270,31 @@ export function setupAuthRoutes(app: any) {
             if (typeof decoded === 'string' || !decoded.username) {
                 return res.status(401).json({ message: "Invalid token" });
             }
-            
-            // ... existing validation code ...
-    
-            await prisma.$transaction(async (prisma) => {
-                // Update the Users table
-                await prisma.users.update({
-                    where: { username: decoded.username },
-                    data: { username: newUsername },
+            const user = await prisma.users.findUnique({ where: { username: decoded.username } });
+            if (!user) {
+                return res.status(404).json({ message: "User not found" });
+            }
+
+            if (newUsername.length < 3 || !newUsername.match(/^[a-zA-Z0-9]+$/)) {
+                return res.status(400).json({
+                    message: "New username must be at least 3 characters long and contain only letters and numbers",
                 });
-    
-                // Update BattleSessions
-                await prisma.battleSessions.updateMany({
-                    where: { attackerUsername: decoded.username },
-                    data: { attackerUsername: newUsername },
-                });
-                
-                await prisma.battleSessions.updateMany({
-                    where: { defenderUsername: decoded.username },
-                    data: { defenderUsername: newUsername },
-                });
-    
-                // Update friends arrays
-                await prisma.users.updateMany({
-                    where: {
-                        friends: {
-                            has: decoded.username
-                        }
-                    },
-                    data: {
-                        friends: {
-                            set: await prisma.users.findMany({
-                                where: { friends: { has: decoded.username } },
-                                select: { friends: true }
-                            }).then(users => 
-                                users.flatMap(user => 
-                                    user.friends.map(friend => 
-                                        friend === decoded.username ? newUsername : friend
-                                    )
-                                )
-                            )
-                        }
-                    }
-                });
+            }
+
+            const existingUser = await prisma.users.findUnique({ where: { username: newUsername } });
+            if (existingUser) {
+                return res.status(409).json({ message: "Username already exists" });
+            }
+
+            await prisma.users.update({
+                where: { username: decoded.username },
+                data: { username: newUsername },
+            });
+
+            // Update the username in the gameplayUser table
+            await prisma.gameplayUser.update({
+                where: { username: decoded.username },
+                data: { username: newUsername },
             });
 
             // Generate a new token with the updated username
@@ -321,17 +303,12 @@ export function setupAuthRoutes(app: any) {
                 process.env.JWT_SECRET || ""
             );
 
-            // Return the new token to the user
             res.status(200).json({ 
                 message: "Username changed successfully",
-                token: newToken  // New token included in the response
+                token: newToken 
             });
         } catch (error) {
             console.error("Username change failed:", error);
-            if (error instanceof Error) {
-                console.error("Error message:", error.message);
-                console.error("Error stack:", error.stack);
-            }
             res.status(500).json({ message: "Failed to change username" });
         }
     });
