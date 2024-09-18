@@ -280,12 +280,6 @@ export function setupAuthRoutes(app: any) {
                     data: { username: newUsername },
                 });
     
-                // Update the gameplayUser table
-                await prisma.gameplayUser.update({
-                    where: { username: decoded.username },
-                    data: { username: newUsername },
-                });
-    
                 // Update BattleSessions
                 await prisma.battleSessions.updateMany({
                     where: { attackerUsername: decoded.username },
@@ -334,6 +328,10 @@ export function setupAuthRoutes(app: any) {
             });
         } catch (error) {
             console.error("Username change failed:", error);
+            if (error instanceof Error) {
+                console.error("Error message:", error.message);
+                console.error("Error stack:", error.stack);
+            }
             res.status(500).json({ message: "Failed to change username" });
         }
     });
