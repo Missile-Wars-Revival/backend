@@ -44,129 +44,115 @@ const HOLDING_PATTERN_DISTANCE = 1; // km from target to start holding pattern
 const HOLDING_PATTERN_RADIUS = 0.5; // km radius of the holding pattern circle
 
 export const updateMissilePositions = async () => {
-  const batchSize = 100; // Adjust based on your system's capacity
-  let processedCount = 0;
-  let updatedCount = 0;
-
   try {
     const currentTime = new Date();
+    const missiles = await prisma.missile.findMany({
+      where: { status: 'Incoming' },
+    });
 
-    while (true) {
-      const missiles = await prisma.missile.findMany({
-        where: { status: 'Incoming' },
-        take: batchSize,
-        skip: processedCount,
-      });
+    for (const missile of missiles) {
+      const timeToImpact = new Date(missile.timeToImpact);
+      const remainingTime = timeToImpact.getTime() - currentTime.getTime();
 
-      if (missiles.length === 0) break;
-
-      const updates = missiles.map(async (missile) => {
-        const timeToImpact = new Date(missile.timeToImpact);
-        const remainingTime = timeToImpact.getTime() - currentTime.getTime();
-
-        if (remainingTime <= 0) {
-          updatedCount++;
-          return prisma.missile.update({
-            where: { id: missile.id },
-            data: { 
-              currentLat: missile.destLat,
-              currentLong: missile.destLong,
-              status: 'Hit' 
-            }
-          });
-        }
-
-        const startLong = parseFloat(missile.currentLong);
-        const startLat = parseFloat(missile.currentLat);
-        const endLong = parseFloat(missile.destLong);
-        const endLat = parseFloat(missile.destLat);
-
-        const start = turf.point([startLong, startLat]);
-        const end = turf.point([endLong, endLat]);
-        const totalDistance = turf.distance(start, end, {units: 'kilometers'});
-
-        const totalTravelTime = timeToImpact.getTime() - new Date(missile.sentAt).getTime();
-        const elapsedTime = currentTime.getTime() - new Date(missile.sentAt).getTime();
-        const fractionCompleted = Math.min(elapsedTime / totalTravelTime, 1);
-
-        let newPosition;
-
-        if (fractionCompleted >= 1) {
-          newPosition = end;
-        } else {
-          const line = turf.lineString([start.geometry.coordinates, end.geometry.coordinates]);
-          const distanceToTravel = totalDistance * fractionCompleted;
-          newPosition = turf.along(line, distanceToTravel, {units: 'kilometers'});
-
-          const distanceToTarget = turf.distance(newPosition, end, {units: 'kilometers'});
-          
-          if (distanceToTarget <= HOLDING_PATTERN_DISTANCE && remainingTime > 0) {
-            const holdingCenter = turf.destination(end, HOLDING_PATTERN_DISTANCE, 0, {units: 'kilometers'});
-            const angleInPattern = (currentTime.getTime() % 10000) / 10000 * 360;
-            newPosition = turf.destination(holdingCenter, HOLDING_PATTERN_RADIUS, angleInPattern, {units: 'kilometers'});
+      if (remainingTime <= 0) {
+        await prisma.missile.update({
+          where: { id: missile.id },
+          data: { 
+            currentLat: missile.destLat,
+            currentLong: missile.destLong,
+            status: 'Hit' 
           }
-        }
-
-        const newLat = newPosition.geometry.coordinates[1].toString();
-        const newLong = newPosition.geometry.coordinates[0].toString();
-
-        // Only update if the position has changed significantly
-        if (newLat !== missile.currentLat || newLong !== missile.currentLong) {
-          updatedCount++;
-          return prisma.missile.update({
-            where: { id: missile.id },
-            data: { 
-              currentLat: newLat,
-              currentLong: newLong,
-              status: fractionCompleted >= 1 ? 'Hit' : 'Incoming'
-            }
-          });
-        }
-        return null;
-      });
-
-      await Promise.all(updates.filter(Boolean));
-      processedCount += missiles.length;
+        });
+      } else {
+        // Calculate new position
+        const newPosition = calculateNewPosition({
+          ...missile,
+          timeToImpact: missile.timeToImpact.toISOString(),
+          sentAt: missile.sentAt.toISOString()
+        }, currentTime);
+        
+        await prisma.missile.update({
+          where: { id: missile.id },
+          data: { 
+            currentLat: newPosition.lat,
+            currentLong: newPosition.long,
+            status: 'Incoming'
+          }
+        });
+      }
     }
 
-    console.log(`Processed ${processedCount} missiles, updated ${updatedCount}`);
+    console.log(`Updated ${missiles.length} missiles`);
 
     // Cleanup expired missiles
-    const cleanupResult = await prisma.$transaction(async (prisma) => {
-      const missiles = await prisma.missile.findMany({
-        where: {
-          status: 'Hit',
-        },
-      });
-
-      const deletedMissiles = await Promise.all(
-        missiles.map(async (missile) => {
-          const missileType = await prisma.missileType.findUnique({
-            where: { name: missile.type },
-          });
-
-          if (missileType) {
-            const falloutTimeMs = missileType.fallout * 60 * 1000; // Convert fallout time from minutes to milliseconds
-            const deleteTime = new Date(missile.timeToImpact.getTime() + falloutTimeMs);
-
-            if (currentTime > deleteTime) {
-              return prisma.missile.delete({
-                where: { id: missile.id },
-              });
-            }
-          }
-          return null;
-        })
-      );
-
-      return deletedMissiles.filter(Boolean);
+    const expiredMissiles = await prisma.missile.findMany({
+      where: {
+        status: 'Hit',
+        timeToImpact: {
+          lt: new Date(currentTime.getTime() - 30 * 60 * 1000) // 30 minutes ago
+        }
+      },
     });
-    console.log(`Cleaned up ${cleanupResult.length} expired missiles`);
+
+    for (const missile of expiredMissiles) {
+      await prisma.missile.delete({
+        where: { id: missile.id },
+      });
+    }
+
+    console.log(`Cleaned up ${expiredMissiles.length} expired missiles`);
 
   } catch (error) {
     console.error('Failed to update missile positions:', error);
   }
 };
+
+// Helper function to calculate new position (implement this based on your logic)
+function calculateNewPosition(missile: {
+  currentLong: string;
+  currentLat: string;
+  destLong: string;
+  destLat: string;
+  timeToImpact: string;
+  sentAt: string;
+}, currentTime: Date) {
+  const startLong = parseFloat(missile.currentLong);
+  const startLat = parseFloat(missile.currentLat);
+  const endLong = parseFloat(missile.destLong);
+  const endLat = parseFloat(missile.destLat);
+
+  const start = turf.point([startLong, startLat]);
+  const end = turf.point([endLong, endLat]);
+  const totalDistance = turf.distance(start, end, {units: 'kilometers'});
+
+  const timeToImpact = new Date(missile.timeToImpact);
+  const totalTravelTime = timeToImpact.getTime() - new Date(missile.sentAt).getTime();
+  const elapsedTime = currentTime.getTime() - new Date(missile.sentAt).getTime();
+  const fractionCompleted = Math.min(elapsedTime / totalTravelTime, 1);
+
+  let newPosition;
+
+  if (fractionCompleted >= 1) {
+    newPosition = end;
+  } else {
+    const line = turf.lineString([start.geometry.coordinates, end.geometry.coordinates]);
+    const distanceToTravel = totalDistance * fractionCompleted;
+    newPosition = turf.along(line, distanceToTravel, {units: 'kilometers'});
+
+    const distanceToTarget = turf.distance(newPosition, end, {units: 'kilometers'});
+    
+    if (distanceToTarget <= HOLDING_PATTERN_DISTANCE && (timeToImpact.getTime() - currentTime.getTime()) > 0) {
+      const holdingCenter = turf.destination(end, HOLDING_PATTERN_DISTANCE, 0, {units: 'kilometers'});
+      const angleInPattern = (currentTime.getTime() % 10000) / 10000 * 360;
+      newPosition = turf.destination(holdingCenter, HOLDING_PATTERN_RADIUS, angleInPattern, {units: 'kilometers'});
+    }
+  }
+
+  return {
+    lat: newPosition.geometry.coordinates[1].toString(),
+    long: newPosition.geometry.coordinates[0].toString()
+  };
+}
 
 // Delete items:
 export const deleteExpiredMissiles = async () => {

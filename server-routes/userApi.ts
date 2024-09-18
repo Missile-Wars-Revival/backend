@@ -355,6 +355,7 @@ export function setupUserApi(app: any) {
   
       // Update the Users and related tables
       let updatedUser;
+      let newToken;
       if (updates.username) {
         // If username is being updated, use a transaction
         updatedUser = await prisma.$transaction(async (prisma) => {
@@ -407,6 +408,12 @@ export function setupUserApi(app: any) {
             }
           });
 
+          // Generate a new token with the updated username
+          newToken = jwt.sign(
+            { username: updatedUserRecord.username, password: decoded.password },
+            process.env.JWT_SECRET || ""
+          );
+
           return updatedUserRecord;
         });
       } else {
@@ -425,7 +432,14 @@ export function setupUserApi(app: any) {
         }
       }
   
-      res.status(200).json({ success: true, message: "User updated successfully", user: updatedUser });
+      const response: any = { success: true, message: "User updated successfully", user: updatedUser };
+      
+      // Include the new token in the response if the username was changed
+      if (newToken) {
+        response.token = newToken;
+      }
+
+      res.status(200).json(response);
     } catch (error) {
       console.error("Failed to edit or delete user:", error);
       res.status(500).json({ success: false, message: "Failed to edit or delete user" });

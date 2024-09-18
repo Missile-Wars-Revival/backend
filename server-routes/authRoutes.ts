@@ -266,38 +266,72 @@ export function setupAuthRoutes(app: any) {
         }
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string, password: string };
             if (typeof decoded === 'string' || !decoded.username) {
                 return res.status(401).json({ message: "Invalid token" });
             }
-            const user = await prisma.users.findUnique({ where: { username: decoded.username } });
-            if (!user) {
-                return res.status(404).json({ message: "User not found" });
-            }
-
-            if (newUsername.length < 3 || !newUsername.match(/^[a-zA-Z0-9]+$/)) {
-                return res.status(400).json({
-                    message: "New username must be at least 3 characters long and contain only letters and numbers",
+            
+            // ... existing validation code ...
+    
+            await prisma.$transaction(async (prisma) => {
+                // Update the Users table
+                await prisma.users.update({
+                    where: { username: decoded.username },
+                    data: { username: newUsername },
                 });
-            }
-
-            const existingUser = await prisma.users.findUnique({ where: { username: newUsername } });
-            if (existingUser) {
-                return res.status(409).json({ message: "Username already exists" });
-            }
-
-            await prisma.users.update({
-                where: { username: decoded.username },
-                data: { username: newUsername },
+    
+                // Update the gameplayUser table
+                await prisma.gameplayUser.update({
+                    where: { username: decoded.username },
+                    data: { username: newUsername },
+                });
+    
+                // Update BattleSessions
+                await prisma.battleSessions.updateMany({
+                    where: { attackerUsername: decoded.username },
+                    data: { attackerUsername: newUsername },
+                });
+                
+                await prisma.battleSessions.updateMany({
+                    where: { defenderUsername: decoded.username },
+                    data: { defenderUsername: newUsername },
+                });
+    
+                // Update friends arrays
+                await prisma.users.updateMany({
+                    where: {
+                        friends: {
+                            has: decoded.username
+                        }
+                    },
+                    data: {
+                        friends: {
+                            set: await prisma.users.findMany({
+                                where: { friends: { has: decoded.username } },
+                                select: { friends: true }
+                            }).then(users => 
+                                users.flatMap(user => 
+                                    user.friends.map(friend => 
+                                        friend === decoded.username ? newUsername : friend
+                                    )
+                                )
+                            )
+                        }
+                    }
+                });
             });
 
-            // Update the username in the gameplayUser table as well
-            await prisma.gameplayUser.update({
-                where: { username: decoded.username },
-                data: { username: newUsername },
-            });
+            // Generate a new token with the updated username
+            const newToken = jwt.sign(
+                { username: newUsername, password: decoded.password },
+                process.env.JWT_SECRET || ""
+            );
 
-            res.status(200).json({ message: "Username changed successfully" });
+            // Return the new token to the user
+            res.status(200).json({ 
+                message: "Username changed successfully",
+                token: newToken  // New token included in the response
+            });
         } catch (error) {
             console.error("Username change failed:", error);
             res.status(500).json({ message: "Failed to change username" });
