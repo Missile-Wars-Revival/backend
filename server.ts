@@ -82,7 +82,7 @@ leagueRunner();
 startDamageProcessing();
 
 //Bots:
-manageAIBots();
+//manageAIBots();
 
 //deleteAllBots();
 
