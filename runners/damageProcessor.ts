@@ -217,6 +217,35 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
         return;
       }
 
+      // Move these queries outside the transaction
+      let rewardAmount = 0;
+      let rankPointsReward = 0;
+
+      if (damageSource === 'landmine') {
+        const landmineType = await prisma.landmineType.findUnique({
+          where: { name: receivedType },
+        });
+        if (landmineType) {
+          rewardAmount = Math.round(landmineType.price * 1.5);
+          rankPointsReward = 30; // Base rank points for landmine kill
+        }
+      } else if (damageSource === 'missile') {
+        const missileType = await prisma.missileType.findUnique({
+          where: { name: receivedType },
+        });
+        if (missileType) {
+          rewardAmount = Math.round(missileType.price * 1.1);
+          rankPointsReward = 20; // Base rank points for missile kill
+        }
+      }
+
+      // Add bonus rank points based on item price, but cap it
+      const bonusPoints = Math.min(Math.round(rewardAmount / 100), 20);
+      rankPointsReward += bonusPoints;
+
+      // Cap total rank points reward
+      rankPointsReward = Math.min(rankPointsReward, 67);
+
       // Continue with the existing damage application logic
       await prisma.$transaction(async (prisma) => {
         const updatedUser = await prisma.gameplayUser.update({
@@ -245,39 +274,11 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
           console.log(`User ${user.username} eliminated. Lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`);
 
-          let rewardAmount = 0;
-          let rankPointsReward = 0;
-
-          if (damageSource === 'landmine') {
-            const landmineType = await prisma.landmineType.findUnique({
-              where: { name: receivedType },
-            });
-            if (landmineType) {
-              rewardAmount = Math.round(landmineType.price * 1.5);
-              rankPointsReward = 30; // Base rank points for landmine kill
-            }
-          } else if (damageSource === 'missile') {
-            const missileType = await prisma.missileType.findUnique({
-              where: { name: receivedType },
-            });
-            if (missileType) {
-              rewardAmount = Math.round(missileType.price * 1.1);
-              rankPointsReward = 20; // Base rank points for missile kill
-            }
-          }
-
-          // Add bonus rank points based on item price, but cap it
-          const bonusPoints = Math.min(Math.round(rewardAmount / 100), 20);
-          rankPointsReward += bonusPoints;
-
-          // Cap total rank points reward
-          rankPointsReward = Math.min(rankPointsReward, 67);
-
-          // Update attacker's money and rank points
+          // Use the pre-calculated rewardAmount and rankPointsReward here
           const updatedAttacker = await prisma.gameplayUser.update({
             where: { username: attackerUsername },
             data: {
-              money: { increment: rewardAmount + moneyLoss }, // Attacker gets the reward plus the money taken from the eliminated user
+              money: { increment: rewardAmount + moneyLoss },
               rankPoints: { increment: rankPointsReward },
             },
           });
