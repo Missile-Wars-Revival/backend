@@ -130,8 +130,19 @@ async function handleLandmineDamage(user: any, landmine: any) {
     await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type);
     // Delete the landmine after damage is applied (this will happen after the 30-second delay)
     setTimeout(async () => {
-      await prisma.landmine.delete({ where: { id: landmine.id } });
-      processedLandmines.get(user.username)!.delete(landmine.id);
+      try {
+        // Check if the landmine still exists before attempting to delete
+        const existingLandmine = await prisma.landmine.findUnique({
+          where: { id: landmine.id }
+        });
+        if (existingLandmine) {
+          await prisma.landmine.delete({ where: { id: landmine.id } });
+        }
+      } catch (error) {
+        console.error(`Failed to delete landmine ${landmine.id}:`, error);
+      } finally {
+        processedLandmines.get(user.username)!.delete(landmine.id);
+      }
     }, 30000);
   }
 }
