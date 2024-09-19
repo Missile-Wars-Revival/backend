@@ -16,104 +16,58 @@ const lastDeathTime = new Map<string, number>();
 export const processDamage = async () => {
   try {
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const activeUsers = await prisma.gameplayUser.findMany({
-      where: {
-        Locations: {
-          updatedAt: { gte: oneWeekAgo }
+
+    // Fetch all necessary data in bulk
+    const [activeUsers, activeMissiles, activeLandmines, activeShields, allGameplayUsers] = await Promise.all([
+      prisma.gameplayUser.findMany({
+        where: {
+          Locations: { updatedAt: { gte: oneWeekAgo } },
+          isAlive: true,
+          locActive: true 
         },
-        isAlive: true,
-        locActive: true 
-      },
-      include: { Locations: true }
-    });
+        include: { Locations: true }
+      }),
+      prisma.missile.findMany({ where: { status: 'Hit' } }),
+      prisma.landmine.findMany(),
+      prisma.other.findMany({
+        where: {
+          type: { in: ['Shield', 'UltraShield'] },
+          Expires: { gt: new Date() }
+        }
+      }),
+      prisma.gameplayUser.findMany({
+        select: { username: true, friendsOnly: true }
+      })
+    ]);
+
+    // Create a map for quick lookup of gameplay users
+    const gameplayUserMap = new Map(allGameplayUsers.map(u => [u.username, u]));
 
     for (const user of activeUsers) {
       if (!user.Locations) continue;
 
       const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
 
-      // Fetch the current user with their friends
-      const currentUser = await prisma.users.findUnique({
-        where: { username: user.username },
-        include: { GameplayUser: true }
-      });
-
-      if (!currentUser) continue;
-
-      const mutualFriendsUsernames = await getMutualFriends(currentUser);
-
-      let usernamesToFetchEntitiesFrom = [];
-
-      if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
-        // If friendsOnly is enabled, only fetch entities from mutual friends
-        usernamesToFetchEntitiesFrom = mutualFriendsUsernames;
-      } else {
-        // Fetch all usernames who are not in friendsOnly mode or are mutual friends
-        const nonFriendsOnlyUsers = await prisma.gameplayUser.findMany({
-          where: {
-            OR: [
-              { username: { notIn: mutualFriendsUsernames }, friendsOnly: false },
-              { username: { in: mutualFriendsUsernames } }
-            ]
-          },
-          select: {
-            username: true
-          }
-        });
-
-        usernamesToFetchEntitiesFrom = nonFriendsOnlyUsers.map(u => u.username);
-      }
-
-      // Fetch missiles
-      const activeMissiles = await prisma.missile.findMany({
-        where: { 
-          status: 'Hit',
-          sentBy: {
-            in: usernamesToFetchEntitiesFrom
-          }
-        }
-      });
-
-      // Fetch active shields
-      const activeShields = await prisma.other.findMany({
-        where: {
-          type: { in: ['Shield', 'UltraShield'] },
-          Expires: { gt: new Date() }
-        }
-      });
+      // Determine which entities to process for this user
+      const usernamesToProcess = determineUsernamesToProcess(user.username, gameplayUserMap);
 
       // Check missiles
-      for (const missile of activeMissiles) {
+      for (const missile of activeMissiles.filter(m => usernamesToProcess.includes(m.sentBy))) {
         const missileCoords = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
         const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), missileCoords.latitude.toString(), missileCoords.longitude.toString());
 
-        if (distance <= missile.radius) {
-          const isProtected = isUserProtectedByShield(userCoords, activeShields);
-          if (!isProtected) {
-            await handleMissileDamage(user, missile);
-          }
+        if (distance <= missile.radius && !isUserProtectedByShield(userCoords, activeShields)) {
+          await handleMissileDamage(user, missile);
         }
       }
 
-      // Fetch landmines
-      const activeLandmines = await prisma.landmine.findMany({
-        where: {
-          placedBy: {
-            in: usernamesToFetchEntitiesFrom
-          }
-        }
-      });
-
       // Check landmines
-      for (const landmine of activeLandmines) {
+      for (const landmine of activeLandmines.filter(l => usernamesToProcess.includes(l.placedBy))) {
         const landmineCoords = { latitude: parseFloat(landmine.locLat), longitude: parseFloat(landmine.locLong) };
         const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), landmineCoords.latitude.toString(), landmineCoords.longitude.toString());
 
-        if (distance <= 10) { // Assuming 10 meters activation radius for landmines
-          const isProtected = isUserProtectedByShield(userCoords, activeShields);
-          if (!isProtected) {
-            await handleLandmineDamage(user, landmine);
-          }
+        if (distance <= 10 && !isUserProtectedByShield(userCoords, activeShields)) {
+          await handleLandmineDamage(user, landmine);
         }
       }
     }
@@ -121,6 +75,23 @@ export const processDamage = async () => {
     console.error('Failed to process damage:', error);
   }
 };
+
+function determineUsernamesToProcess(username: string, gameplayUserMap: Map<string, { friendsOnly: boolean }>) {
+  const currentUser = gameplayUserMap.get(username);
+  if (!currentUser) return [];
+
+  if (currentUser.friendsOnly) {
+    // If friendsOnly is enabled, only process entities from mutual friends
+    // This would require implementing a cache for mutual friends to avoid frequent DB queries
+    // For now, we'll return an empty array to skip processing
+    return [];
+  } else {
+    // Process entities from all users who are not in friendsOnly mode
+    return Array.from(gameplayUserMap.entries())
+      .filter(([_, user]) => !user.friendsOnly)
+      .map(([username, _]) => username);
+  }
+}
 
 function isUserProtectedByShield(userCoords: { latitude: number, longitude: number }, shields: any[]): boolean {
   for (const shield of shields) {

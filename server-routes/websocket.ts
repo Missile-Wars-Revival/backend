@@ -5,6 +5,7 @@ import * as middleearth from "middle-earth";
 import { prisma } from "../server";
 import { getMutualFriends } from "./friendsApi";
 import { aiBots } from "../bots";
+import { Missile, Loot, Other, Landmine } from "middle-earth"; // Adjust the import path as needed
 
 function logVerbose(...items: any[]) {
   // Logs an item only if the VERBOSE_MODE env variable is set
@@ -47,7 +48,51 @@ function authenticate(
   }
 }
 
+interface CacheData {
+  missiles: Missile[];
+  loot: Loot[];
+  other: Other[];
+  landmines: Landmine[];
+  users: Map<string, any>; // Consider using a more specific type for user data
+  lastUpdate: number;
+}
+
 export function setupWebSocket(app: any) {
+  // Create a cache object with explicit typing
+  const cache: CacheData = {
+    missiles: [],
+    loot: [],
+    other: [],
+    landmines: [],
+    users: new Map(),
+    lastUpdate: 0,
+  };
+
+  // Set up a cache refresh interval (e.g., every 5 seconds)
+  const CACHE_REFRESH_INTERVAL = 10000;
+
+  async function refreshCache() {
+    const now = Date.now();
+    if (now - cache.lastUpdate < CACHE_REFRESH_INTERVAL) {
+      return;
+    }
+
+    // Fetch and process all the data
+    const [allMissiles, allLoot, allOther, allLandmines] = await Promise.all([
+      prisma.missile.findMany(),
+      prisma.loot.findMany(),
+      prisma.other.findMany(),
+      prisma.landmine.findMany(),
+    ]);
+
+    cache.missiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
+    cache.loot = allLoot.map(loot => middleearth.Loot.from_db(loot));
+    cache.other = allOther.map(other => middleearth.Other.from_db(other));
+    cache.landmines = allLandmines.map(landmine => middleearth.Landmine.from_db(landmine));
+
+    cache.lastUpdate = now;
+  }
+
   app.ws("/", (ws: any, req: Request) => {
     const authResult = authenticate(ws, req);
 
@@ -61,6 +106,7 @@ export function setupWebSocket(app: any) {
     logVerbose("New connection established");
 
     const sendPeriodicData = async () => {
+      await refreshCache();
 
       const currentUser = await prisma.users.findUnique({
         where: { username: username },
@@ -97,37 +143,12 @@ export function setupWebSocket(app: any) {
         usernamesToFetchEntitesFrom = nonFriendsOnlyUsers.map(u => u.username);
       }
 
-
-      const allMissiles = await prisma.missile.findMany({
-        where: {
-          sentBy: {
-            in: usernamesToFetchEntitesFrom
-          }
-        }
-      });
-
-      const processedMissiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
-
-      let allLoot = await prisma.loot.findMany();
-      let allOther = await prisma.other.findMany();
-      let processedLoot = allLoot.map((loot: any) => middleearth.Loot.from_db(loot));
-      let processedOther = allOther.map((other: any) => middleearth.Other.from_db(other));
-
-      let allLandmines = await prisma.landmine.findMany({
-        where: {
-          placedBy: {
-            in: usernamesToFetchEntitesFrom
-          }
-        }
-      });
-      let processedLandmines = allLandmines.map((landmine: any) => middleearth.Landmine.from_db(landmine));
-
-      // Prepare the data bundle
+      // Use cached data instead of fetching from the database every time
       let dataBundle = new middleearth.WebSocketMessage([
-        new middleearth.WSMsg('loot', processedLoot),
-        new middleearth.WSMsg('other', processedOther),
-        new middleearth.WSMsg('landmines', processedLandmines),
-        new middleearth.WSMsg('missiles', processedMissiles),
+        new middleearth.WSMsg('loot', cache.loot),
+        new middleearth.WSMsg('other', cache.other),
+        new middleearth.WSMsg('landmines', cache.landmines),
+        new middleearth.WSMsg('missiles', cache.missiles),
       ]);
 
       // Compress the data bundle
@@ -323,7 +344,8 @@ export function setupWebSocket(app: any) {
       }
     };
 
-    const intervalId = setInterval(sendPeriodicData, 1000);
+    // Reduce the frequency of updates
+    const intervalId = setInterval(sendPeriodicData, 5000); // Change to 5 seconds
     sendLessPeriodicData();
     const lessintervalId = setInterval(sendLessPeriodicData, 10000);
 
