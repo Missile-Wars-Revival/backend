@@ -68,15 +68,6 @@ class BehaviorTree {
     // }
   }
 
-  private async performAdditionalAction() {
-    const action = Math.random();
-    if (action < 0.5) {
-      await this.collectLoot();
-    } else {
-      await this.attack();
-    }
-  }
-
   private async updateBotMoney() {
     const updatedBot = await prisma.gameplayUser.findUnique({
       where: { username: this.bot.username },
@@ -634,8 +625,8 @@ const config = {
     { latitude: 43.6532, longitude: -79.3832, name: "Toronto" },
     { latitude: 59.9139, longitude: 10.7522, name: "Oslo" },
   ],
-  movementStepSize: 0.0002,
-  movementSpeed: 5,
+  movementStepSize: 0.0001,
+  movementSpeed: 3,
   missileCooldownPeriod: 4 * 60 * 60 * 1000,
   maxRetries: 3,
   retryDelay: 1000,
