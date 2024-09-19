@@ -66,19 +66,19 @@ setInterval(deleteExpiredOther, 30000);
 setInterval(updateMissilePositions, 30000);
 
 //player notificaitons
-//setInterval(checkPlayerProximity, 15000);
+setInterval(checkPlayerProximity, 15000);
 //player loot
 setInterval(checkAndCollectLoot, 15000);
 
 //manages notifications
-// startNotificationManager();
+startNotificationManager();
 
 // //manages leagues
 setInterval(leagueRunner, 60 * 60 * 1000);
 leagueRunner();
 
 //manage damage:
-// startDamageProcessing();
+startDamageProcessing();
 
 //Bots:
 //manageAIBots();
