@@ -8,7 +8,7 @@ datasource db {
 }
 
 model FriendRequests {
-  id             Int           @id @default(sequence(maxValue: 2147483647))
+  id             Int           @id @default(autoincrement())
   username       String        @default("")
   friend         String        @default("")
   gameplayUserId Int?
@@ -19,30 +19,30 @@ model FriendRequests {
 }
 
 model GameplayUser {
-  id                                                           Int              @id @default(sequence(maxValue: 2147483647))
-  username                                                     String           @unique @default("")
-  level                                                        Int              @default(1)
-  exp                                                          Int              @default(0)
-  money                                                        Int              @default(2000)
-  health                                                       Int              @default(100)
-  friendsOnly                                                  Boolean          @default(false)
-  rank                                                         String           @default("Private")
-  rankPoints                                                   Int              @default(0)
-  createdAt                                                    DateTime         @default(now())
-  updatedAt                                                    DateTime         @default(now())
-  deletedAt                                                    DateTime         @default(now())
-  isAlive                                                      Boolean          @default(true)
-  leagueId                                                     String?
-  locActive                                                    Boolean          @default(true)
+  id             Int           @id @default(autoincrement())
+  username       String        @unique @default("")
+  level          Int              @default(1)
+  exp            Int              @default(0)
+  money          Int              @default(2000)
+  health         Int              @default(100)
+  friendsOnly    Boolean          @default(false)
+  rank           String           @default("Private")
+  rankPoints     Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @default(now())
+  deletedAt      DateTime         @default(now())
+  isAlive        Boolean          @default(true)
+  leagueId       String?
+  locActive      Boolean          @default(true)
   BattleSessions_BattleSessions_attackerUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_attackerUsernameToGameplayUser")
   BattleSessions_BattleSessions_defenderUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_defenderUsernameToGameplayUser")
   BattleSessions_BattleSessions_gameplayUserIdToGameplayUser   BattleSessions[] @relation("BattleSessions_gameplayUserIdToGameplayUser")
-  FriendRequests                                               FriendRequests[]
-  league                                                       League?          @relation(fields: [leagueId], references: [id])
-  Users                                                        Users            @relation(fields: [username], references: [username])
-  InventoryItem                                                InventoryItem[]
-  Locations                                                    Locations?
-  Statistics                                                   Statistics[]
+  FriendRequests  FriendRequests[]
+  league          League?          @relation(fields: [leagueId], references: [id])
+  Users           Users            @relation(fields: [username], references: [username])
+  InventoryItem  InventoryItem[]
+  Locations      Locations?
+  Statistics     Statistics[]
 }
 
 model InventoryItem {
@@ -67,7 +67,7 @@ model Statistics {
 }
 
 model Landmine {
-  id         Int      @id @default(sequence(maxValue: 2147483647))
+  id         Int      @id @default(autoincrement())
   placedBy   String
   locLat     String   @default("")
   locLong    String   @default("")
@@ -99,7 +99,7 @@ model Locations {
 }
 
 model Loot {
-  id      Int      @id @default(sequence(maxValue: 2147483647))
+  id      Int      @id @default(autoincrement())
   rarity  String
   Expires DateTime
   locLat  String   @default("")
@@ -107,7 +107,7 @@ model Loot {
 }
 
 model Other {
-  id      Int      @id @default(sequence(maxValue: 2147483647))
+  id      Int      @id @default(autoincrement())
   type    String
   radius  Int
   Expires DateTime
@@ -116,7 +116,7 @@ model Other {
 }
 
 model Messages {
-  id        Int    @id @default(sequence(maxValue: 2147483647))
+  id        Int    @id @default(autoincrement())
   sender    String @default("")
   receiver  String @default("")
   content   String @default("")
@@ -126,7 +126,7 @@ model Messages {
 }
 
 model Missile {
-  id           Int      @id @default(sequence(maxValue: 2147483647))
+  id           Int      @id @default(autoincrement())
   destLat      String   @default("")
   destLong     String   @default("")
   damage       Int      @default(1)
@@ -151,7 +151,7 @@ model MissileType {
 }
 
 model RefreshTokens {
-  id           Int    @id @default(sequence(maxValue: 2147483647))
+  id           Int    @id @default(autoincrement())
   refreshToken String @default("")
 }
 
@@ -163,7 +163,7 @@ model Sessions {
 }
 
 model Users {
-  id                Int             @id @default(sequence(maxValue: 2147483647))
+  id                Int             @id @default(autoincrement())
   email             String          @default("")
   password          String          @default("")
   username          String          @unique @default("")
