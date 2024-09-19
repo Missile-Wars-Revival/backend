@@ -445,4 +445,56 @@ export function setupUserApi(app: any) {
       res.status(500).json({ success: false, message: "Failed to edit or delete user" });
     }
   });
+
+  app.post("/api/deleteUser", async (req: Request, res: Response) => {
+    const { token, username } = req.body;
+
+    if (!token || !username) {
+      return res.status(400).json({ success: false, message: "Missing token or username" });
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
+
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token: username not found" });
+      }
+
+      // Check if the user exists
+      const user = await prisma.users.findUnique({
+        where: { username },
+        include: { GameplayUser: true }
+      });
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Delete related records in the correct order
+      await prisma.$transaction(async (prisma) => {
+        // Delete related records in other tables
+        await prisma.friendRequests.deleteMany({ where: { username } });
+        await prisma.friendRequests.deleteMany({ where: { friend: username } });
+        await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
+        await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
+        await prisma.inventoryItem.deleteMany({ where: { userId: user.GameplayUser?.id } });
+        await prisma.statistics.deleteMany({ where: { userId: user.GameplayUser?.id } });
+        await prisma.locations.deleteMany({ where: { username } });
+        await prisma.notifications.deleteMany({ where: { userId: username } });
+
+        // Delete the GameplayUser record
+        if (user.GameplayUser) {
+          await prisma.gameplayUser.delete({ where: { id: user.GameplayUser.id } });
+        }
+
+        // Finally, delete the user record
+        await prisma.users.delete({ where: { username } });
+      });
+
+      res.status(200).json({ success: true, message: "User deleted successfully" });
+    } catch (error) {
+      console.error("Failed to delete user:", error);
+      res.status(500).json({ success: false, message: "Failed to delete user" });
+    }
+  });
 }
