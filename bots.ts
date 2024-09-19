@@ -377,95 +377,11 @@ async collectLoot() {
   return;
 }
 
-  private async idle() {
-    console.log(`${this.bot.username} is idling.`);
-  }
-
-  private async buyMissile() {
-    await this.updateBotMoney();
-    await this.updateBotInventory();
-
-    try {
-      const missileTypes = await prisma.missileType.findMany();
-
-      if (missileTypes.length === 0) {
-        console.log(`${this.bot.username} couldn't find any missile types in the database`);
-        return;
-      }
-
-      const scoredMissiles = missileTypes.map(missile => ({
-        ...missile,
-        score: this.calculateMissileScore(missile)
-      }));
-
-      scoredMissiles.sort((a, b) => b.score - a.score);
-
-      const affordableMissile = scoredMissiles.find(missile => this.bot.money >= missile.price && this.bot.money - missile.price >= 100);
-
-      if (affordableMissile) {
-        await prisma.$transaction(async (prisma) => {
-          // First, ensure the bot has a GameplayUser entry
-          const gameplayUser = await prisma.gameplayUser.upsert({
-            where: { username: this.bot.username },
-            update: { money: { decrement: affordableMissile.price } },
-            create: {
-              username: this.bot.username,
-              money: this.bot.money - affordableMissile.price,
-            }
-          });
-
-          const existingItem = await prisma.inventoryItem.findFirst({
-            where: {
-              GameplayUser: { username: this.bot.username },
-              name: affordableMissile.name,
-              category: 'Missiles'
-            }
-          });
-
-          if (existingItem) {
-            await prisma.inventoryItem.update({
-              where: { id: existingItem.id },
-              data: { quantity: { increment: 1 } }
-            });
-          } else {
-            await prisma.inventoryItem.create({
-              data: {
-                name: affordableMissile.name,
-                quantity: 1,
-                category: 'Missiles',
-                GameplayUser: { connect: { username: this.bot.username } }
-              }
-            });
-          }
-        });
-
-        await this.updateBotMoney();
-        await this.updateBotInventory();
-        console.log(`${this.bot.username} bought a ${affordableMissile.name} missile. Money: ${this.bot.money}, Missiles: ${this.bot.inventory[affordableMissile.name]}`);
-      } else {
-        console.log(`${this.bot.username} couldn't afford any missiles or would have too little money left. Money: ${this.bot.money}`);
-        console.log(`${this.bot.username} is going to look for loot instead.`);
-        await this.collectLoot();
-      }
-    } catch (error) {
-      console.error(`Error while ${this.bot.username} was trying to buy a missile:`, error);
-    }
-  }
-
-  private async handleLowFunds() {
-    console.log(`${this.bot.username} is low on funds. Choosing a new action.`);
-    const action = Math.random();
-    if (action < 0.6) {
-      console.log(`${this.bot.username} is going to collect loot.`);
-      await this.collectLoot();
-    } else if (action < 0.8) {
-      console.log(`${this.bot.username} is going to explore for opportunities.`);
-      await this.explore();
-    } else {
-      console.log(`${this.bot.username} is going to socialize.`);
-      await this.socialize();
-    }
-  }
+private async idle() {
+  const idleDuration = Math.floor(Math.random() * 10 * 60 * 1000) + 5 * 60 * 1000; // 5-15 minutes
+  console.log(`${this.bot.username} is idling for ${idleDuration / 1000} seconds.`);
+  await new Promise(resolve => setTimeout(resolve, idleDuration));
+}
 
   private async checkForIncomingMissiles() {
     const radiusInDegrees = 800 / 111000;
@@ -1329,11 +1245,11 @@ async function generateTrainingData(bot: AIBot): Promise<{ input: number[], outp
 }
 
 function calculateOutputProbabilities(bot: AIBot, nearbyPlayers: any[], nearbyLoot: any, nearbyMissiles: any[]): number[] {
-  let explore = 0.2;
-  let attack = 0.2;
-  let socialize = 0.2;
+  let explore = 0.15;
+  let attack = 0.25;
+  let socialize = 0.25;
   let collectLoot = 0.2;
-  let idle = 0.2;
+  let idle = 0.4;
 
   // Adjust probabilities based on game state and bot personality
   if (nearbyPlayers.length > 0) {
