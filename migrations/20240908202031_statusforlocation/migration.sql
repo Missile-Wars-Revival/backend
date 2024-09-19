@@ -1,4 +1,0 @@
--- AlterTable
-ALTER TABLE "Locations" ADD COLUMN     "lastUpdated" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE "Locations" ADD COLUMN     "previousLat" STRING NOT NULL DEFAULT '';
-ALTER TABLE "Locations" ADD COLUMN     "previousLong" STRING NOT NULL DEFAULT '';
