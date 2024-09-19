@@ -228,7 +228,7 @@ export function setupAuthRoutes(app: any) {
         }
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string, password: string };
             if (typeof decoded === 'string' || !decoded.username) {
                 return res.status(401).json({ message: "Invalid token" });
             }
@@ -250,12 +250,20 @@ export function setupAuthRoutes(app: any) {
                 data: { password: hashedNewPassword },
             });
 
-            res.status(200).json({ message: "Password changed successfully" });
+            // Generate a new token with the updated password
+            const newToken = jwt.sign(
+                { username: decoded.username, password: hashedNewPassword },
+                process.env.JWT_SECRET || ""
+            );
+
+            res.status(200).json({ 
+                message: "Password changed successfully",
+                token: newToken
+            });
         } catch (error) {
             console.error("Password change failed:", error);
             res.status(500).json({ message: "Failed to change password" });
         }
-        
     });
 
     app.post("/api/changeUsername", async (req: Request, res: Response) => {
