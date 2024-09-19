@@ -15,10 +15,10 @@ async function main() {
         try {
           // @ts-ignore
           await prisma[modelName].createMany({
-            data: records,
+            data: records as any[],
             skipDuplicates: true,
           });
-          console.log(`Successfully imported ${length} records for ${model}`);
+          console.log(`Successfully imported ${(records as any[]).length} records for ${model}`);
         } catch (error) {
           console.error(`Error importing ${model}:`, error);
         }
