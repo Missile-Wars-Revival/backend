@@ -6,7 +6,6 @@ import swaggerJSDoc from "swagger-jsdoc";
 import expressWs from "express-ws";
 import * as jwt from "jsonwebtoken";
 import { JwtPayload } from "jsonwebtoken";
-import { Expo } from 'expo-server-sdk';
 import { AuthWithLocation, AuthWithLocationSchema } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates, checkPlayerProximity, deleteExpiredOther, checkAndCollectLoot } from "./runners/entitymanagment";
 import { startNotificationManager } from "./runners/notificationhelper";
@@ -24,7 +23,7 @@ import { setupHealthApi } from "./server-routes/healthApi";
 import { setupInventoryApi } from "./server-routes/inventoryApi";
 import { setupLeagueApi } from "./server-routes/leagueApi";
 import { leagueRunner } from "./runners/leaguemanagment";
-import { processDamage, startDamageProcessing } from "./runners/damageProcessor";
+import { startDamageProcessing } from "./runners/damageProcessor";
 
 export const prisma = new PrismaClient();
 

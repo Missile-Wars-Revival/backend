@@ -1,5 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-import * as fs from 'fs';
+const { PrismaClient } = require('@prisma/client');
+const fs = require('fs');
 
 const prisma = new PrismaClient();
 
@@ -15,7 +15,7 @@ async function main() {
         try {
           // @ts-ignore
           await prisma[modelName].createMany({
-            data: records as any[],
+            data: records,
             skipDuplicates: true,
           });
           console.log(`Successfully imported ${(records as any[]).length} records for ${model}`);
@@ -32,8 +32,5 @@ async function main() {
 }
 
 main()
-  .catch(e => console.error('Unhandled error:', e))
-  .finally(async () => {
-    await prisma.$disconnect();
-    console.log('Import process completed.');
-  });
+  .catch(e => console.error(e))
+  .finally(async () => await prisma.$disconnect());
