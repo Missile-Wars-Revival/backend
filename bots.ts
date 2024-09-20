@@ -39,6 +39,7 @@ interface AIBot {
   lastSocializationAttempt: Date | null;
   socializationCooldown: number;
   isIdling: boolean;
+  lastEvadeAttempt: Date;
 }
 
 class BehaviorTree {
@@ -463,9 +464,11 @@ async collectLoot() {
   }
 
   const moneyGained = this.bot.money - initialMoney;
-  console.log(`${this.bot.username} gained ${moneyGained} from loot collection attempt`);
-  const reward = moneyGained / 1000;  // Normalize the reward
-  await this.bot.neuralNetwork.trainOnLootCollection(initialInput, reward);
+  if (moneyGained > 0) {
+    console.log(`${this.bot.username} gained ${moneyGained} from loot collection attempt`);
+    const reward = moneyGained / 1000;  // Normalize the reward
+    await this.bot.neuralNetwork.trainOnLootCollection(initialInput, reward);
+  }
 
   // Simply return without calling any other method
   return;
@@ -485,6 +488,10 @@ private async idle() {
 }
 
   private async checkForIncomingMissiles() {
+    const now = new Date();
+    if (now.getTime() - this.bot.lastEvadeAttempt.getTime() < 60000) { // 1 minute cooldown
+      return;
+    }
     const radiusInDegrees = 800 / 111000;
 
     const incomingMissiles = await prisma.missile.findMany({
@@ -521,6 +528,12 @@ private async idle() {
   }
 
   private async evadeMissile(missile: any) {
+    const currentTime = new Date().getTime();
+    if (currentTime - this.bot.lastEvadeAttempt.getTime() < 60000) { // 1 minute cooldown
+      console.log(`${this.bot.username} is on evade cooldown. Skipping evade action.`);
+      return;
+    }
+
     const evasionChance = this.bot.personality.tacticalAwareness * 0.7;
     const timeToImpact = new Date(missile.timeToImpact).getTime() - Date.now();
     const minimumEvadeTime = 5 * 60 * 1000;
@@ -553,9 +566,11 @@ private async idle() {
 
       await this.moveToPosition(safePosition);
 
-      console.log(`${this.bot.username} has evaded to ${safePosition.latitude}, ${safePosition.longitude}`);
+      console.log(`${this.bot.username} has successfully evaded to ${safePosition.latitude}, ${safePosition.longitude}`);
+      this.bot.lastEvadeAttempt = new Date();
     } else {
       console.log(`${this.bot.username} failed to evade the incoming missile!`);
+      this.bot.lastEvadeAttempt = new Date();
     }
   }
 
@@ -869,6 +884,7 @@ async function createBot() {
     lastSocializationAttempt: null,
     socializationCooldown: 60000, // Initial cooldown of 1 minute
     isIdling: false,
+    lastEvadeAttempt: new Date(0),
   };
 
   for (let attempt = 0; attempt < config.maxRetries; attempt++) {
@@ -1204,6 +1220,7 @@ async function loadExistingBots() {
         lastSocializationAttempt: null,
         socializationCooldown: 60000, // Initial cooldown of 1 minute
         isIdling: false,
+        lastEvadeAttempt: new Date(0),
       };
       bot.behaviorTree = new BehaviorTree(bot);
       aiBots.push(bot);
