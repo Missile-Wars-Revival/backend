@@ -106,8 +106,11 @@ startDamageProcessing();
 // // deleteAllBots();
 
 //Firebase Messages
-setupMessageListener();
-
+if (serviceAccount) {
+  setupMessageListener();
+} else {
+  console.warn("Skipping message listener setup due to missing Firebase credentials");
+}
 
 // api routes
 setupAccessoryApi(app);
