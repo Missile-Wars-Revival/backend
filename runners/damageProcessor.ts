@@ -4,8 +4,7 @@ import { sendNotification } from "./notificationhelper";
 import { getMutualFriends } from "../server-routes/friendsApi";
 import { v4 as uuidv4 } from 'uuid';
 
-const DAMAGE_INTERVAL = 30000; // 30 seconds in milliseconds
-const TWO_MINUTES = 2 * 60 * 1000; // 2 minutes in milliseconds
+
 const PROCESS_INTERVAL = 15000; // 15 seconds in milliseconds
 const FIVE_MINUTES = 5 * 60 * 1000; // 5 minutes in milliseconds
 
@@ -49,7 +48,7 @@ export const processDamage = async () => {
       const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
 
       // Determine which entities to process for this user
-      const usernamesToProcess = determineUsernamesToProcess(user.username, gameplayUserMap);
+      const usernamesToProcess = await determineUsernamesToProcess(user.username, gameplayUserMap);
 
       // Check missiles
       for (const missile of activeMissiles.filter(m => usernamesToProcess.includes(m.sentBy))) {
@@ -76,15 +75,18 @@ export const processDamage = async () => {
   }
 };
 
-function determineUsernamesToProcess(username: string, gameplayUserMap: Map<string, { friendsOnly: boolean }>) {
+async function determineUsernamesToProcess(username: string, gameplayUserMap: Map<string, { friendsOnly: boolean }>) {
   const currentUser = gameplayUserMap.get(username);
   if (!currentUser) return [];
 
   if (currentUser.friendsOnly) {
-    // If friendsOnly is enabled, only process entities from mutual friends
-    // This would require implementing a cache for mutual friends to avoid frequent DB queries
-    // For now, we'll return an empty array to skip processing
-    return [];
+    try {
+      const mutualFriends = await getMutualFriends({ friends: [], username: username });
+      return mutualFriends.map(friend => friend.username);
+    } catch (error) {
+      console.error(`Error getting mutual friends for ${username}:`, error);
+      return [];
+    }
   } else {
     // Process entities from all users who are not in friendsOnly mode
     return Array.from(gameplayUserMap.entries())
@@ -92,6 +94,32 @@ function determineUsernamesToProcess(username: string, gameplayUserMap: Map<stri
       .map(([username, _]) => username);
   }
 }
+
+// async function determineUsernamesToProcess(username: string, gameplayUserMap: Map<string, { friendsOnly: boolean, league?: { tier: string, division: number } }>) {
+//   const currentUser = gameplayUserMap.get(username);
+//   if (!currentUser) return [];
+
+//   if (currentUser.friendsOnly) {
+//     try {
+//       const mutualFriends = await getMutualFriends({ friends: [], username: username });
+//       return mutualFriends.map(friend => friend.username);
+//     } catch (error) {
+//       console.error(`Error getting mutual friends for ${username}:`, error);
+//       return [];
+//     }
+//   } else {
+//     // Process entities from users in the same league and division who are not in friendsOnly mode
+//     return Array.from(gameplayUserMap.entries())
+//       .filter(([_, user]) => 
+//         !user.friendsOnly && 
+//         user.league && 
+//         currentUser.league &&
+//         user.league.tier === currentUser.league.tier &&
+//         user.league.division === currentUser.league.division
+//       )
+//       .map(([username, _]) => username);
+//   }
+// }
 
 function isUserProtectedByShield(userCoords: { latitude: number, longitude: number }, shields: any[]): boolean {
   for (const shield of shields) {
