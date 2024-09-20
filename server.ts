@@ -32,7 +32,7 @@ export const prisma = new PrismaClient();
 const wsServer = expressWs(express());
 const app = wsServer.app;
 
-var serviceAccount = require("./firebaseCred");
+var serviceAccount = require("./firebasecred.json");
 //init firebase
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
