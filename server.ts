@@ -32,12 +32,23 @@ export const prisma = new PrismaClient();
 const wsServer = expressWs(express());
 const app = wsServer.app;
 
-var serviceAccount = require("./firebasecred.json");
-//init firebase
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://missile-wars-revival-10-default-rtdb.firebaseio.com"
-});
+let serviceAccount;
+try {
+  serviceAccount = require("./firebasecred.json");
+} catch (error) {
+  console.error("Failed to load Firebase credentials:", error);
+  serviceAccount = null;
+}
+
+// Initialize Firebase only if credentials are available
+if (serviceAccount) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: "https://missile-wars-revival-10-default-rtdb.firebaseio.com"
+  });
+} else {
+  console.warn("Firebase initialization skipped due to missing credentials");
+}
 
 app.use(bodyParser.json());
 
