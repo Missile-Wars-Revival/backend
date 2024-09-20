@@ -34,7 +34,7 @@ const app = wsServer.app;
 
 let serviceAccount;
 try {
-  serviceAccount = require("./firebasecred.json");
+  serviceAccount = require("./firebasecredentials.json");
 } catch (error) {
   console.error("Failed to load Firebase credentials:", error);
   serviceAccount = null;
