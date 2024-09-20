@@ -28,6 +28,7 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    "firebasecred.json"
   ],
   "exclude": [
     "node_modules"
