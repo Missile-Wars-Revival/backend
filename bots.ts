@@ -34,6 +34,11 @@ interface AIBot {
   rankpoints: number;
   respawning?: boolean;
   respawn: () => Promise<void>;
+  lastAttackAttempt: Date;
+  attackCooldown: number;
+  lastSocializationAttempt: Date | null;
+  socializationCooldown: number;
+  isIdling: boolean;
 }
 
 class BehaviorTree {
@@ -54,18 +59,31 @@ class BehaviorTree {
     
     const action = tf.argMax(prediction as tf.Tensor, 1).dataSync()[0];
 
+    const currentTime = new Date();
+    if (currentTime.getTime() - this.bot.lastAttackAttempt.getTime() < this.bot.attackCooldown) {
+      console.log(`${this.bot.username} is on attack cooldown. Skipping attack action.`);
+      return;
+    }
+
+    // Add a cooldown for socialization
+    if (this.bot.lastSocializationAttempt && currentTime.getTime() - this.bot.lastSocializationAttempt.getTime() < this.bot.socializationCooldown) {
+      console.log(`${this.bot.username} is on socialization cooldown. Skipping socialize action.`);
+      return;
+    }
+
     switch(action) {
       case 0: await this.explore(); break;
-      case 1: await this.attack(); break;
-      case 2: await this.socialize(); break;
+      case 1: 
+        this.bot.lastAttackAttempt = currentTime;
+        await this.attack(); 
+        break;
+      case 2: 
+        this.bot.lastSocializationAttempt = currentTime;
+        await this.socialize(); 
+        break;
       case 3: await this.collectLoot(); break;
       case 4: await this.idle(); break;
     }
-
-    // Remove the chance to perform an additional action
-    // if (Math.random() < 0.3) {  // 30% chance
-    //   await this.performAdditionalAction();
-    // }
   }
 
   private async updateBotMoney() {
@@ -132,21 +150,15 @@ class BehaviorTree {
   private async attack() {
     console.log(`[ATTACK] ${this.bot.username} is attempting to attack.`);
 
-    await this.updateBotInventory();
-    await this.updateBotMoney();
-
-    console.log(`[ATTACK] ${this.bot.username}'s current money: ${this.bot.money}`);
-    console.log(`[ATTACK] ${this.bot.username}'s current inventory:`, this.bot.inventory);
-
     const currentTime = new Date().getTime();
     if (this.bot.lastMissileFiredAt && currentTime - this.bot.lastMissileFiredAt.getTime() < config.missileCooldownPeriod) {
       console.log(`[ATTACK] ${this.bot.username} is still on cooldown for firing missiles.`);
-      return; // Exit the method early
+      return;
     }
 
     if (this.bot.missilesFiredToday >= config.maxMissilesPerDay) {
       console.log(`[ATTACK] ${this.bot.username} has reached the daily missile firing limit.`);
-      return; // Exit the method early
+      return;
     }
 
     const target = await this.selectTarget();
@@ -157,10 +169,14 @@ class BehaviorTree {
     }
     console.log(`[ATTACK] ${this.bot.username} selected ${target.username} as the target.`);
 
-    const missile = await this.selectMissile();
+    let missile = await this.selectMissile();
     if (!missile) {
-      console.log(`[ATTACK] ${this.bot.username} couldn't select a missile to fire.`);
-      return;
+      console.log(`[ATTACK] ${this.bot.username} doesn't have any missiles. Attempting to buy one.`);
+      missile = await this.buyMissile();
+      if (!missile) {
+        console.log(`[ATTACK] ${this.bot.username} couldn't buy a missile. Aborting attack.`);
+        return;
+      }
     }
 
     console.log(`[ATTACK] ${this.bot.username} selected ${missile.name} missile.`);
@@ -170,11 +186,89 @@ class BehaviorTree {
 
     try {
       await fireMissileAtPlayer(this.bot, target, missile);
-      this.bot.lastMissileFiredAt = new Date(currentTime);
+      this.bot.lastMissileFiredAt = new Date();
       this.bot.missilesFiredToday++;
+      this.bot.attackCooldown = Math.max(config.missileCooldownPeriod, 60000); // At least 1 minute cooldown
+      
+      // Decrease the missile count in the inventory
+      this.bot.inventory[missile.name]--;
+      
+      // Update the inventory in the database
+      await prisma.inventoryItem.updateMany({
+        where: { 
+          GameplayUser: { username: this.bot.username },
+          name: missile.name
+        },
+        data: { quantity: { decrement: 1 } }
+      });
+
       console.log(`[ATTACK] ${this.bot.username} successfully fired a missile at ${target.username}.`);
     } catch (error) {
       console.error(`[ATTACK] Error firing missile for ${this.bot.username}:`, error);
+    }
+  }
+
+  private async buyMissile(): Promise<MissileType | null> {
+    const cheapestMissile = await prisma.missileType.findFirst({
+      orderBy: { price: 'asc' },
+    });
+
+    if (!cheapestMissile || this.bot.money < cheapestMissile.price) {
+      console.log(`[BUY] ${this.bot.username} doesn't have enough money to buy a missile.`);
+      return null;
+    }
+
+    try {
+      await prisma.$transaction(async (prisma) => {
+        // Fetch the bot's GameplayUser record to ensure we have the correct id
+        const gameplayUser = await prisma.gameplayUser.findUnique({
+          where: { username: this.bot.username },
+        });
+
+        if (!gameplayUser) {
+          throw new Error(`GameplayUser not found for bot ${this.bot.username}`);
+        }
+
+        // Deduct money from bot
+        await prisma.gameplayUser.update({
+          where: { id: gameplayUser.id },
+          data: { money: { decrement: cheapestMissile.price } },
+        });
+
+        // Add missile to bot's inventory
+        const existingItem = await prisma.inventoryItem.findFirst({
+          where: {
+            userId: gameplayUser.id,
+            name: cheapestMissile.name,
+          },
+        });
+
+        if (existingItem) {
+          await prisma.inventoryItem.update({
+            where: { id: existingItem.id },
+            data: { quantity: { increment: 1 } },
+          });
+        } else {
+          await prisma.inventoryItem.create({
+            data: {
+              userId: gameplayUser.id,
+              name: cheapestMissile.name,
+              quantity: 1,
+              category: "Missile",
+            },
+          });
+        }
+
+        // Update bot's local state
+        this.bot.money -= cheapestMissile.price;
+        this.bot.inventory[cheapestMissile.name] = (this.bot.inventory[cheapestMissile.name] || 0) + 1;
+      });
+
+      console.log(`[BUY] ${this.bot.username} successfully bought a ${cheapestMissile.name} missile.`);
+      return cheapestMissile;
+    } catch (error) {
+      console.error(`[BUY] Error buying missile for ${this.bot.username}:`, error);
+      return null;
     }
   }
 
@@ -251,21 +345,23 @@ class BehaviorTree {
         return null;
       }
 
-      const scoredMissiles = missileTypes.map(missile => ({
+      const availableMissiles = missileTypes.filter(missile => 
+        this.bot.inventory[missile.name] && this.bot.inventory[missile.name] > 0
+      );
+
+      if (availableMissiles.length === 0) {
+        console.log(`${this.bot.username} has no missiles in inventory`);
+        return null;
+      }
+
+      const scoredMissiles = availableMissiles.map(missile => ({
         ...missile,
         score: this.calculateMissileScore(missile)
       }));
 
       scoredMissiles.sort((a, b) => b.score - a.score);
 
-      for (const missile of scoredMissiles) {
-        if (this.bot.inventory[missile.name] && this.bot.inventory[missile.name] > 0) {
-          return missile;
-        }
-      }
-
-      console.log(`${this.bot.username} has no missiles in inventory`);
-      return null;
+      return scoredMissiles[0];
     } catch (error) {
       console.error(`Error selecting missile for ${this.bot.username}:`, error);
       return null;
@@ -292,8 +388,15 @@ class BehaviorTree {
     if (nearbyPlayers.length > 0) {
       const player = sample(nearbyPlayers);
       if (player) {
-        console.log(`${this.bot.username} is socializing with ${player.username}.`);
-        await sendNotification(player.username, "Friendly Bot", `${this.bot.username} waves hello!`, this.bot.username);
+        // Add a random chance to actually socialize
+        if (Math.random() < 0.3) { // 30% chance to socialize
+          console.log(`${this.bot.username} is socializing with ${player.username}.`);
+          await sendNotification(player.username, "Friendly Bot", `${this.bot.username} waves hello!`, this.bot.username);
+          // Set a cooldown for the next socialization attempt
+          this.bot.socializationCooldown = 15 * 60 * 1000; // 15 minutes cooldown
+        } else {
+          console.log(`${this.bot.username} decided not to socialize this time.`);
+        }
       } else {
         console.log(`${this.bot.username} couldn't find anyone to socialize with.`);
       }
@@ -371,7 +474,14 @@ async collectLoot() {
 private async idle() {
   const idleDuration = Math.floor(Math.random() * 10 * 60 * 1000) + 5 * 60 * 1000; // 5-15 minutes
   console.log(`${this.bot.username} is idling for ${idleDuration / 1000} seconds.`);
-  await new Promise(resolve => setTimeout(resolve, idleDuration));
+  
+  // Set a flag to indicate the bot is idling
+  this.bot.isIdling = true;
+  
+  await new Promise(resolve => setTimeout(() => {
+    this.bot.isIdling = false;
+    resolve(null);
+  }, idleDuration));
 }
 
   private async checkForIncomingMissiles() {
@@ -737,7 +847,7 @@ async function createBot() {
   const neuralNetwork = new NeuralNetwork();
   await neuralNetwork.loadModel(username);
   const bot: AIBot = {
-    id: 0, // Temporary placeholder
+    id: 0, // We'll update this after creation
     username,
     latitude,
     longitude,
@@ -753,34 +863,58 @@ async function createBot() {
     health: 100,
     isAlive: true,
     rankpoints: 0,
-    respawn: async () => await respawnBot(bot)
+    respawn: async () => await respawnBot(bot),
+    lastAttackAttempt: new Date(0),
+    attackCooldown: 60000,
+    lastSocializationAttempt: null,
+    socializationCooldown: 60000, // Initial cooldown of 1 minute
+    isIdling: false,
   };
-  bot.behaviorTree = new BehaviorTree(bot); // Now we can pass the full bot object
 
   for (let attempt = 0; attempt < config.maxRetries; attempt++) {
     try {
-      await prisma.$transaction(async (prisma) => {
-        const createdBot = await prisma.users.create({
+      const createdBot = await prisma.$transaction(async (prisma) => {
+        const createdUser = await prisma.users.create({
           data: {
+            email: `${username}@bot.com`,
+            password: "botpassword", // Consider using a secure password generation method
             username: bot.username,
             role: "bot",
+            avatar: "", // Set a default avatar if needed
             GameplayUser: {
               create: {
+                money: bot.money,
+                health: bot.health,
+                isAlive: bot.isAlive,
+                rankPoints: bot.rankpoints,
                 Locations: {
                   create: {
                     latitude: bot.latitude.toString(),
                     longitude: bot.longitude.toString(),
                     updatedAt: bot.lastUpdate,
+                    lastUpdated: bot.lastUpdate,
                   },
                 },
               },
             },
           },
+          include: {
+            GameplayUser: {
+              include: {
+                Locations: true,
+              },
+            },
+          },
         });
-        bot.id = createdBot.id; // Update the bot's ID with the one from the database
+
+        return createdUser;
       });
+
+      bot.id = createdBot.id;
+      bot.behaviorTree = new BehaviorTree(bot);
       aiBots.push(bot);
-      return; // Success, exit the function
+      console.log(`Successfully created bot: ${bot.username}`);
+      return;
     } catch (error) {
       console.error(`Attempt ${attempt + 1} failed to create bot ${username}:`, error);
       if (attempt === config.maxRetries - 1) {
@@ -926,21 +1060,22 @@ async function updateBotPosition(bot: AIBot, target: { latitude: number; longitu
 
   const newPosition = calculateNewPosition(bot, target);
 
-  bot.latitude = newPosition.latitude;
-  bot.longitude = newPosition.longitude;
-  bot.lastUpdate = new Date();
+  // Check if the bot has actually moved
+  if (newPosition.latitude !== bot.latitude || newPosition.longitude !== bot.longitude) {
+    bot.latitude = newPosition.latitude;
+    bot.longitude = newPosition.longitude;
+    bot.lastUpdate = new Date();
 
-  await prisma.locations.update({
-    where: { username: bot.username },
-    data: {
-      latitude: bot.latitude.toString(),
-      longitude: bot.longitude.toString(),
-      updatedAt: bot.lastUpdate,
-    },
-  });
+    await prisma.locations.update({
+      where: { username: bot.username },
+      data: {
+        latitude: bot.latitude.toString(),
+        longitude: bot.longitude.toString(),
+        updatedAt: bot.lastUpdate,
+      },
+    });
 
-  // Only execute behavior tree if the bot has moved
-  if (newPosition.latitude !== target.latitude || newPosition.longitude !== target.longitude) {
+    // Execute behavior tree only if the bot has moved
     await bot.behaviorTree.execute();
   }
 }
@@ -989,10 +1124,11 @@ async function updateSingleBot(bot: AIBot, maxRetries: number, baseDelay: number
         return;
       }
 
-      if (bot.isOnline) {
+      if (bot.isOnline && !bot.isIdling) {
         const target = getRandomLandCoordinates(); // Or any other way you determine the bot's target
         await updateBotPosition(bot, target);
-        await bot.behaviorTree.execute(); // Execute behavior tree regardless of movement
+      } else if (bot.isOnline && bot.isIdling) {
+        console.log(`${bot.username} is idling. Skipping position update.`);
       }
 
       await prisma.locations.upsert({
@@ -1062,7 +1198,12 @@ async function loadExistingBots() {
         health: botData.GameplayUser.health,
         isAlive: botData.GameplayUser.isAlive,
         rankpoints: botData.GameplayUser.rankPoints,
-        respawn: async () => await respawnBot(bot)
+        respawn: async () => await respawnBot(bot),
+        lastAttackAttempt: new Date(0), // Set to a past date
+        attackCooldown: 60000, // Initial cooldown of 1 minute
+        lastSocializationAttempt: null,
+        socializationCooldown: 60000, // Initial cooldown of 1 minute
+        isIdling: false,
       };
       bot.behaviorTree = new BehaviorTree(bot);
       aiBots.push(bot);
@@ -1161,8 +1302,10 @@ async function manageAIBots() {
     if (now.getHours() === 0 && now.getMinutes() === 0) {
       aiBots.forEach(bot => {
         bot.missilesFiredToday = 0;
+        bot.lastMissileFiredAt = null; // Reset the last missile fired time
+        bot.attackCooldown = 60000; // Reset the attack cooldown
       });
-      console.log("Daily missile counts reset for all bots.");
+      console.log("Daily missile counts and cooldowns reset for all bots.");
     }
 
     for (const bot of aiBots) {
@@ -1236,11 +1379,11 @@ async function generateTrainingData(bot: AIBot): Promise<{ input: number[], outp
 }
 
 function calculateOutputProbabilities(bot: AIBot, nearbyPlayers: any[], nearbyLoot: any, nearbyMissiles: any[]): number[] {
-  let explore = 0.15;
+  let explore = 0.2;
   let attack = 0.25;
-  let socialize = 0.25;
-  let collectLoot = 0.2;
-  let idle = 0.4;
+  let socialize = 0.1; 
+  let collectLoot = 0.25;
+  let idle = 0.5;
 
   // Adjust probabilities based on game state and bot personality
   if (nearbyPlayers.length > 0) {
