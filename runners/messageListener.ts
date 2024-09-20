@@ -2,6 +2,11 @@ import * as admin from 'firebase-admin';
 import { sendNotification } from './notificationhelper';
 
 export function setupMessageListener() {
+  if (!admin.apps.length) {
+    console.warn("Firebase not initialized. Skipping message listener setup.");
+    return;
+  }
+
   const db = admin.database();
   const messagesRef = db.ref('conversations');
 
