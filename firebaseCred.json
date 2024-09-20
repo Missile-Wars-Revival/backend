@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "missile-wars-revival-10",
+  "private_key_id": "99558bc4b029c9ced59da6a16287a6dbba7fcc15",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDZuABkHNgTwG4N\n6dHJfHN4/W1WUIkpqWGWeOMGi/FqlG29+kdNIohAntDEjUQPYzeowD0qY+Y8NqQ5\n+5iHBm2DwkAwKthrzxhrxEjzjVtYBjmmdRifPe26fsCD2TDTrXStLuGszJVodECb\newZ8dx4107z13Zm+kOP9cLBs/h5lSDFt1N8kAnk/lGruAdhZW9sOQ3sgo5ktJPTW\nZgt5hxiDEK8kX1F1eIFLaZUaWWPVzM9g9ga3XEM8EFuIHkwZRnbifOgOBB2CNQd/\n8Laz9tIOmE50EuBVE9WwrIQITNx6959YgGcZrI4kk2SHml6Acc9N7DLHxXeRk54E\n2BjOlI4BAgMBAAECggEAA1gVzHPbd0kzP4w1/FLoqKT23RapVq4a+T9T2F3FqGIN\ngfeiSPtk7Z4q3XwAfb6DxDgosFoetxHNSbU1OWy2Oan+B6de0eAZU01tY+1JyAM3\ndziw90AxorXP8e5/9x5gzoir73YofNVdSS4Vcku3l3LQQhQEaKaL0/CbSx9Hmv1e\nwVu9lCVV2FYPq1hICOg3AOJ0WQjbUNst7VwI6LRLfBy2xbY+SB9bmvFV/Zlrofm2\nVLajsI6dc9WyH5lvabNB8dUh+fGXa7lG6OW93/PLzUQXgz3UuvGdVm8Xw06+8Ani\n9XmgJ1X0BAez1D0IWNfTNRAM3nq8qjxZADjGWp41gQKBgQDsZS9LgPIXR+Jqz1V3\nBgE1dsGFq8tNTEtsEUONRa41Q/rh9Gv3CO064hm32MWGINn7AwLT84+mo3ZS0/Lx\nwTINkTiMzCaDMGEr29y2D4VwbR3tOGTc2aUaUFFwWfEmz2FevUXeuiW0uQb0056X\n5pmZMN+2TJB2aEeoTmrQ+ncXIQKBgQDrxk2pypF7Utv+LDpp/Os3SgQLpfB2bAZh\nb8o1iOVE7VX7XUc/PxTdflb4Y5VE9BcF+jPRqW6ThGCyUg1neG4FSPtqp9xNV0be\nrh3qRuAB5albdUIgqJTGnhOguWMN4Id4jyCPUCUywKgpJUjHnjgz2mqRhK9jhk8s\niBprC/P64QKBgGd0LMuFRe1sVylZTVTGevbz3uNp+JH+hq9nqsGDsia7dms2dZ1p\n+bAgTRMJOgBmFh9lBPLPD5nkxZ6gBR1J6GbJnA76NQyKuqvgD2pZxpMaHdO4L2P7\nl+a5Kbrakc/jSACXIqHDo0bBBstUZX6iu6uwGOeGAF7haiK9FsAYLNAhAoGAJyjf\nm1TWxvnjKhskdJgaZSt48opUHwcgJCzSFAQxuDoHLuG2RK3whD1Iqqa3kyVLcaW1\n15vhjsTM3rE8IrRg6aXOhE9vCrV1QuT+ePveltITR+p42j3FwBtfPTGtXw+s0HxN\nNyBjnUNcasETjnwb75jWXGcCTnBvVAEjCiaJFmECgYEA1oNrNt953KNV0fw7m7Hj\npbZ/85+T6o3oTIVfUK1KtEeZxNb35QxldmbBuxe3FHpiOjXNgCb0a87xQXfwXnGI\nwhyhW+luSzcqWLKlHobSoCh/mWnDIN0rVrBVpCbjm61xXMtylW4cEErUPqaCP4Dj\nT06re2ToQ73je+kvQc5eu7w=\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-8mw3m@missile-wars-revival-10.iam.gserviceaccount.com",
+  "client_id": "101694985698307520618",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-8mw3m%40missile-wars-revival-10.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

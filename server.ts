@@ -24,11 +24,20 @@ import { setupInventoryApi } from "./server-routes/inventoryApi";
 import { setupLeagueApi } from "./server-routes/leagueApi";
 import { leagueRunner } from "./runners/leaguemanagment";
 import { startDamageProcessing } from "./runners/damageProcessor";
+import * as admin from 'firebase-admin'
+import { setupMessageListener } from "./runners/messageListener";
 
 export const prisma = new PrismaClient();
 
 const wsServer = expressWs(express());
-const app = wsServer.app;;
+const app = wsServer.app;
+
+var serviceAccount = require("./firebaseCred");
+//init firebase
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: "https://missile-wars-revival-10-default-rtdb.firebaseio.com"
+});
 
 app.use(bodyParser.json());
 
@@ -81,9 +90,12 @@ leagueRunner();
 startDamageProcessing();
 
 //Bots:
-//manageAIBots();
+// //manageAIBots();
 
-//deleteAllBots();
+// // deleteAllBots();
+
+//Firebase Messages
+setupMessageListener();
 
 
 // api routes

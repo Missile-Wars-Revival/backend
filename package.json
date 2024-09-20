@@ -39,6 +39,7 @@
     "expo-server-sdk": "^3.10.0",
     "express": "^4.19.2",
     "express-ws": "^5.0.2",
+    "firebase-admin": "^12.5.0",
     "geolib": "^3.3.4",
     "jsonwebtoken": "^9.0.2",
     "lodash": "^4.17.21",
