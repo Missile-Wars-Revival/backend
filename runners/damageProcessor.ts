@@ -275,6 +275,46 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
         return;
       }
 
+      // For missiles, check if the user is still within the impact radius
+      if (damageSource === 'missile') {
+        const missile = await prisma.missile.findFirst({
+          where: { sentBy: attackerUsername, status: 'Hit' }
+        });
+
+        if (missile) {
+          const missileCoords = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
+          const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), missileCoords.latitude.toString(), missileCoords.longitude.toString());
+
+          if (distance > missile.radius) {
+            console.log(`User ${user.username} has moved out of the missile's impact radius. No damage applied.`);
+            return;
+          }
+        } else {
+          console.log(`Missile from ${attackerUsername} not found or no longer active. No damage applied.`);
+          return;
+        }
+      }
+
+      // For landmines, check if the user is still within the activation radius
+      if (damageSource === 'landmine') {
+        const landmine = await prisma.landmine.findFirst({
+          where: { placedBy: attackerUsername }
+        });
+
+        if (landmine) {
+          const landmineCoords = { latitude: parseFloat(landmine.locLat), longitude: parseFloat(landmine.locLong) };
+          const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), landmineCoords.latitude.toString(), landmineCoords.longitude.toString());
+
+          if (distance > 10) { // Assuming 10 is the activation radius for landmines
+            console.log(`User ${user.username} has moved away from the landmine. No damage applied.`);
+            return;
+          }
+        } else {
+          console.log(`Landmine from ${attackerUsername} not found. No damage applied.`);
+          return;
+        }
+      }
+
       // Move these queries outside the transaction
       let rewardAmount = 0;
       let rankPointsReward = 0;
