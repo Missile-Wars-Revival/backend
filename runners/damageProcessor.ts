@@ -175,11 +175,6 @@ async function handleMissileDamage(user: any, missile: any) {
           await sendNotification(shield.placedBy, "Shield Destroyed!", `The shield you placed for ${user.username} has been destroyed by a Shield Breaker missile from ${missile.sentBy}!`, missile.sentBy);
         }
       }
-
-      if ((shieldsToBreak.length === 0) && (missile.type !== 'ShieldBreaker')){
-        // If no shields were broken, apply damage to the user
-        await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type);
-      }
     } else {
       // For non-ShieldBreaker missiles, check if the user is protected by any shield
       const isProtected = activeShields.some(shield => {
