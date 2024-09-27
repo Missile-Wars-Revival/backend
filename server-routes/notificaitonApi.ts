@@ -104,4 +104,27 @@ export function setupNotificationApi(app: any) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
+
+  app.delete("/api/deleteMessageNotifications", async (req: Request, res: Response) => {
+    const { token } = req.body;
+  
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+  
+      const deletedNotifications = await prisma.notifications.deleteMany({
+        where: {
+          userId: decoded.username,
+          title: "New Message"
+        }
+      });
+  
+      res.status(200).json({ message: `${deletedNotifications.count} notifications deleted successfully` });
+    } catch (error) {
+      console.error("Error deleting New Message notifications:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
 }
