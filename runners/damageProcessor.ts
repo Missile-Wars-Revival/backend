@@ -145,27 +145,58 @@ async function handleMissileDamage(user: any, missile: any) {
     processedMissiles.get(user.username)!.set(missile.id, Date.now());
     
     const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
-    const shieldProtection = await isUserProtectedByShield(userCoords, await prisma.other.findMany({
+    const activeShields = await prisma.other.findMany({
       where: {
         type: { in: ['Shield', 'UltraShield'] },
         Expires: { gt: new Date() }
       }
-    }));
+    });
 
-    if (shieldProtection !== false && missile.type === 'Shield Breaker') {
-      // Delete the shield if it's a Shield Breaker missile
-      await prisma.other.delete({ where: { id: shieldProtection.id } });
-      
-      // Notification for the user being protected
-      await sendNotification(user.username, "Shield Destroyed!", `Your shield has been destroyed by a Shield Breaker missile from ${missile.sentBy}!`, missile.sentBy);
-      
-      // Notification for the user who placed the shield (if different from the protected user)
-      if (user.username !== shieldProtection.placedBy) {
-        await sendNotification(shieldProtection.placedBy, "Shield Destroyed!", `The shield you placed for ${user.username} has been destroyed by a Shield Breaker missile from ${missile.sentBy}!`, missile.sentBy);
+    if (missile.type === 'ShieldBreaker') {
+      const shieldsToBreak = activeShields.filter(shield => {
+        const shieldCoords = { latitude: parseFloat(shield.locLat), longitude: parseFloat(shield.locLong) };
+        const distance = haversine(
+          userCoords.latitude.toString(),
+          userCoords.longitude.toString(),
+          shieldCoords.latitude.toString(),
+          shieldCoords.longitude.toString()
+        );
+        return distance <= missile.radius;
+      });
+
+      for (const shield of shieldsToBreak) {
+        await prisma.other.delete({ where: { id: shield.id } });
+        
+        // Notification for the user being protected
+        await sendNotification(user.username, "Shield Destroyed!", `Your shield has been destroyed by a Shield Breaker missile from ${missile.sentBy}!`, missile.sentBy);
+        
+        // Notification for the user who placed the shield (if different from the protected user)
+        if (user.username !== shield.placedBy) {
+          await sendNotification(shield.placedBy, "Shield Destroyed!", `The shield you placed for ${user.username} has been destroyed by a Shield Breaker missile from ${missile.sentBy}!`, missile.sentBy);
+        }
       }
-    } else if (shieldProtection === false) {
-      // Apply damage only if there's no shield protection
-      await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type);
+
+      if (shieldsToBreak.length === 0) {
+        // If no shields were broken, apply damage to the user
+        await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type);
+      }
+    } else {
+      // For non-ShieldBreaker missiles, check if the user is protected by any shield
+      const isProtected = activeShields.some(shield => {
+        const shieldCoords = { latitude: parseFloat(shield.locLat), longitude: parseFloat(shield.locLong) };
+        const distance = haversine(
+          userCoords.latitude.toString(),
+          userCoords.longitude.toString(),
+          shieldCoords.latitude.toString(),
+          shieldCoords.longitude.toString()
+        );
+        return distance <= shield.radius;
+      });
+
+      if (!isProtected) {
+        // Apply damage only if there's no shield protection
+        await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type);
+      }
     }
   }
 }
