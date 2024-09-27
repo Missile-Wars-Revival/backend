@@ -2,7 +2,6 @@ import { prisma } from "../server";
 import { haversine } from "./entitymanagment";
 import { sendNotification } from "./notificationhelper";
 import { getMutualFriends } from "../server-routes/friendsApi";
-import { v4 as uuidv4 } from 'uuid';
 
 
 const PROCESS_INTERVAL = 15000; // 15 seconds in milliseconds
@@ -121,7 +120,7 @@ async function determineUsernamesToProcess(username: string, gameplayUserMap: Ma
 //   }
 // }
 
-function isUserProtectedByShield(userCoords: { latitude: number, longitude: number }, shields: any[]): boolean {
+function isUserProtectedByShield(userCoords: { latitude: number, longitude: number }, shields: any[]): { id: number, placedBy: string } | false {
   for (const shield of shields) {
     const shieldCoords = { latitude: parseFloat(shield.locLat), longitude: parseFloat(shield.locLong) };
     const distance = haversine(
@@ -131,10 +130,10 @@ function isUserProtectedByShield(userCoords: { latitude: number, longitude: numb
       shieldCoords.longitude.toString()
     );
     if (distance <= shield.radius) {
-      return true; // User is protected by this shield
+      return { id: shield.id, placedBy: shield.placedBy };
     }
   }
-  return false; // User is not protected by any shield
+  return false;
 }
 
 async function handleMissileDamage(user: any, missile: any) {
@@ -144,7 +143,30 @@ async function handleMissileDamage(user: any, missile: any) {
   
   if (!processedMissiles.get(user.username)!.has(missile.id)) {
     processedMissiles.get(user.username)!.set(missile.id, Date.now());
-    await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type);
+    
+    const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
+    const shieldProtection = await isUserProtectedByShield(userCoords, await prisma.other.findMany({
+      where: {
+        type: { in: ['Shield', 'UltraShield'] },
+        Expires: { gt: new Date() }
+      }
+    }));
+
+    if (shieldProtection !== false && missile.type === 'Shield Breaker') {
+      // Delete the shield if it's a Shield Breaker missile
+      await prisma.other.delete({ where: { id: shieldProtection.id } });
+      
+      // Notification for the user being protected
+      await sendNotification(user.username, "Shield Destroyed!", `Your shield has been destroyed by a Shield Breaker missile from ${missile.sentBy}!`, missile.sentBy);
+      
+      // Notification for the user who placed the shield (if different from the protected user)
+      if (user.username !== shieldProtection.placedBy) {
+        await sendNotification(shieldProtection.placedBy, "Shield Destroyed!", `The shield you placed for ${user.username} has been destroyed by a Shield Breaker missile from ${missile.sentBy}!`, missile.sentBy);
+      }
+    } else if (shieldProtection === false) {
+      // Apply damage only if there's no shield protection
+      await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type);
+    }
   }
 }
 

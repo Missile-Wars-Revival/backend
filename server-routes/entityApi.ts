@@ -493,10 +493,20 @@ export function setupEntityApi(app: any) {
       }
 
       // Define shield properties based on type
-      const shieldProperties = {
-        Shield: { radius: 10, duration: ONE_HOUR_IN_MS },
-        UltraShield: { radius: 20, duration: TWELVE_HOURS_IN_MS },
-      };
+      const shieldTypes = await prisma.otherType.findMany({
+        where: {
+          name: { in: ['Shield', 'UltraShield'] }
+        }
+      });
+    
+      // Create a map of shield properties
+      const shieldProperties = shieldTypes.reduce((acc, shield) => {
+        acc[shield.name] = {
+          radius: shield.radius,
+          duration: shield.duration * 60 * 60 * 1000 // Convert hours to milliseconds
+        };
+        return acc;
+      }, {} as Record<string, { radius: number, duration: number }>);
 
       if (!(type in shieldProperties)) {
         return res.status(400).json({ message: "Invalid shield type" });
@@ -513,8 +523,9 @@ export function setupEntityApi(app: any) {
             locLat: loclat,
             locLong: loclong,
             type,
-            radius: shieldProperties[type as keyof typeof shieldProperties].radius,
-            Expires: new Date(Date.now() + shieldProperties[type as keyof typeof shieldProperties].duration),
+            placedBy: user.username,
+            radius: shieldProperties[type].radius,
+            Expires: new Date(Date.now() + shieldProperties[type].duration),
           },
         }),
       ]);

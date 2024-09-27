@@ -113,6 +113,15 @@ model Other {
   Expires DateTime
   locLat  String   @default("")
   locLong String   @default("")
+  placedBy String @default("")
+}
+
+model OtherType {
+  name        String @id @unique
+  description String
+  price       Int
+  radius      Int
+  duration    Int
 }
 
 model Messages {
