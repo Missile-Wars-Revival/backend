@@ -176,7 +176,7 @@ async function handleMissileDamage(user: any, missile: any) {
         }
       }
 
-      if (shieldsToBreak.length === 0) {
+      if ((shieldsToBreak.length === 0) && (missile.type !== 'ShieldBreaker')){
         // If no shields were broken, apply damage to the user
         await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type);
       }
