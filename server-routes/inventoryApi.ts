@@ -67,11 +67,14 @@ export function setupInventoryApi(app: any) {
 
             // Fetch all landmine types
             const landmineTypes = await prisma.landmineType.findMany();
+            
+            const otherTypes = await prisma.otherType.findMany();
 
             // Return both missile types and landmine types
             res.status(200).json({
                 missileTypes,
-                landmineTypes
+                landmineTypes,
+                otherTypes
             });
         } catch (error) {
             console.error("Failed to fetch weapon types: ", error);
