@@ -26,6 +26,7 @@ import { leagueRunner } from "./runners/leaguemanagment";
 import { startDamageProcessing } from "./runners/damageProcessor";
 import * as admin from 'firebase-admin'
 import { setupMessageListener } from "./runners/messageListener";
+import { startShieldBreakerProcessing } from "./runners/shieldbreaker";
 
 export const prisma = new PrismaClient();
 
@@ -100,10 +101,13 @@ leagueRunner();
 //manage damage:
 startDamageProcessing();
 
-//Bots:
-// //manageAIBots();
+//manage shieldbreakers
+startShieldBreakerProcessing();
 
-// // deleteAllBots();
+//Bots:
+manageAIBots();
+
+// deleteAllBots();
 
 //Firebase Messages
 if (serviceAccount) {
