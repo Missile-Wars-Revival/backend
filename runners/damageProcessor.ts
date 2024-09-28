@@ -153,28 +153,7 @@ async function handleMissileDamage(user: any, missile: any) {
     });
 
     if (missile.type === 'ShieldBreaker') {
-      const shieldsToBreak = activeShields.filter(shield => {
-        const shieldCoords = { latitude: parseFloat(shield.locLat), longitude: parseFloat(shield.locLong) };
-        const distance = haversine(
-          userCoords.latitude.toString(),
-          userCoords.longitude.toString(),
-          shieldCoords.latitude.toString(),
-          shieldCoords.longitude.toString()
-        );
-        return distance <= missile.radius;
-      });
-
-      for (const shield of shieldsToBreak) {
-        await prisma.other.delete({ where: { id: shield.id } });
-        
-        // Notification for the user being protected
-        await sendNotification(user.username, "Shield Destroyed!", `Your shield has been destroyed by a Shield Breaker missile from ${missile.sentBy}!`, missile.sentBy);
-        
-        // Notification for the user who placed the shield (if different from the protected user)
-        if (user.username !== shield.placedBy) {
-          await sendNotification(shield.placedBy, "Shield Destroyed!", `The shield you placed for ${user.username} has been destroyed by a Shield Breaker missile from ${missile.sentBy}!`, missile.sentBy);
-        }
-      }
+      
     } else {
       // For non-ShieldBreaker missiles, check if the user is protected by any shield
       const isProtected = activeShields.some(shield => {
@@ -188,9 +167,9 @@ async function handleMissileDamage(user: any, missile: any) {
         return distance <= shield.radius;
       });
 
-      if (!isProtected) {
+      if (!isProtected && missile.type !== 'ShieldBreaker') {
         // Apply damage only if there's no shield protection
-        await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type);
+        await applyDamage(user, missile.damage, missile.sentBy, 'missile', missile.type, missile.id);
       }
     }
   }
@@ -203,7 +182,7 @@ async function handleLandmineDamage(user: any, landmine: any) {
   
   if (!processedLandmines.get(user.username)!.has(landmine.id)) {
     processedLandmines.get(user.username)!.add(landmine.id);
-    await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type);
+    await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type, landmine.id);
     // Delete the landmine after damage is applied (this will happen after the 30-second delay)
     setTimeout(async () => {
       try {
@@ -235,7 +214,7 @@ interface GameplayUser {
       longitude: string;
     };
   }
-async function applyDamage(user: GameplayUser, damage: number, attackerUsername: string, damageSource: 'missile' | 'landmine', receivedType: string) {
+async function applyDamage(user: GameplayUser, damage: number, attackerUsername: string, damageSource: 'missile' | 'landmine', receivedType: string, entityId: number) {
   try {
     const applyDamageRecursively = async () => {
       // Fetch the latest user data and active shields
@@ -277,8 +256,8 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
       // For missiles, check if the user is still within the impact radius
       if (damageSource === 'missile') {
-        const missile = await prisma.missile.findFirst({
-          where: { sentBy: attackerUsername, status: 'Hit' }
+        const missile = await prisma.missile.findUnique({
+          where: { id: entityId, status: 'Hit' }
         });
 
         if (missile) {
@@ -290,15 +269,15 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
             return;
           }
         } else {
-          console.log(`Missile from ${attackerUsername} not found or no longer active. No damage applied.`);
+          console.log(`Missile ${entityId} not found or no longer active. No damage applied.`);
           return;
         }
       }
 
       // For landmines, check if the user is still within the activation radius
       if (damageSource === 'landmine') {
-        const landmine = await prisma.landmine.findFirst({
-          where: { placedBy: attackerUsername }
+        const landmine = await prisma.landmine.findUnique({
+          where: { id: entityId }
         });
 
         if (landmine) {
@@ -310,7 +289,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
             return;
           }
         } else {
-          console.log(`Landmine from ${attackerUsername} not found. No damage applied.`);
+          console.log(`Landmine ${entityId} not found. No damage applied.`);
           return;
         }
       }
