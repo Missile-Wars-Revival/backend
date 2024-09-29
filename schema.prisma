@@ -71,7 +71,7 @@ model Landmine {
   placedBy   String
   locLat     String   @default("")
   locLong    String   @default("")
-  placedtime DateTime @default(now())
+  placedTime DateTime @default(now())
   type       String
   Expires    DateTime
   damage     Int      @default(1)
@@ -110,6 +110,7 @@ model Other {
   id      Int      @id @default(autoincrement())
   type    String
   radius  Int
+  placedTime DateTime @default(now())
   Expires DateTime
   locLat  String   @default("")
   locLong String   @default("")

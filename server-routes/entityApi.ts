@@ -286,7 +286,6 @@ export function setupEntityApi(app: any) {
             placedBy: user.username,
             locLat,
             locLong,
-            placedtime: new Date().toISOString(),
             type: landminetype,
             damage: landmineType.damage,
             Expires: new Date(new Date().getTime() + durationInMilliseconds)

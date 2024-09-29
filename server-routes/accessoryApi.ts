@@ -93,7 +93,7 @@ export function setupAccessoryApi(app: any) {
         const sinceTime = req.query.since ? new Date(req.query.since as string) : new Date(0);
 
         try {
-            const [recentMissiles, recentLandmines] = await Promise.all([
+            const [recentMissiles, recentLandmines, recentOther] = await Promise.all([
                 prisma.missile.findMany({
                     where: {
                         sentAt: {
@@ -107,19 +107,30 @@ export function setupAccessoryApi(app: any) {
                 }),
                 prisma.landmine.findMany({
                     where: {
-                        placedtime: {
+                        placedTime: {
                             gt: sinceTime
                         }
                     },
                     orderBy: {
-                        placedtime: 'asc'
+                        placedTime: 'asc'
+                    }
+                }),
+                prisma.other.findMany({
+                    where: {
+                        placedTime: {
+                            gt: sinceTime
+                        }
+                    },
+                    orderBy: {
+                        placedTime: 'asc'
                     }
                 })
             ]);
 
             res.status(200).json({
                 missiles: recentMissiles,
-                landmines: recentLandmines
+                landmines: recentLandmines,
+                other: recentOther
             });
         } catch (error) {
             console.error("Error fetching recent updates:", error);
