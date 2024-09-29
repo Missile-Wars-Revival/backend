@@ -3,6 +3,10 @@ import { prisma } from "../server";
 import { Request, Response } from "express";
 import { sendNotification } from "../runners/notificationhelper";
 
+const MAX_PLAYERS_PER_LEAGUE = 50;
+const SOFT_LIMIT_BUFFER = 5;
+const MIN_PLAYERS_PER_LEAGUE = 6;
+
 export function setupLeagueApi(app: any) {
   app.get("/api/topleagues", async (req: Request, res: Response) => {
     const { token } = req.query;
@@ -22,11 +26,7 @@ export function setupLeagueApi(app: any) {
           _count: {
             select: { players: true }
           }
-        },
-        orderBy: [
-          { tier: 'asc' },
-          { division: 'asc' }
-        ]
+        }
       });
 
       const uniqueLeagues = new Map();
@@ -36,6 +36,8 @@ export function setupLeagueApi(app: any) {
         if (!uniqueLeagues.has(key) || league._count.players > uniqueLeagues.get(key).playerCount) {
           uniqueLeagues.set(key, {
             name: key,
+            tier: league.tier,
+            division: league.division,
             playerCount: league._count.players
           });
         }
@@ -43,8 +45,16 @@ export function setupLeagueApi(app: any) {
 
       const topLeagues = Array.from(uniqueLeagues.values());
 
-      // Sort by player count in descending order
-      topLeagues.sort((a, b) => b.playerCount - a.playerCount);
+      // Define the order of tiers and divisions
+      const tierOrder = ['Legend', 'Diamond', 'Gold', 'Silver', 'Bronze'];
+      const divisionOrder = ['I', 'II', 'III'];
+
+      // Sort the leagues
+      topLeagues.sort((a, b) => {
+        const tierDiff = tierOrder.indexOf(a.tier) - tierOrder.indexOf(b.tier);
+        if (tierDiff !== 0) return tierDiff;
+        return divisionOrder.indexOf(a.division) - divisionOrder.indexOf(b.division);
+      });
 
       return res.json({ 
         success: true, 
@@ -201,9 +211,26 @@ export function setupLeagueApi(app: any) {
 export async function assignUserToLeague(userId: number) {
   const user = await prisma.gameplayUser.findUnique({
     where: { id: userId },
-    include: { Users: { select: { friends: true } } }
+    include: { Users: { select: { friends: true } }, league: true }
   });
   if (!user) return;
+
+  // Unassign user from league if rank points are below 10
+  if (user.rankPoints < 10) {
+    if (user.league) {
+      await prisma.gameplayUser.update({
+        where: { id: userId },
+        data: { leagueId: null }
+      });
+      console.log(`User ${user.username} has been unassigned from their league due to low rank points.`);
+    }
+    return null;
+  }
+
+  if (user.rankPoints <= 0) {
+    console.log(`User ${user.username} has 0 or fewer rank points. Not assigning to a league.`);
+    return null;
+  }
 
   const tier = getTierFromRankPoints(user.rankPoints);
   const division = getDivisionFromRankPoints(user.rankPoints);
@@ -213,7 +240,6 @@ export async function assignUserToLeague(userId: number) {
     where: { 
       tier, 
       division,
-      players: { some: {} },
     },
     include: {
       players: {
@@ -227,24 +253,34 @@ export async function assignUserToLeague(userId: number) {
     orderBy: { number: 'asc' }
   });
 
-  // Sort leagues by number of mutual friends, then by available space
-  availableLeagues.sort((a, b) => {
-    const friendDiff = b.players.length - a.players.length;
+  // Separate leagues with friends and without friends
+  const leaguesWithFriends = availableLeagues.filter(l => l.players.length > 0);
+  const leaguesWithoutFriends = availableLeagues.filter(l => l.players.length === 0);
+
+  // Sort leagues with friends by number of mutual friends (ascending), then by available space (descending)
+  leaguesWithFriends.sort((a, b) => {
+    const friendDiff = a.players.length - b.players.length;
     if (friendDiff !== 0) return friendDiff;
-    return (100 - b._count.players) - (100 - a._count.players);
+    return b._count.players - a._count.players;
   });
 
-  let league = availableLeagues.find(l => l._count.players < 100);
+  // Sort leagues without friends by available space (descending)
+  leaguesWithoutFriends.sort((a, b) => b._count.players - a._count.players);
+
+  // Combine sorted leagues, prioritizing leagues with fewer friends
+  const sortedLeagues = [...leaguesWithFriends, ...leaguesWithoutFriends];
+
+  let league = sortedLeagues.find(l => l._count.players < MAX_PLAYERS_PER_LEAGUE);
 
   if (!league) {
-    // If no suitable league found, create a new one
+    // If all leagues are full, create a new one
     const lastLeague = await prisma.league.findFirst({
       where: { tier, division },
       orderBy: { number: 'desc' }
     });
 
     const newLeagueNumber = lastLeague ? lastLeague.number + 1 : 1;
-    const newLeague = await prisma.league.create({
+    league = await prisma.league.create({
       data: {
         tier,
         division,
@@ -260,21 +296,90 @@ export async function assignUserToLeague(userId: number) {
         }
       }
     });
-
-    league = {
-      ...newLeague,
-      players: [],
-      _count: { players: 0 }
-    };
   }
 
-  // Assign user to the league
-  await prisma.gameplayUser.update({
-    where: { id: userId },
-    data: { leagueId: league.id }
+  return await prisma.$transaction(async (tx) => {
+    // Assign user to the league
+    await tx.gameplayUser.update({
+      where: { id: userId },
+      data: { leagueId: league.id }
+    });
+
+    // Check and balance leagues after assignment
+    await balanceLeaguesIfNeeded(tx, league.tier, league.division);
+
+    return league;
+  });
+}
+
+async function balanceLeaguesIfNeeded(tx: any, tier: string, division: string) {
+  const leagues = await tx.league.findMany({
+    where: { tier, division },
+    include: {
+      players: true,
+      _count: { select: { players: true } }
+    },
+    orderBy: { number: 'asc' }
   });
 
-  return league;
+  const overfilledLeagues = leagues.filter((l: { _count: { players: number; }; }) => l._count.players > MAX_PLAYERS_PER_LEAGUE + SOFT_LIMIT_BUFFER);
+  const underfilledLeagues = leagues.filter((l: { _count: { players: number; }; }) => l._count.players < MIN_PLAYERS_PER_LEAGUE);
+
+  if (overfilledLeagues.length === 0 && underfilledLeagues.length === 0) {
+    return; // No rebalancing needed
+  }
+
+  for (const league of overfilledLeagues) {
+    const playersToMove = league.players.slice(MAX_PLAYERS_PER_LEAGUE);
+    for (const player of playersToMove) {
+      const targetLeague = leagues.find((l: { _count: { players: number; }; }) => l._count.players < MAX_PLAYERS_PER_LEAGUE);
+      if (targetLeague) {
+        await tx.gameplayUser.update({
+          where: { id: player.id },
+          data: { leagueId: targetLeague.id }
+        });
+        targetLeague._count.players++;
+        league._count.players--;
+      } else {
+        // Create a new league if all existing leagues are at or above the soft limit
+        const newLeague = await tx.league.create({
+          data: {
+            tier,
+            division,
+            number: leagues[leagues.length - 1].number + 1
+          }
+        });
+        await tx.gameplayUser.update({
+          where: { id: player.id },
+          data: { leagueId: newLeague.id }
+        });
+        leagues.push(newLeague);
+      }
+    }
+  }
+
+  // Handle underfilled leagues
+  for (const league of underfilledLeagues) {
+    if (league._count.players < MIN_PLAYERS_PER_LEAGUE) {
+      const playersToMove = league.players;
+      for (const player of playersToMove) {
+        const targetLeague = leagues.find((l: { id: any; _count: { players: number; }; }) => l.id !== league.id && l._count.players < MAX_PLAYERS_PER_LEAGUE);
+        if (targetLeague) {
+          await tx.gameplayUser.update({
+            where: { id: player.id },
+            data: { leagueId: targetLeague.id }
+          });
+          targetLeague._count.players++;
+          league._count.players--;
+        }
+      }
+      // Delete the league if it's empty after moving players
+      if (league._count.players === 0) {
+        await tx.league.delete({ where: { id: league.id } });
+        leagues.splice(leagues.indexOf(league), 1);
+      }
+    }
+  }
 }
 
 export async function checkAndUpdateUserLeagues() {
@@ -287,6 +392,17 @@ export async function checkAndUpdateUserLeagues() {
   let updatedCount = 0;
 
   for (const user of users) {
+    // Check if user should be unassigned due to low rank points
+    if (user.rankPoints < 10 && user.league) {
+      await prisma.gameplayUser.update({
+        where: { id: user.id },
+        data: { leagueId: null }
+      });
+      console.log(`User ${user.username} unassigned from league due to low rank points.`);
+      updatedCount++;
+      continue; // Skip to next user
+    }
+
     const newTier = getTierFromRankPoints(user.rankPoints);
     const newDivision = getDivisionFromRankPoints(user.rankPoints);
 
@@ -320,7 +436,7 @@ export async function checkAndUpdateUserLeagues() {
     }
   }
 
-  console.log(`Hourly league update completed. ${updatedCount} users were moved.`);
+  console.log(`Hourly league update completed. ${updatedCount} users were moved or unassigned.`);
 }
 
 async function awardLeagueBadge(userId: number, tier: string) {
@@ -408,4 +524,3 @@ function getDivisionFromRankPoints(rankPoints: number): string {
   if (tierPoints < 1333) return 'II';
   return 'I';
 }
-

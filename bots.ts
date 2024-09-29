@@ -7,6 +7,7 @@ import * as path from 'path';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { MissileType } from "@prisma/client";
 import pLimit from 'p-limit';
+import { CronJob } from 'cron';
 
 export const prisma = new PrismaClient();
 
@@ -1521,134 +1522,164 @@ async function loadExistingBots() {
 }
 
 async function manageAIBots() {
-//load existing bots
-  await loadExistingBots();
+  try {
+    await loadExistingBots();
 
-  const updateInterval = setInterval(async () => {
-    try {
-      const activePlayers = await prisma.users.count({
-        where: { role: "player" },
-      });
+    // Main update interval
+    const updateInterval = new CronJob('*/20 * * * * *', async () => {
+      try {
+        const activePlayers = await prisma.users.count({
+          where: { role: "player" },
+        });
 
-      const desiredBotCount = Math.min(
-        config.maxBots,
-        Math.max(config.minBots, Math.floor(activePlayers / 2))
-      );
+        const desiredBotCount = Math.min(
+          config.maxBots,
+          Math.max(config.minBots, Math.floor(activePlayers / 2))
+        );
 
-      while (aiBots.length < desiredBotCount) {
-        await createBot();
-      }
+        while (aiBots.length < desiredBotCount) {
+          await createBot();
+        }
 
-      while (aiBots.length > desiredBotCount) {
-        const bot = aiBots.pop();
-        if (bot) {
-          try {
-            // Delete related records first
-            await prisma.$transaction(async (prisma) => {
-              // Delete Notifications
-              await prisma.notifications.deleteMany({ where: { userId: bot.username } });
+        while (aiBots.length > desiredBotCount) {
+          const bot = aiBots.pop();
+          if (bot) {
+            try {
+              // Delete related records first
+              await prisma.$transaction(async (prisma) => {
+                // Delete Notifications
+                await prisma.notifications.deleteMany({ where: { userId: bot.username } });
 
-              // Delete FriendRequests
-              await prisma.friendRequests.deleteMany({ where: { username: bot.username } });
-              await prisma.friendRequests.deleteMany({ where: { friend: bot.username } });
+                // Delete FriendRequests
+                await prisma.friendRequests.deleteMany({ where: { username: bot.username } });
+                await prisma.friendRequests.deleteMany({ where: { friend: bot.username } });
 
-              // Delete BattleSessions
-              await prisma.battleSessions.deleteMany({ where: { attackerUsername: bot.username } });
-              await prisma.battleSessions.deleteMany({ where: { defenderUsername: bot.username } });
+                // Delete BattleSessions
+                await prisma.battleSessions.deleteMany({ where: { attackerUsername: bot.username } });
+                await prisma.battleSessions.deleteMany({ where: { defenderUsername: bot.username } });
 
-              // Delete Locations
-              await prisma.locations.delete({ where: { username: bot.username } }).catch(() => {});
+                // Delete Locations
+                await prisma.locations.delete({ where: { username: bot.username } }).catch(() => {});
 
-              // Delete InventoryItems
-              await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: bot.username } } });
+                // Delete InventoryItems
+                await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: bot.username } } });
 
-              // Delete Statistics
-              await prisma.statistics.deleteMany({ where: { GameplayUser: { username: bot.username } } });
+                // Delete Statistics
+                await prisma.statistics.deleteMany({ where: { GameplayUser: { username: bot.username } } });
 
-              // Delete GameplayUser
-              await prisma.gameplayUser.delete({ where: { username: bot.username } }).catch(() => {});
+                // Delete GameplayUser
+                await prisma.gameplayUser.delete({ where: { username: bot.username } }).catch(() => {});
 
-              // Finally, delete the User
-              await prisma.users.delete({ where: { username: bot.username } });
-            });
+                // Finally, delete the User
+                await prisma.users.delete({ where: { username: bot.username } });
+              });
 
-            console.log(`Successfully deleted bot: ${bot.username}`);
-          } catch (error) {
-            console.error(`Failed to delete bot ${bot.username}:`, error);
+              console.log(`Successfully deleted bot: ${bot.username}`);
+            } catch (error) {
+              console.error(`Failed to delete bot ${bot.username}:`, error);
+            }
           }
         }
-      }
 
-      const botsToUpdate = shuffle(aiBots).slice(0, config.batchSize);
-      await updateBotsInBatch(botsToUpdate);
+        const botsToUpdate = shuffle(aiBots).slice(0, config.batchSize);
+        await updateBotsInBatch(botsToUpdate);
 
-      for (const bot of botsToUpdate) {
-        if (bot.isOnline && !bot.isIdling) {
-          const target = getRandomLandCoordinates();
-          await dbLimit(() => updateBotPosition(bot, target));
-          await dbLimit(() => bot.behaviorTree.execute());
-          
-          // Reduce training frequency
-          if (Math.random() < 0.05) {  // 5% chance to train on each cycle
-            trainBot(bot).catch(error => console.error(`Error training bot ${bot.username}:`, error));
+        for (const bot of botsToUpdate) {
+          if (bot.isOnline && !bot.isIdling) {
+            const target = getRandomLandCoordinates();
+            await dbLimit(() => updateBotPosition(bot, target));
+            await dbLimit(() => bot.behaviorTree.execute());
+            
+            // Reduce training frequency
+            if (Math.random() < 0.05) {  // 5% chance to train on each cycle
+              trainBot(bot).catch(error => console.error(`Error training bot ${bot.username}:`, error));
+            }
+          } else if (Math.random() < 0.1) {
+            bot.isOnline = true;
+            console.log(`${bot.username} is back online.`);
           }
-        } else if (Math.random() < 0.1) {
-          bot.isOnline = true;
-          console.log(`${bot.username} is back online.`);
         }
+
+        aiBots.forEach(bot => {
+          if (Math.random() < 0.05) { // 5% chance to go offline
+            setBotOffline(bot);
+          } else if (Math.random() < 0.05) { // 5% chance to go to sleep
+            setBotSleeping(bot);
+          }
+        });
+
+        for (const bot of aiBots) {
+          if (bot.isOnline) {
+            const nearbyLoot = await dbLimit(() => findNearbyLoot(bot, 2000));
+            if (nearbyLoot) {
+              console.log(`${bot.username} has detected nearby loot!`);
+              await dbLimit(() => bot.behaviorTree.collectLoot());
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error in manageAIBots interval:", error);
       }
+    });
 
-      aiBots.forEach(bot => {
-        if (Math.random() < 0.05) { // 5% chance to go offline
-          setBotOffline(bot);
-        } else if (Math.random() < 0.05) { // 5% chance to go to sleep
-          setBotSleeping(bot);
+    // Loot check interval
+    const lootCheckInterval = new CronJob('*/100 * * * * *', async () => {
+      try {
+        for (const bot of aiBots) {
+          if (bot.isOnline) {
+            const nearbyLoot = await dbLimit(() => findNearbyLoot(bot, 2000));
+            if (nearbyLoot) {
+              console.log(`${bot.username} has detected nearby loot!`);
+              await dbLimit(() => bot.behaviorTree.collectLoot());
+            }
+          }
         }
-      });
+      } catch (error) {
+        console.error("Error in loot check interval:", error);
+      }
+    });
 
-      // Reset daily missile count at midnight
-      const now = new Date();
-      if (now.getHours() === 0 && now.getMinutes() === 0) {
+    // Daily reset job
+    const dailyResetJob = new CronJob('0 0 * * *', () => {
+      try {
         aiBots.forEach(bot => {
           bot.missilesFiredToday = 0;
-          bot.lastMissileFiredAt = null; // Reset the last missile fired time
-          bot.attackCooldown = 60000; // Reset the attack cooldown
+          bot.lastMissileFiredAt = null;
+          bot.attackCooldown = 60000;
         });
         console.log("Daily missile counts and cooldowns reset for all bots.");
+      } catch (error) {
+        console.error("Error in daily reset job:", error);
       }
+    });
 
-      for (const bot of aiBots) {
-        if (bot.isOnline) {
-          const nearbyLoot = await dbLimit(() => findNearbyLoot(bot, 2000));
-          if (nearbyLoot) {
-            console.log(`${bot.username} has detected nearby loot!`);
-            await dbLimit(() => bot.behaviorTree.collectLoot());
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Error in manageAIBots interval:", error);
-      // Optionally, you might want to clear the interval if a critical error occurs
-      // clearInterval(updateInterval);
-    }
-  }, config.updateInterval);
+    // Start all jobs
+    updateInterval.start();
+    lootCheckInterval.start();
+    dailyResetJob.start();
 
-  // Check for loot less frequently
-  setInterval(async () => {
-    try {
-      for (const bot of aiBots) {
-        if (bot.isOnline) {
-          const nearbyLoot = await dbLimit(() => findNearbyLoot(bot, 2000));
-          if (nearbyLoot) {
-            console.log(`${bot.username} has detected nearby loot!`);
-            await dbLimit(() => bot.behaviorTree.collectLoot());
-          }
-        }
+    // Periodic database connection check
+    setInterval(async () => {
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+      } catch (error) {
+        console.error("Database connection lost. Attempting to reconnect...");
+        await prisma.$connect();
       }
-    } catch (error) {
-      console.error("Error in loot check interval:", error);
-    }
-  }, config.updateInterval * 5); // Check less frequently, e.g., every 5 update intervals
+    }, 5 * 60 * 1000); // Check every 5 minutes
+
+    // Periodic garbage collection
+    setInterval(() => {
+      if (global.gc) {
+        global.gc();
+      }
+    }, 30 * 60 * 1000); // Run every 30 minutes
+
+  } catch (error) {
+    console.error("Error in manageAIBots:", error);
+    // Attempt to restart the entire process
+    setTimeout(() => manageAIBots(), 60000);
+  }
 }
 
 async function trainBot(bot: AIBot) {
