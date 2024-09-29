@@ -58,7 +58,7 @@ export function setupLeagueApi(app: any) {
 
       return res.json({ 
         success: true, 
-        leagues: topLeagues.slice(0, 10) // Limit to top 10 leagues
+        leagues: topLeagues.slice(0, 12) // Limit to top 12 leagues
       });
     } catch (error) {
       console.error('Error in /api/topleagues:', error);
