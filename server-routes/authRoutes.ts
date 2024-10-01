@@ -416,6 +416,53 @@ export function setupAuthRoutes(app: any) {
                 const storageRef = admin.storage().bucket();
 
                 try {
+
+                    await db.ref(`users/${decoded.username}`).once('value', async (snapshot) => {
+                        const userData = snapshot.val();
+                        if (userData) {
+                            await db.ref(`users/${newUsername}`).set(userData);
+                            await db.ref(`users/${decoded.username}`).remove();
+                        }
+                    });
+    
+                    // Update conversations
+                    const conversationsRef = db.ref('conversations');
+                    await conversationsRef.once('value', async (snapshot) => {
+                        const conversations = snapshot.val();
+                        for (const [convId, conv] of Object.entries(conversations)) {
+                            let updated = false;
+                            const conversation = conv as any; // Type assertion
+    
+                            // Update participants
+                            if (conversation.participants) {
+                                if (conversation.participants[decoded.username]) {
+                                    conversation.participants[newUsername] = conversation.participants[decoded.username];
+                                    delete conversation.participants[decoded.username];
+                                    updated = true;
+                                }
+                            }
+    
+                            // Update participantsArray
+                            if (conversation.participantsArray) {
+                                const index = conversation.participantsArray.indexOf(decoded.username);
+                                if (index !== -1) {
+                                    conversation.participantsArray[index] = newUsername;
+                                    updated = true;
+                                }
+                            }
+    
+                            // Update lastMessage if necessary
+                            if (conversation.lastMessage && conversation.lastMessage.senderId === decoded.username) {
+                                conversation.lastMessage.senderId = newUsername;
+                                updated = true;
+                            }
+    
+                            if (updated) {
+                                await conversationsRef.child(convId).set(conversation);
+                            }
+                        }
+                    });
+
                     // Get the download URL for the old username
                     const [oldFile] = await storageRef.file(`profileImages/${decoded.username}`).get();
                     const [oldSignedUrl] = await oldFile.getSignedUrl({
@@ -505,6 +552,53 @@ export function setupAuthRoutes(app: any) {
             // Verify that the username in the token matches the username provided
             if (decoded.username !== username) {
                 return res.status(403).json({ message: "Unauthorized to delete this account" });
+            }
+
+            const db = admin.database();
+            const storageRef = admin.storage().bucket();
+            try {
+                await db.ref(`users/${username}`).remove();
+
+                // Delete profile picture from Firebase Storage
+                await storageRef.file(`profileImages/${username}`).delete().catch(() => {});
+
+                // Update conversations
+                const conversationsRef = db.ref('conversations');
+                await conversationsRef.once('value', async (snapshot) => {
+                    const conversations = snapshot.val();
+                    for (const [convId, conv] of Object.entries(conversations)) {
+                        const conversation = conv as any; // Type assertion
+                        let updated = false;
+
+                        // Remove user from participants
+                        if (conversation.participants && conversation.participants[username]) {
+                            delete conversation.participants[username];
+                            updated = true;
+                        }
+
+                        // Remove user from participantsArray
+                        if (conversation.participantsArray) {
+                            const index = conversation.participantsArray.indexOf(username);
+                            if (index !== -1) {
+                                conversation.participantsArray.splice(index, 1);
+                                updated = true;
+                            }
+                        }
+
+                        // If the conversation now has less than 2 participants, delete it
+                        if (conversation.participantsArray && conversation.participantsArray.length < 2) {
+                            await conversationsRef.child(convId).remove();
+                        } else if (updated) {
+                            // Update the conversation if changes were made
+                            await conversationsRef.child(convId).set(conversation);
+                        }
+                    }
+                });
+                // Delete the old file
+                await storageRef.file(`profileImages/${username}`).delete();
+            } catch (error) {
+                console.error("Error updating profile picture in Firebase:", error);
+                // Don't throw the error, as we still want to complete the username change
             }
 
             // Delete the account and related data
