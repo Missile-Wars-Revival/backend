@@ -450,27 +450,22 @@ export function setupUserApi(app: any) {
       let updatedUser;
       let newToken;
       if (updates.username) {
-        // If username is being updated, use a transaction
+        // ... existing username validation ...
+
         updatedUser = await prisma.$transaction(async (prisma) => {
-          // Update Users table
+          // First, update the Users table
           const updatedUserRecord = await prisma.users.update({
             where: { username },
-            data: userUpdates,
-            include: { GameplayUser: true }
-          });
-
-          // Update or create GameplayUser
-          await prisma.gameplayUser.upsert({
-            where: { username },
-            update: {
-              ...gameplayUserUpdates,
-              username: updates.username
+            data: {
+              ...userUpdates,
+              GameplayUser: {
+                update: {
+                  username: updates.username,
+                  ...gameplayUserUpdates
+                }
+              }
             },
-            create: {
-              username: updates.username,
-              ...gameplayUserUpdates,
-              createdAt: new Date().toISOString(),
-            }
+            include: { GameplayUser: true }
           });
 
           // Update BattleSessions
@@ -481,6 +476,12 @@ export function setupUserApi(app: any) {
           await prisma.battleSessions.updateMany({
             where: { defenderUsername: username },
             data: { defenderUsername: updatedUserRecord.username },
+          });
+
+          // Update Locations
+          await prisma.locations.update({
+            where: { username },
+            data: { username: updatedUserRecord.username },
           });
 
           // Update friends arrays
