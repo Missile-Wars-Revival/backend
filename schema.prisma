@@ -45,6 +45,15 @@ model GameplayUser {
   Statistics                                                   Statistics[]
 }
 
+model PasswordResetCodes {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  code      String
+  expiry    DateTime
+  createdAt DateTime @default(now())
+  user      Users    @relation(fields: [userId], references: [id])
+}
+
 model InventoryItem {
   id           BigInt       @id @default(autoincrement())
   name         String
@@ -71,10 +80,10 @@ model Landmine {
   placedBy   String
   locLat     String   @default("")
   locLong    String   @default("")
-  placedTime DateTime @default(now())
   type       String
   Expires    DateTime
   damage     Int      @default(1)
+  placedTime DateTime @default(now())
 }
 
 model LandmineType {
@@ -107,14 +116,14 @@ model Loot {
 }
 
 model Other {
-  id      Int      @id @default(autoincrement())
-  type    String
-  radius  Int
+  id         Int      @id @default(autoincrement())
+  type       String
+  radius     Int
+  Expires    DateTime
+  locLat     String   @default("")
+  locLong    String   @default("")
+  placedBy   String   @default("")
   placedTime DateTime @default(now())
-  Expires DateTime
-  locLat  String   @default("")
-  locLong String   @default("")
-  placedBy String @default("")
 }
 
 model OtherType {
@@ -173,20 +182,21 @@ model Sessions {
 }
 
 model Users {
-  id                Int             @id @default(autoincrement())
-  email             String          @default("")
-  password          String          @default("")
-  username          String          @unique @default("")
-  role              String          @default("user")
-  avatar            String          @default("")
-  friends           String[]        @default([])
-  notificationToken String          @default("")
-  createdAt         DateTime        @default(now())
-  deletedAt         DateTime        @default(now())
-  updatedAt         DateTime        @default(now())
-  stripeCustomerId  String?         @unique
-  GameplayUser      GameplayUser?
-  Notifications     Notifications[]
+  id                 Int                  @id @default(autoincrement())
+  email              String               @default("")
+  password           String               @default("")
+  username           String               @unique @default("")
+  role               String               @default("user")
+  avatar             String               @default("")
+  friends            String[]             @default([])
+  notificationToken  String               @default("")
+  createdAt          DateTime             @default(now())
+  deletedAt          DateTime             @default(now())
+  updatedAt          DateTime             @default(now())
+  stripeCustomerId   String?              @unique
+  GameplayUser       GameplayUser?
+  Notifications      Notifications[]
+  passwordResetCodes PasswordResetCodes[]
 }
 
 model Notifications {

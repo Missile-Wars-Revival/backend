@@ -1,9 +1,7 @@
 import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import * as argon2 from "argon2";
-import * as crypto from 'crypto';
 import nodemailer from 'nodemailer';
-import { deleteResetToken, getResetTokenInfo, storeResetToken } from "../runners/usermanagment";
 import { Login, LoginSchema, Register, RegisterSchema } from "../interfaces/api";
 import { NextFunction, Request, Response } from "express";
 import { z, ZodError } from "zod";
@@ -31,6 +29,37 @@ export const validateSchema =
         next(error); // Pass the error to the next error handler
       }
     };
+
+export async function storeResetCode(userId: number, code: string, expiry: Date) {
+    await prisma.passwordResetCodes.create({
+        data: {
+            userId,
+            code,
+            expiry,
+        },
+    });
+}
+
+export async function getResetCodeInfo(userId: number, code: string) {
+    return await prisma.passwordResetCodes.findFirst({
+        where: {
+            userId,
+            code,
+        },
+    });
+}
+
+export async function deleteResetCode(userId: number) {
+    await prisma.passwordResetCodes.deleteMany({
+        where: {
+            userId,
+        },
+    });
+}
+
+export function generateRandomCode(length: number): string {
+    return Math.random().toString().slice(2, 2 + length);
+}
 
 export function setupAuthRoutes(app: any) {
     app.post("/api/login", validateSchema(LoginSchema), async (req: Request, res: Response) => {
@@ -159,22 +188,20 @@ export function setupAuthRoutes(app: any) {
                 return res.status(404).json({ message: "User not found" });
             }
 
-            const resetToken = crypto.randomBytes(32).toString('hex');
-            const resetTokenExpiry = new Date(Date.now() + 3600000); // Token valid for 1 hour
+            const resetCode = generateRandomCode(6); // Generate a 6-digit code
+            const resetCodeExpiry = new Date(Date.now() + 3600000); // Code valid for 1 hour
 
-            await storeResetToken(user.id, resetToken, resetTokenExpiry);
-
-            const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+            await storeResetCode(user.id, resetCode, resetCodeExpiry);
 
             await transporter.sendMail({
                 from: process.env.EMAIL_FROM,
                 to: user.email,
-                subject: "Password Reset Request",
-                text: `Please use the following link to reset your password: ${resetUrl}`,
-                html: `<p>Please use the following link to reset your password:</p><a href="${resetUrl}">${resetUrl}</a>`,
+                subject: "Password Reset Code",
+                text: `Your password reset code is: ${resetCode}. This code will expire in 1 hour.`,
+                html: `<p>Your password reset code is: <strong>${resetCode}</strong></p><p>This code will expire in 1 hour.</p>`,
             });
 
-            res.status(200).json({ message: "Password reset email sent" });
+            res.status(200).json({ message: "Password reset code sent to email" });
         } catch (error) {
             console.error("Password reset request failed:", error);
             res.status(500).json({ message: "Failed to process password reset request" });
@@ -182,22 +209,33 @@ export function setupAuthRoutes(app: any) {
     });
     
     app.post("/api/resetPassword", async (req: Request, res: Response) => {
-        const { token, newPassword } = req.body;
+        const { email, code, newPassword } = req.body;
 
         try {
-            const resetInfo = await getResetTokenInfo(token);
+            const user = await prisma.users.findFirst({ where: { email } });
+            if (!user) {
+                return res.status(404).json({ message: "User not found" });
+            }
+
+            const resetInfo = await getResetCodeInfo(user.id, code);
             if (!resetInfo || resetInfo.expiry < new Date()) {
-                return res.status(400).json({ message: "Invalid or expired reset token" });
+                return res.status(400).json({ message: "Invalid or expired reset code" });
+            }
+
+            if (newPassword.length < 8 || !newPassword.match(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/)) {
+                return res.status(400).json({
+                    message: "New password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+                });
             }
 
             const hashedPassword = await argon2.hash(newPassword);
 
             await prisma.users.update({
-                where: { id: resetInfo.userId },
+                where: { id: user.id },
                 data: { password: hashedPassword },
             });
 
-            await deleteResetToken(token);
+            await deleteResetCode(user.id);
 
             res.status(200).json({ message: "Password reset successful" });
         } catch (error) {
