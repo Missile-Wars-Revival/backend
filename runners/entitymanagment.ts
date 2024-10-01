@@ -84,24 +84,6 @@ export const updateMissilePositions = async () => {
 
     console.log(`Updated ${missiles.length} missiles`);
 
-    // Cleanup expired missiles
-    const expiredMissiles = await prisma.missile.findMany({
-      where: {
-        status: 'Hit',
-        timeToImpact: {
-          lt: new Date(currentTime.getTime() - 30 * 60 * 1000) // 30 minutes ago
-        }
-      },
-    });
-
-    for (const missile of expiredMissiles) {
-      await prisma.missile.delete({
-        where: { id: missile.id },
-      });
-    }
-
-    console.log(`Cleaned up ${expiredMissiles.length} expired missiles`);
-
   } catch (error) {
     console.error('Failed to update missile positions:', error);
   }
@@ -160,17 +142,32 @@ export const deleteExpiredMissiles = async () => {
     // Current time
     const now = new Date();
 
-    // Find and delete missiles where status is 'Hit' and fallout time has elapsed
-    const result = await prisma.missile.deleteMany({
-      where: {
-        status: 'Hit',
-        timeToImpact: {
-          lt: new Date(now.getTime() - 300000) // Missiles that impacted more than 30 mins ago
-        }
-      }
+    // Fetch all missile types with their fallout times
+    const missileTypes = await prisma.missileType.findMany({
+      select: { name: true, fallout: true }
     });
 
-    console.log(`${result.count} missiles deleted.`);
+    // Create a map for quick lookup
+    const falloutTimeMap = new Map(missileTypes.map(mt => [mt.name, mt.fallout]));
+
+    // Find and delete expired missiles
+    const expiredMissiles = await prisma.missile.findMany({
+      where: { status: 'Hit' },
+      select: { id: true, type: true, timeToImpact: true }
+    });
+
+    const deletedMissiles = await Promise.all(expiredMissiles.map(async (missile) => {
+      const falloutTimeMinutes = falloutTimeMap.get(missile.type) || 1800; // Default to 30 minutes if not found
+      const expirationTime = new Date(missile.timeToImpact.getTime() + falloutTimeMinutes * 60 * 1000); // Convert minutes to milliseconds
+
+      if (expirationTime < now) {
+        return prisma.missile.delete({ where: { id: missile.id } });
+      }
+      return null;
+    }));
+
+    const deletedCount = deletedMissiles.filter(Boolean).length;
+    console.log(`${deletedCount} missiles deleted.`);
   } catch (error) {
     console.error('Failed to delete expired missiles:', error);
   }
