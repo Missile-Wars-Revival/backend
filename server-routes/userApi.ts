@@ -466,11 +466,19 @@ export function setupUserApi(app: any) {
             include: { GameplayUser: true }
           });
 
-          // Update GameplayUser if necessary
-          if (Object.keys(gameplayUserUpdates).length > 0) {
-            await prisma.gameplayUser.update({
+          // Update or create GameplayUser if necessary
+          if (Object.keys(gameplayUserUpdates).length > 0 || updates.username) {
+            await prisma.gameplayUser.upsert({
               where: { username },
-              data: gameplayUserUpdates,
+              update: {
+                ...gameplayUserUpdates,
+                username: updates.username || username
+              },
+              create: {
+                username: updates.username || username,
+                ...gameplayUserUpdates,
+                createdAt: new Date().toISOString(),
+              }
             });
           }
 
@@ -514,72 +522,77 @@ export function setupUserApi(app: any) {
           const storageRef = admin.storage().bucket();
 
           try {
+            // Update user data in Firebase Realtime Database
+            const userRef = db.ref(`users/${username}`);
+            const userSnapshot = await userRef.once('value');
+            const userData = userSnapshot.val();
+            if (userData) {
+              await db.ref(`users/${updatedUserRecord.username}`).set(userData);
+              await userRef.remove();
+            }
 
-            await db.ref(`users/${username}`).once('value', async (snapshot) => {
-              const userData = snapshot.val();
-              if (userData) {
-                  await db.ref(`users/${updatedUserRecord.username}`).set(userData);
-                  await db.ref(`users/${username}`).remove();
+            // Update conversations in Firebase Realtime Database
+            const conversationsRef = db.ref('conversations');
+            const conversationsSnapshot = await conversationsRef.once('value');
+            const conversations = conversationsSnapshot.val();
+            for (const [convId, conv] of Object.entries(conversations)) {
+              let updated = false;
+              const conversation = conv as any;
+
+              // Update participants
+              if (conversation.participants && conversation.participants[username]) {
+                conversation.participants[updatedUserRecord.username] = conversation.participants[username];
+                delete conversation.participants[username];
+                updated = true;
               }
-          });
 
-          // Update conversations
-          const conversationsRef = db.ref('conversations');
-          await conversationsRef.once('value', async (snapshot) => {
-              const conversations = snapshot.val();
-              for (const [convId, conv] of Object.entries(conversations)) {
-                  let updated = false;
-                  const conversation = conv as any; // Type assertion
-
-                  // Update participants
-                  if (conversation.participants) {
-                      if (conversation.participants[username]) {
-                          conversation.participants[updatedUserRecord.username] = conversation.participants[username];
-                          delete conversation.participants[username];
-                          updated = true;
-                      }
-                  }
-
-                  // Update participantsArray
-                  if (conversation.participantsArray) {
-                      const index = conversation.participantsArray.indexOf(username);
-                      if (index !== -1) {
-                          conversation.participantsArray[index] = updatedUserRecord.username;
-                          updated = true;
-                      }
-                  }
-
-                  // Update lastMessage if necessary
-                  if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
-                      conversation.lastMessage.senderId = updatedUserRecord.username;
-                      updated = true;
-                  }
-
-                  if (updated) {
-                      await conversationsRef.child(convId).set(conversation);
-                  }
+              // Update participantsArray
+              if (conversation.participantsArray) {
+                const index = conversation.participantsArray.indexOf(username);
+                if (index !== -1) {
+                  conversation.participantsArray[index] = updatedUserRecord.username;
+                  updated = true;
+                }
               }
-          });
-            // Get the download URL for the old username
-            const [oldFile] = await storageRef.file(`profileImages/${username}`).get();
-            const [oldSignedUrl] = await oldFile.getSignedUrl({
-              action: 'read',
-              expires: '03-01-2500', // Set a far future expiration
-            });
 
-            // Copy the file with the new username
-            await storageRef.file(`profileImages/${username}`).copy(`profileImages/${updatedUserRecord.username}`);
+              // Update lastMessage if necessary
+              if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
+                conversation.lastMessage.senderId = updatedUserRecord.username;
+                updated = true;
+              }
 
-            // Delete the old file
-            await storageRef.file(`profileImages/${username}`).delete();
+              if (updated) {
+                await conversationsRef.child(convId).set(conversation);
+              }
+            }
 
-            // Update the profile picture URL in the database
-            await db.ref(`users/${updatedUserRecord.username}`).update({
-              profilePictureUrl: oldSignedUrl.split('?')[0].replace(username, updatedUserRecord.username)
-            });
+            // Update profile picture in Firebase Storage
+            const oldFilePath = `profileImages/${username}`;
+            const newFilePath = `profileImages/${updatedUserRecord.username}`;
+            try {
+              const [fileExists] = await storageRef.file(oldFilePath).exists();
+              if (fileExists) {
+                await storageRef.file(oldFilePath).copy(newFilePath);
+                await storageRef.file(oldFilePath).delete();
+
+                // Update the profile picture URL in the database
+                const [newSignedUrl] = await storageRef.file(newFilePath).getSignedUrl({
+                  action: 'read',
+                  expires: '03-01-2500',
+                });
+                await db.ref(`users/${updatedUserRecord.username}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
+              } else {
+                console.log(`No profile picture found for user ${username}`);
+              }
+            } catch (error) {
+              console.error("Error updating profile picture in Firebase:", error);
+              // Decide whether to throw this error or handle it gracefully
+              // throw error; // Uncomment this line if you want to trigger a transaction rollback
+            }
+
           } catch (error) {
-            console.error("Error updating profile picture in Firebase:", error);
-            // Don't throw the error, as we still want to complete the username change
+            console.error("Error updating Firebase:", error);
+            throw error; // Rethrow the error to trigger a transaction rollback
           }
 
           // Generate a new token with the updated username
@@ -597,11 +610,16 @@ export function setupUserApi(app: any) {
           data: userUpdates,
         });
 
-        // Update GameplayUser if necessary
+        // Update or create GameplayUser if necessary
         if (Object.keys(gameplayUserUpdates).length > 0) {
-          await prisma.gameplayUser.update({
+          await prisma.gameplayUser.upsert({
             where: { username },
-            data: gameplayUserUpdates,
+            update: gameplayUserUpdates,
+            create: {
+              username,
+              ...gameplayUserUpdates,
+              createdAt: new Date().toISOString(),
+            }
           });
         }
       }
