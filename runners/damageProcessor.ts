@@ -93,7 +93,7 @@ async function determineUsernamesToProcess(username: string, gameplayUserMap: Ma
       .map(([username, _]) => username);
   }
 }
-
+//only players in league and division
 // async function determineUsernamesToProcess(username: string, gameplayUserMap: Map<string, { friendsOnly: boolean, league?: { tier: string, division: number } }>) {
 //   const currentUser = gameplayUserMap.get(username);
 //   if (!currentUser) return [];
