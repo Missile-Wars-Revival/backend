@@ -297,11 +297,9 @@ export function setupUserApi(app: any) {
       return res.status(400).json({ message: "Token is required and must be a non-empty string." });
     }
 
-    if (!updates || !updates.username) {
-      return res.status(400).json({ message: "New username is required." });
+    if (!updates) {
+      return res.status(400).json({ message: "Updates are required." });
     }
-
-    const newUsername = updates.username;
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string, password: string };
@@ -314,122 +312,180 @@ export function setupUserApi(app: any) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      if (newUsername.length < 3 || !newUsername.match(/^[a-zA-Z0-9]+$/)) {
-        return res.status(400).json({
-          message: "New username must be at least 3 characters long and contain only letters and numbers",
-        });
+      const userUpdates: any = {};
+      const gameplayUserUpdates: any = {};
+
+      // Categorize updates
+      if (updates.email) userUpdates.email = updates.email;
+      if (updates.password) userUpdates.password = updates.password;
+      if (updates.username) userUpdates.username = updates.username;
+      if (updates.avatar) userUpdates.avatar = updates.avatar;
+
+      if (updates.money !== undefined) gameplayUserUpdates.money = updates.money;
+      if (updates.rankPoints !== undefined) gameplayUserUpdates.rankPoints = updates.rankPoints;
+      if (updates.health !== undefined) gameplayUserUpdates.health = updates.health;
+      if (updates.isAlive !== undefined) gameplayUserUpdates.isAlive = updates.isAlive;
+      if (updates.isLocationActive !== undefined) gameplayUserUpdates.locActive = updates.isLocationActive;
+
+      // Handle password update
+      if (updates.password) {
+        if (updates.password.length < 8 || !updates.password.match(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&#]{8,}$/)) {
+          return res.status(400).json({
+            message: "New password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+          });
+        }
+        userUpdates.password = await argon2.hash(updates.password);
       }
 
-      // Check if the new username already exists (case-insensitive)
-      const existingUser = await prisma.users.findFirst({
-        where: {
-          username: {
-            equals: newUsername,
-            mode: 'insensitive',
+      // Handle email update
+      if (updates.email) {
+        if (!updates.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+          return res.status(400).json({ message: "Invalid email address" });
+        }
+      }
+
+      // Handle username update
+      const newUsername = updates.username;
+      if (updates.username) {
+        if (newUsername.length < 3 || !newUsername.match(/^[a-zA-Z0-9]+$/)) {
+          return res.status(400).json({
+            message: "New username must be at least 3 characters long and contain only letters and numbers",
+          });
+        }
+
+        // Check if the new username already exists (case-insensitive)
+        const existingUser = await prisma.users.findFirst({
+          where: {
+            username: {
+              equals: newUsername,
+              mode: 'insensitive',
+            },
           },
-        },
-      });
+        });
 
-      if (existingUser) {
-        return res.status(409).json({ message: "Username already exists" });
+        if (existingUser) {
+          return res.status(409).json({ message: "Username already exists" });
+        }
       }
 
-      // Perform the username update in a transaction
+      // Perform the updates in a transaction
       await prisma.$transaction(async (prisma) => {
         // Update the Users table
-        await prisma.users.update({
+        const updatedUser = await prisma.users.update({
           where: { username: username },
-          data: { username: newUsername },
+          data: userUpdates,
         });
 
-        // Update Firebase
-        const db = admin.database();
-        const storageRef = admin.storage().bucket();
+        // Update the GameplayUser table
+        if (Object.keys(gameplayUserUpdates).length > 0) {
+          await prisma.gameplayUser.update({
+            where: { username: updatedUser.username },
+            data: gameplayUserUpdates,
+          });
+        }
 
-        try {
-          // Update user data in Firebase Realtime Database
-          const userRef = db.ref(`users/${username}`);
-          const userSnapshot = await userRef.once('value');
-          const userData = userSnapshot.val();
-          if (userData) {
-            await db.ref(`users/${newUsername}`).set(userData);
-            await userRef.remove();
-          }
+        // Update Firebase if username is changed
+        if (updates.username) {
+          const db = admin.database();
+          const storageRef = admin.storage().bucket();
 
-          // Update conversations in Firebase Realtime Database
-          const conversationsRef = db.ref('conversations');
-          const conversationsSnapshot = await conversationsRef.once('value');
-          const conversations = conversationsSnapshot.val();
-          for (const [convId, conv] of Object.entries(conversations)) {
-            let updated = false;
-            const conversation = conv as any;
-
-            // Update participants
-            if (conversation.participants && conversation.participants[username]) {
-              conversation.participants[newUsername] = conversation.participants[username];
-              delete conversation.participants[username];
-              updated = true;
-            }
-
-            // Update participantsArray
-            if (conversation.participantsArray) {
-              const index = conversation.participantsArray.indexOf(username);
-              if (index !== -1) {
-                conversation.participantsArray[index] = newUsername;
-                updated = true;
-              }
-            }
-
-            // Update lastMessage if necessary
-            if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
-              conversation.lastMessage.senderId = newUsername;
-              updated = true;
-            }
-
-            if (updated) {
-              await conversationsRef.child(convId).set(conversation);
-            }
-          }
-
-          // Update profile picture in Firebase Storage
-          const oldFilePath = `profileImages/${username}`;
-          const newFilePath = `profileImages/${newUsername}`;
           try {
-            const [fileExists] = await storageRef.file(oldFilePath).exists();
-            if (fileExists) {
-              await storageRef.file(oldFilePath).copy(newFilePath);
-              await storageRef.file(oldFilePath).delete();
-
-              // Update the profile picture URL in the database
-              const [newSignedUrl] = await storageRef.file(newFilePath).getSignedUrl({
-                action: 'read',
-                expires: '03-01-2500',
-              });
-              await db.ref(`users/${newUsername}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
-            } else {
-              console.log(`No profile picture found for user ${username}`);
+            // Update user data in Firebase Realtime Database
+            const userRef = db.ref(`users/${username}`);
+            const userSnapshot = await userRef.once('value');
+            const userData = userSnapshot.val();
+            if (userData) {
+              await db.ref(`users/${newUsername}`).set(userData);
+              await userRef.remove();
             }
+
+            // Update conversations in Firebase Realtime Database
+            const conversationsRef = db.ref('conversations');
+            const conversationsSnapshot = await conversationsRef.once('value');
+            const conversations = conversationsSnapshot.val();
+
+            if (conversations) {
+              for (const [convId, conv] of Object.entries(conversations)) {
+                let updated = false;
+                const conversation = conv as any;
+
+                // Update participants
+                if (conversation.participants && conversation.participants[username]) {
+                  conversation.participants[updates.username] = conversation.participants[username];
+                  delete conversation.participants[username];
+                  updated = true;
+                }
+
+                // Update participantsArray
+                if (conversation.participantsArray) {
+                  const index = conversation.participantsArray.indexOf(username);
+                  if (index !== -1) {
+                    conversation.participantsArray[index] = updates.username;
+                    updated = true;
+                  }
+                }
+
+                // Update lastMessage if necessary
+                if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
+                  conversation.lastMessage.senderId = updates.username;
+                  updated = true;
+                }
+
+                if (updated) {
+                  await conversationsRef.child(convId).set(conversation);
+                }
+              }
+            } else {
+              console.log('No conversations found in the database');
+            }
+
+            // Update profile picture in Firebase Storage
+            const oldFilePath = `profileImages/${username}`;
+            const newFilePath = `profileImages/${newUsername}`;
+            try {
+              const [fileExists] = await storageRef.file(oldFilePath).exists();
+              if (fileExists) {
+                await storageRef.file(oldFilePath).copy(newFilePath);
+                await storageRef.file(oldFilePath).delete();
+
+                // Update the profile picture URL in the database
+                const [newSignedUrl] = await storageRef.file(newFilePath).getSignedUrl({
+                  action: 'read',
+                  expires: '03-01-2500',
+                });
+                await db.ref(`users/${newUsername}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
+              } else {
+                console.log(`No profile picture found for user ${username}`);
+              }
+            } catch (error) {
+              console.error("Error updating profile picture in Firebase:", error);
+              // Decide whether to throw this error or handle it gracefully
+              // throw error; // Uncomment this line if you want to trigger a transaction rollback
+            }
+
           } catch (error) {
-            console.error("Error updating profile picture in Firebase:", error);
+            console.error("Error updating Firebase:", error);
+            throw error; // Rethrow the error to trigger a transaction rollback
           }
-        } catch (error) {
-          console.error("Error updating Firebase:", error);
         }
       });
 
-      // Generate a new token with the updated username and the current hashed password
+      // Generate a new token with the updated username and password (if changed)
       const newToken = jwt.sign(
-        { username: newUsername, password: user.password },
+        { 
+          username: updates.username || username, 
+          password: updates.password ? userUpdates.password : user.password 
+        },
         process.env.JWT_SECRET || ""
       );
 
       res.status(200).json({
-        message: "Username changed successfully",
+        message: "User updated successfully",
         token: newToken
       });
     } catch (error) {
-      console.error("Username change failed:", error);
-      res.status(500).json({ message: "Failed to change username" });
+      console.error("User update failed:", error);
+      res.status(500).json({ message: "Failed to update user" });
     }
   });
 }
