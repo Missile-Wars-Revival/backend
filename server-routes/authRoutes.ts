@@ -543,86 +543,74 @@ export function setupAuthRoutes(app: any) {
                 return res.status(403).json({ message: "Unauthorized to delete this account" });
             }
 
-            const db = admin.database();
-            const storageRef = admin.storage().bucket();
-            try {
-                await db.ref(`users/${username}`).remove();
-
-                // Delete profile picture from Firebase Storage
-                await storageRef.file(`profileImages/${username}`).delete().catch(() => {});
-
-                // Update conversations
-                const conversationsRef = db.ref('conversations');
-                await conversationsRef.once('value', async (snapshot) => {
-                    const conversations = snapshot.val();
-                    for (const [convId, conv] of Object.entries(conversations)) {
-                        const conversation = conv as any; // Type assertion
-                        let updated = false;
-
-                        // Remove user from participants
-                        if (conversation.participants && conversation.participants[username]) {
-                            delete conversation.participants[username];
-                            updated = true;
-                        }
-
-                        // Remove user from participantsArray
-                        if (conversation.participantsArray) {
-                            const index = conversation.participantsArray.indexOf(username);
-                            if (index !== -1) {
-                                conversation.participantsArray.splice(index, 1);
-                                updated = true;
-                            }
-                        }
-
-                        // If the conversation now has less than 2 participants, delete it
-                        if (conversation.participantsArray && conversation.participantsArray.length < 2) {
-                            await conversationsRef.child(convId).remove();
-                        } else if (updated) {
-                            // Update the conversation if changes were made
-                            await conversationsRef.child(convId).set(conversation);
-                        }
-                    }
-                });
-                // Delete the old file
-                await storageRef.file(`profileImages/${username}`).delete();
-            } catch (error) {
-                console.error("Error updating profile picture in Firebase:", error);
-                // Don't throw the error, as we still want to complete the username change
-            }
-
-            // Delete the account and related data
+            // Delete related records first
             await prisma.$transaction(async (prisma) => {
-                // Delete Notifications
-                await prisma.notifications.deleteMany({ where: { userId: username } });
-
-                // Delete FriendRequests
-                await prisma.friendRequests.deleteMany({ where: { username: username } });
-                await prisma.friendRequests.deleteMany({ where: { friend: username } });
-
-                // Delete BattleSessions
-                await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
-                await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
-
-                // Delete Locations
-                await prisma.locations.delete({ where: { username: username } }).catch(() => { });
-
-                // Delete InventoryItems
-                await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: username } } });
-
-                // Delete Statistics
-                await prisma.statistics.deleteMany({ where: { GameplayUser: { username: username } } });
-
-                // Delete GameplayUser
-                await prisma.gameplayUser.delete({ where: { username: username } }).catch(() => { });
-
-                // Finally, delete the User
-                await prisma.users.delete({ where: { username: username } });
-            });
-
-            res.status(200).json({ message: "Account deleted successfully" });
-        } catch (error) {
-            console.error("Account deletion failed:", error);
-            res.status(500).json({ message: "Failed to delete account" });
-        }
+                  // Delete Notifications
+                  await prisma.notifications.deleteMany({ where: { userId: username } });
+    
+                  // Delete FriendRequests
+                  await prisma.friendRequests.deleteMany({ where: { username: username } });
+                  await prisma.friendRequests.deleteMany({ where: { friend: username } });
+    
+                  // Delete BattleSessions
+                  await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
+                  await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
+    
+                  // Delete Locations
+                  await prisma.locations.delete({ where: { username: username } }).catch(() => {});
+    
+                  // Delete InventoryItems
+                  await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: username } } });
+    
+                  // Delete Statistics
+                  await prisma.statistics.deleteMany({ where: { GameplayUser: { username: username } } });
+    
+                  // Delete GameplayUser
+                  await prisma.gameplayUser.delete({ where: { username: username } }).catch(() => {});
+    
+                  // Finally, delete the User
+                  await prisma.users.delete({ where: { username: username } });
+                });
+    
+                console.log(`Successfully deleted ${username}`);
+    
+              // Delete user data from Firebase
+              const db = admin.database();
+              const storageRef = admin.storage().bucket();
+    
+              // Delete user data from Firebase Realtime Database
+              await db.ref(`users/${username}`).remove();
+    
+              // Delete profile picture from Firebase Storage
+              const filePath = `profileImages/${username}`;
+              try {
+                await storageRef.file(filePath).delete();
+              } catch (error) {
+                console.log(`No profile picture found for user ${username}`);
+              }
+    
+              // Remove user from conversations in Firebase Realtime Database
+              const conversationsRef = db.ref('conversations');
+              const conversationsSnapshot = await conversationsRef.once('value');
+              const conversations = conversationsSnapshot.val();
+    
+              if (conversations) {
+                for (const [convId, conv] of Object.entries(conversations)) {
+                  const conversation = conv as any;
+                  if (conversation.participants && conversation.participants[username]) {
+                    delete conversation.participants[username];
+                    if (conversation.participantsArray) {
+                      conversation.participantsArray = conversation.participantsArray.filter((p: string) => p !== username);
+                    }
+                    await conversationsRef.child(convId).set(conversation);
+                  }
+                }
+              }
+          
+              return res.status(200).json({ message: "User account deleted successfully" });
+            } catch (error) {
+              console.error(`Failed to delete user ${username}:`, error);
+              return res.status(500).json({ message: "Failed to delete user account" });
+            }
     });
 }

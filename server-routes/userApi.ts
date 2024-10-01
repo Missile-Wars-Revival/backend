@@ -344,7 +344,7 @@ export function setupUserApi(app: any) {
               await prisma.users.delete({ where: { username: username } });
             });
 
-            console.log(`Successfully deleted bot: ${username}`);
+            console.log(`Successfully deleted ${username}`);
 
           // Delete user data from Firebase
           const db = admin.database();
