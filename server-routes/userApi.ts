@@ -312,6 +312,58 @@ export function setupUserApi(app: any) {
         return res.status(404).json({ message: "User not found" });
       }
 
+      if (updates.deleteAccount === true) {
+        // Perform user deletion
+        await prisma.$transaction(async (prisma) => {
+          
+          // Delete the user from Users table
+          await prisma.users.delete({
+            where: { username: user.username }
+          });
+          
+          // Delete the user from GameplayUser table
+          await prisma.gameplayUser.delete({
+            where: { username: user.username }
+          });
+
+          // Delete user data from Firebase
+          const db = admin.database();
+          const storageRef = admin.storage().bucket();
+
+          // Delete user data from Firebase Realtime Database
+          await db.ref(`users/${user.username}`).remove();
+
+          // Delete profile picture from Firebase Storage
+          const filePath = `profileImages/${user.username}`;
+          try {
+            await storageRef.file(filePath).delete();
+          } catch (error) {
+            console.log(`No profile picture found for user ${user.username}`);
+          }
+
+          // Remove user from conversations in Firebase Realtime Database
+          const conversationsRef = db.ref('conversations');
+          const conversationsSnapshot = await conversationsRef.once('value');
+          const conversations = conversationsSnapshot.val();
+
+          if (conversations) {
+            for (const [convId, conv] of Object.entries(conversations)) {
+              const conversation = conv as any;
+              if (conversation.participants && conversation.participants[user.username]) {
+                delete conversation.participants[user.username];
+                if (conversation.participantsArray) {
+                  conversation.participantsArray = conversation.participantsArray.filter((p: string) => p !== user.username);
+                }
+                await conversationsRef.child(convId).set(conversation);
+              }
+            }
+          }
+        });
+
+        return res.status(200).json({ message: "User account deleted successfully" });
+      }
+
+      // If not deleting, proceed with the existing update logic
       const userUpdates: any = {};
       const gameplayUserUpdates: any = {};
 
@@ -447,13 +499,6 @@ export function setupUserApi(app: any) {
               if (fileExists) {
                 await storageRef.file(oldFilePath).copy(newFilePath);
                 await storageRef.file(oldFilePath).delete();
-
-                // Update the profile picture URL in the database
-                const [newSignedUrl] = await storageRef.file(newFilePath).getSignedUrl({
-                  action: 'read',
-                  expires: '03-01-2500',
-                });
-                await db.ref(`users/${newUsername}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
               } else {
                 console.log(`No profile picture found for user ${username}`);
               }
@@ -484,8 +529,8 @@ export function setupUserApi(app: any) {
         token: newToken
       });
     } catch (error) {
-      console.error("User update failed:", error);
-      res.status(500).json({ message: "Failed to update user" });
+      console.error("User operation failed:", error);
+      res.status(500).json({ message: "Failed to perform user operation" });
     }
   });
 }
