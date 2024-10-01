@@ -23,11 +23,11 @@ function authenticate(
   ws: import("ws"),
   req: Request<ParamsDictionary, any, any, any, Record<string, any>>
 ): AuthResult {
-  const authToken = req.headers["sec-websocket-protocol"] as string | undefined;
+  // Use query parameters for token instead of sec-websocket-protocol
+  const authToken = req.url ? new URL(req.url, 'http://localhost').searchParams.get('token') : undefined;
 
   if (!authToken) {
-    ws.send(JSON.stringify({ error: "Authentication failed. Token is required." }));
-    ws.close();
+    console.log("Authentication failed. Token is missing.");
     return { success: false };
   }
 
@@ -35,15 +35,14 @@ function authenticate(
     const decoded = jwt.verify(authToken, process.env.JWT_SECRET || "") as { username: string; };
 
     if (!decoded.username) {
-      ws.send(JSON.stringify({ error: "Invalid token: Username is missing." }));
-      ws.close();
+      console.log("Invalid token: Username is missing.");
       return { success: false };
     }
 
+    console.log(`Authentication successful for user: ${decoded.username}`);
     return { success: true, username: decoded.username };
   } catch (error) {
-    ws.send(JSON.stringify({ error: "Authentication failed. Invalid token." }));
-    ws.close();
+    console.log("Authentication failed. Invalid token.", error);
     return { success: false };
   }
 }
@@ -98,10 +97,12 @@ export function setupWebSocket(app: any) {
 
     if (!authResult.success) {
       console.log("Connection attempted but authentication failed");
+      ws.close(1008, "Authentication failed");
       return;
     }
 
     const username = authResult.username;
+    console.log(`WebSocket connection established for user: ${username}`);
 
     logVerbose("New connection established");
 
@@ -403,9 +404,14 @@ export function setupWebSocket(app: any) {
 
     ws.send(JSON.stringify({ message: "Connection established" }));
 
-    ws.on("close", () => {
-      logVerbose("Connection closed");
+    ws.on("error", (error: Error) => {
+      console.error("WebSocket error:", error);
+    });
+
+    ws.on("close", (code: number, reason: string) => {
+      console.log(`WebSocket closed for ${username}. Code: ${code}, Reason: ${reason}`);
       clearInterval(intervalId);
+      clearInterval(lessintervalId);
     });
   });
 }
