@@ -188,10 +188,35 @@ export function setupAuthRoutes(app: any) {
                 return res.status(404).json({ message: "User not found" });
             }
 
-            const resetCode = generateRandomCode(6); // Generate a 6-digit code
-            const resetCodeExpiry = new Date(Date.now() + 3600000); // Code valid for 1 hour
+            // Delete expired reset codes for this user
+            await prisma.passwordResetCodes.deleteMany({
+                where: {
+                    userId: user.id,
+                    expiry: { lte: new Date() }, // Delete codes where expiry is less than or equal to current time
+                },
+            });
 
-            await storeResetCode(user.id, resetCode, resetCodeExpiry);
+            // Check if a valid reset code already exists
+            const existingResetCode = await prisma.passwordResetCodes.findFirst({
+                where: {
+                    userId: user.id,
+                    expiry: { gt: new Date() }, // Check if the expiry is in the future
+                },
+            });
+
+            let resetCode: string;
+            let resetCodeExpiry: Date;
+
+            if (existingResetCode) {
+                // Use the existing reset code
+                resetCode = existingResetCode.code;
+                resetCodeExpiry = existingResetCode.expiry;
+            } else {
+                // Generate a new reset code
+                resetCode = generateRandomCode(6); // Generate a 6-digit code
+                resetCodeExpiry = new Date(Date.now() + 3600000); // Code valid for 1 hour
+                await storeResetCode(user.id, resetCode, resetCodeExpiry);
+            }
 
             await transporter.sendMail({
                 from: process.env.EMAIL_FROM,
