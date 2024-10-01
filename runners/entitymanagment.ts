@@ -444,23 +444,25 @@ export const checkAndCollectLoot = async () => {
       const LOOT_NEARBY_DISTANCE = 0.5; // 0.5 km = 500 meters
       let nearbyLootCount = 0;
       let collectedLoot = [];
-      let totalCoinsGained = 0; // Initialize to 0
+      let totalCoinsGained = 0;
       let totalRankPointsGained = 0;
       let totalHealthGained = 0;
+      let lootDropCollected = false;
 
       for (const item of loot) {
         const lootCoords = { latitude: parseFloat(item.locLat), longitude: parseFloat(item.locLong) };
-        const distance = haversineDistance(userCoords, lootCoords); // This returns distance in km
+        const distance = haversineDistance(userCoords, lootCoords);
         
         const lootNotificationId = `${item.id}-${user.id}`;
         
         if (distance <= LOOT_RADIUS) {
-          // Collect the loot
           const randomLoot = getRandomLoot(item.rarity);
           if (randomLoot) {
             if (randomLoot.category === 'Currency' && randomLoot.name === 'Coins') {
-              totalCoinsGained += 1000; // Add coins only when collected
+              totalCoinsGained += 1000;
             } else {
+              collectedLoot.push(randomLoot);
+              lootDropCollected = true;
               // Check if the item already exists in the user's inventory
               const existingItem = await prisma.inventoryItem.findFirst({
                 where: {
@@ -488,19 +490,18 @@ export const checkAndCollectLoot = async () => {
                 });
               }
             }
-            collectedLoot.push(randomLoot);
 
-            // Add rank points and health
             totalRankPointsGained += 50;
             totalHealthGained += 40;
             totalCoinsGained += 200; 
-          }
-          try {
-            await prisma.loot.delete({ where: { id: item.id } });
-            console.log(`Loot item ${item.id} deleted successfully`);
-            notifiedLootItems.delete(lootNotificationId); // Remove from notified set if collected
-          } catch (error) {
-            console.error(`Failed to delete loot item ${item.id}:`, error);
+
+            try {
+              await prisma.loot.delete({ where: { id: item.id } });
+              console.log(`Loot item ${item.id} deleted successfully`);
+              notifiedLootItems.delete(lootNotificationId);
+            } catch (error) {
+              console.error(`Failed to delete loot item ${item.id}:`, error);
+            }
           }
         } else if (distance <= LOOT_NEARBY_DISTANCE && !notifiedLootItems.has(lootNotificationId)) {
           nearbyLootCount++;
@@ -508,40 +509,43 @@ export const checkAndCollectLoot = async () => {
         }
       }
 
-      // Fetch current user health
+      // Fetch current user health and update stats
       const currentUser = await prisma.gameplayUser.findUnique({
         where: { id: user.id },
         select: { health: true }
       });
 
-      if (currentUser) {
+      if (currentUser && (totalRankPointsGained > 0 || totalCoinsGained > 0 || totalHealthGained > 0)) {
         const newHealth = Math.min(currentUser.health + totalHealthGained, 100);
         const actualHealthGained = newHealth - currentUser.health;
 
-        // Update user's rank points, money, and health
-        if (totalRankPointsGained > 0 || totalCoinsGained > 0 || actualHealthGained > 0) {
-          await prisma.gameplayUser.update({
-            where: { id: user.id },
-            data: {
-              rankPoints: { increment: totalRankPointsGained },
-              money: { increment: totalCoinsGained },
-              health: newHealth
-            }
-          });
+        await prisma.gameplayUser.update({
+          where: { id: user.id },
+          data: {
+            rankPoints: { increment: totalRankPointsGained },
+            money: { increment: totalCoinsGained },
+            health: newHealth
+          }
+        });
+
+        // Prepare a single notification for all collected loot
+        let lootMessage = [];
+        if (lootDropCollected) {
+          lootMessage.push("A Loot Drop");
+        }
+        if (totalCoinsGained > 0) {
+          lootMessage.push(`${totalCoinsGained} coins`);
         }
 
-        // Update the notification message to include all collected items
-        if (collectedLoot.length > 0) {
-          const lootMessage = collectedLoot.map(item => 
-            item.category === 'Currency' && item.name === 'Coins' ? '1000 coins' : `${item.name} (${item.category})`
-          ).join(', ');
-          const healthMessage = actualHealthGained > 0 
-            ? `and ${actualHealthGained} health`
-            : '(health already at maximum)';
+        const healthMessage = actualHealthGained > 0 
+          ? `and ${actualHealthGained} health`
+          : '(health already at maximum)';
+
+        if (lootMessage.length > 0) {
           await sendNotification(
             user.username, 
             "Loot Collected!", 
-            `You've collected: ${lootMessage}. You gained ${totalRankPointsGained} rank points, ${totalCoinsGained} coins, ${healthMessage}!`, 
+            `You've collected: ${lootMessage.join(', ')}! You gained ${totalRankPointsGained} rank points, ${totalCoinsGained} coins, ${healthMessage}!`, 
             "Server"
           );
         }
