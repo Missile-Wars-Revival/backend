@@ -336,24 +336,45 @@ export function setupUserApi(app: any) {
 
       // Perform the username update in a transaction
       await prisma.$transaction(async (prisma) => {
-        // Update the user's username
+        // 1. Update the Users table first
         await prisma.users.update({
-          where: { username: decoded.username },
+          where: { username: username },
           data: { username: newUsername },
         });
 
-        // Update or create the gameplayUser's username
-        await prisma.gameplayUser.upsert({
-          where: { username: decoded.username },
-          update: { username: newUsername },
-          create: {
-            username: newUsername,
-            createdAt: new Date().toISOString(),
-            // Add any other required fields for GameplayUser here
-          },
+        // 2. Update the GameplayUser
+        await prisma.gameplayUser.update({
+          where: { username: username },
+          data: { username: newUsername },
         });
 
-        // Find all users who have the old username in their friends list
+        // 3. Update Locations
+        await prisma.locations.update({
+          where: { username: username },
+          data: { username: newUsername },
+        });
+
+        // 4. Update BattleSessions
+        await prisma.battleSessions.updateMany({
+          where: { attackerUsername: username },
+          data: { attackerUsername: newUsername },
+        });
+        await prisma.battleSessions.updateMany({
+          where: { defenderUsername: username },
+          data: { defenderUsername: newUsername },
+        });
+
+        // 5. Update FriendRequests
+        await prisma.friendRequests.updateMany({
+          where: { username: username },
+          data: { username: newUsername },
+        });
+        await prisma.friendRequests.updateMany({
+          where: { friend: username },
+          data: { friend: newUsername },
+        });
+
+        // 6. Update friends lists of other users
         const usersToUpdate = await prisma.users.findMany({
           where: {
             friends: {
@@ -366,7 +387,6 @@ export function setupUserApi(app: any) {
           }
         });
 
-        // Update each user's friends list
         for (const user of usersToUpdate) {
           await prisma.users.update({
             where: { id: user.id },
