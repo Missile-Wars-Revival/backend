@@ -182,7 +182,7 @@ export const deleteExpiredLandmines = async () => {
     const result = await prisma.landmine.deleteMany({
       where: {
         Expires: {
-          lt: new Date(now.getTime()) // Missiles that impacted more than 5 seconds ago
+          lt: new Date(now.getTime()) // Landmines that impacted more than 5 seconds ago
         }
       }
     });
@@ -202,7 +202,7 @@ export const deleteExpiredLoot = async () => {
     const result = await prisma.loot.deleteMany({
       where: {
         Expires: {
-          lt: new Date(now.getTime()) // Landmines that expired 
+          lt: new Date(now.getTime()) // Loot that expired 
         }
       }
     });
