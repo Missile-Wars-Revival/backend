@@ -316,13 +316,13 @@ export function setupUserApi(app: any) {
         // Perform user deletion
         await prisma.$transaction(async (prisma) => {
           
-          // Delete the user from Users table
-          await prisma.users.delete({
+          // Delete the user from GameplayUser table
+          await prisma.gameplayUser.delete({
             where: { username: user.username }
           });
           
-          // Delete the user from GameplayUser table
-          await prisma.gameplayUser.delete({
+          // Delete the user from Users table
+          await prisma.users.delete({
             where: { username: user.username }
           });
 
