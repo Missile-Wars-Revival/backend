@@ -304,11 +304,6 @@ export function setupUserApi(app: any) {
         return res.status(401).json({ message: "Invalid token: username not found" });
       }
 
-      // Check if the user is authorized to make changes
-      if (decoded.username !== username) {
-        return res.status(403).json({ message: "Unauthorized to modify this account" });
-      }
-
       // Handle account deletion
       if (updates.deleteAccount) {
         const db = admin.database();
