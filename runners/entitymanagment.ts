@@ -202,7 +202,7 @@ export const deleteExpiredLoot = async () => {
     const result = await prisma.loot.deleteMany({
       where: {
         Expires: {
-          lt: new Date(now.getTime()) // Missiles that impacted more than 5 seconds ago
+          lt: new Date(now.getTime()) // Landmines that expired 
         }
       }
     });
@@ -222,7 +222,7 @@ export const deleteExpiredOther = async () => {
     const result = await prisma.other.deleteMany({
       where: {
         Expires: {
-          lt: new Date(now.getTime()) // other that impacted more than 5 seconds ago
+          lt: new Date(now.getTime()) // other that expired
         }
       }
     });
