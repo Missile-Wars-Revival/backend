@@ -375,6 +375,11 @@ export function setupAuthRoutes(app: any) {
 
             // Perform the username update in a transaction
             await prisma.$transaction(async (prisma) => {
+                await prisma.users.update({
+                    where: { username: decoded.username },
+                    data: { username: newUsername }
+                });
+
                 // Find all users who have the old username in their friends list
                 const usersToUpdate = await prisma.users.findMany({
                     where: {
@@ -456,13 +461,6 @@ export function setupAuthRoutes(app: any) {
                         if (fileExists) {
                           await storageRef.file(oldFilePath).copy(newFilePath);
                           await storageRef.file(oldFilePath).delete();
-          
-                          // Update the profile picture URL in the database
-                          const [newSignedUrl] = await storageRef.file(newFilePath).getSignedUrl({
-                            action: 'read',
-                            expires: '03-01-2500',
-                          });
-                          await db.ref(`users/${newUsername}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
                         } else {
                           console.log(`No profile picture found for user ${decoded.username}`);
                         }
