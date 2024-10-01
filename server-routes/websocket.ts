@@ -344,7 +344,7 @@ export function setupWebSocket(app: any) {
         // Send compressed data through WebSocket
         ws.send(compressedData);
 
-        console.log(`Data sent for user ${username}: health=${userhealth.health}, inventory items=${inventory.length}, player locations=${playerslocations.length}, friends=${friends.length}`);
+        //console.log(`Data sent for user ${username}: health=${userhealth.health}, inventory items=${inventory.length}, player locations=${playerslocations.length}, friends=${friends.length}`);
 
       } catch (error) {
         console.error(`Error in sendLessPeriodicData for user ${username}:`, error);
