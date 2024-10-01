@@ -545,7 +545,7 @@ export const checkAndCollectLoot = async () => {
           await sendNotification(
             user.username, 
             "Loot Collected!", 
-            `You've collected: ${lootMessage.join(', ')}! You gained ${totalRankPointsGained} rank points, ${totalCoinsGained} coins, ${healthMessage}!`, 
+            `You've collected: A Loot drop! You gained ${totalRankPointsGained} rank points, ${totalCoinsGained} coins, ${healthMessage}!`, 
             "Server"
           );
         }

@@ -381,15 +381,24 @@ export function setupAuthRoutes(app: any) {
                     data: { username: newUsername },
                 });
 
-                // Update the gameplayUser's username, create if not exists
-                await prisma.gameplayUser.upsert({
+                // Update the gameplayUser's username
+                const gameplayUser = await prisma.gameplayUser.findUnique({
                     where: { username: decoded.username },
-                    update: { username: newUsername },
-                    create: {
-                        username: newUsername,
-                        createdAt: new Date().toISOString(),
-                    },
                 });
+
+                if (gameplayUser) {
+                    await prisma.gameplayUser.update({
+                        where: { username: decoded.username },
+                        data: { username: newUsername },
+                    });
+                } else {
+                    await prisma.gameplayUser.create({
+                        data: {
+                            username: newUsername,
+                            createdAt: new Date().toISOString(),
+                        },
+                    });
+                }
 
                 // Find all users who have the old username in their friends list
                 const usersToUpdate = await prisma.users.findMany({
