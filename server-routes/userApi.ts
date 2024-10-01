@@ -458,31 +458,34 @@ export function setupUserApi(app: any) {
             where: { username },
             data: {
               ...userUpdates,
-              GameplayUser: {
-                update: {
-                  username: updates.username,
-                  ...gameplayUserUpdates
-                }
-              }
             },
             include: { GameplayUser: true }
+          });
+
+          // Then, update the GameplayUser table
+          await prisma.gameplayUser.update({
+            where: { username },
+            data: {
+              username: updates.username,
+              ...gameplayUserUpdates
+            }
           });
 
           // Update BattleSessions
           await prisma.battleSessions.updateMany({
             where: { attackerUsername: username },
-            data: { attackerUsername: updatedUserRecord.username },
+            data: { attackerUsername: updates.username },
           });
           await prisma.battleSessions.updateMany({
             where: { defenderUsername: username },
-            data: { defenderUsername: updatedUserRecord.username },
+            data: { defenderUsername: updates.username },
           });
 
           // Update Locations
           await prisma.locations.update({
             where: { username },
-            data: { username: updatedUserRecord.username },
-          });
+            data: { username: updates.username },
+          }).catch(() => {}); // Catch in case the user doesn't have a location
 
           // Update friends arrays
           const usersToUpdate = await prisma.users.findMany({
@@ -495,7 +498,7 @@ export function setupUserApi(app: any) {
               where: { id: user.id },
               data: {
                 friends: user.friends.map(friend =>
-                  friend === username ? updatedUserRecord.username : friend
+                  friend === username ? updates.username : friend
                 )
               }
             });
