@@ -290,7 +290,7 @@ export function setupUserApi(app: any) {
   });
 
   app.post("/api/editUser", async (req: Request, res: Response) => {
-    const { token, username, updates, deleteAccount } = req.body;
+    const { token, username, updates } = req.body;
 
     if (!token || !username) {
       return res.status(400).json({ success: false, message: "Missing token or username" });
@@ -308,61 +308,6 @@ export function setupUserApi(app: any) {
         return res.status(403).json({ message: "Unauthorized to modify this account" });
       }
 
-      if (deleteAccount) {
-        // Delete the account and related data
-        await prisma.$transaction(async (prisma) => {
-          // Delete Notifications
-          await prisma.notifications.deleteMany({ where: { userId: username } });
-
-          // Delete FriendRequests
-          await prisma.friendRequests.deleteMany({ where: { OR: [{ username }, { friend: username }] } });
-
-          // Delete BattleSessions
-          await prisma.battleSessions.deleteMany({ 
-            where: { OR: [{ attackerUsername: username }, { defenderUsername: username }] } 
-          });
-
-          // Delete Locations
-          await prisma.locations.delete({ where: { username } }).catch(() => {});
-
-          // Delete InventoryItems
-          await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username } } });
-
-          // Delete Statistics
-          await prisma.statistics.deleteMany({ where: { GameplayUser: { username } } });
-
-          // Delete GameplayUser
-          await prisma.gameplayUser.delete({ where: { username } }).catch(() => {});
-
-          const usersToUpdate = await prisma.users.findMany({
-            where: {
-                friends: {
-                    has: username
-                }
-            },
-            select: {
-                id: true,
-                friends: true
-            }
-        });
-
-        // Update each user's friends list
-        for (const user of usersToUpdate) {
-          await prisma.users.update({
-            where: { id: user.id },
-            data: {
-              friends: user.friends.filter(friend => friend !== username)
-            }
-          });
-        }
-
-          // Finally, delete the User
-          await prisma.users.delete({ where: { username } });
-        });
-
-        return res.status(200).json({ success: true, message: "Account deleted successfully" });
-      }
-
       // Separate updates for Users and GameplayUser
       let userUpdates: any = {};
       let gameplayUserUpdates: any = {};
@@ -378,6 +323,8 @@ export function setupUserApi(app: any) {
       if (updates.health !== undefined) gameplayUserUpdates.health = updates.health;
       if (updates.isAlive !== undefined) gameplayUserUpdates.isAlive = updates.isAlive;
       if (updates.isLocationActive !== undefined) gameplayUserUpdates.locActive = updates.isLocationActive;
+
+      if (updates.deleteAccount) userUpdates.deleteAccount = updates.deleteAccount;
 
       // Handle password update
       if (updates.password) {
@@ -505,6 +452,52 @@ export function setupUserApi(app: any) {
     } catch (error) {
       console.error("Failed to edit or delete user:", error);
       res.status(500).json({ success: false, message: "Failed to edit or delete user" });
+    }
+
+    if (updates.deleteAccount) {
+      // Delete the account and related data
+      await prisma.$transaction(async (prisma) => {
+        // Delete Notifications
+        await prisma.notifications.deleteMany({ where: { userId: username } });
+
+        // Delete FriendRequests
+        await prisma.friendRequests.deleteMany({ where: { OR: [{ username }, { friend: username }] } });
+
+        // Delete BattleSessions
+        await prisma.battleSessions.deleteMany({ 
+          where: { OR: [{ attackerUsername: username }, { defenderUsername: username }] } 
+        });
+
+        // Delete Locations
+        await prisma.locations.delete({ where: { username } }).catch(() => {});
+
+        // Delete InventoryItems
+        await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username } } });
+
+        // Delete Statistics
+        await prisma.statistics.deleteMany({ where: { GameplayUser: { username } } });
+
+        // Delete GameplayUser
+        await prisma.gameplayUser.delete({ where: { username } }).catch(() => {});
+
+        // Update friends lists of other users
+        const usersToUpdate = await prisma.users.findMany({
+          where: { friends: { has: username } },
+          select: { id: true, friends: true }
+        });
+
+        for (const user of usersToUpdate) {
+          await prisma.users.update({
+            where: { id: user.id },
+            data: { friends: user.friends.filter(friend => friend !== username) }
+          });
+        }
+
+        // Finally, delete the User
+        await prisma.users.delete({ where: { username } });
+      });
+
+      return res.status(200).json({ success: true, message: "Account deleted successfully" });
     }
   });
 }
