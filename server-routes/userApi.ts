@@ -453,49 +453,42 @@ export function setupUserApi(app: any) {
         // ... existing username validation ...
 
         updatedUser = await prisma.$transaction(async (prisma) => {
-          // First, fetch the current user and GameplayUser
+          // First, fetch the current user
           const currentUser = await prisma.users.findUnique({
             where: { username },
             include: { GameplayUser: true }
           });
 
-          if (!currentUser || !currentUser.GameplayUser) {
-            throw new Error("User or GameplayUser not found");
+          if (!currentUser) {
+            throw new Error("User not found");
           }
 
-          // Update the GameplayUser first
-          await prisma.gameplayUser.update({
-            where: { id: currentUser.GameplayUser.id },
-            data: {
-              username: updates.username,
-              ...gameplayUserUpdates
-            }
+          // Update related tables first
+          await prisma.locations.updateMany({
+            where: { username },
+            data: { username: updates.username }
           });
 
-          // Then update the Users table
-          const updatedUserRecord = await prisma.users.update({
-            where: { id: currentUser.id },
-            data: {
-              ...userUpdates,
-            },
-            include: { GameplayUser: true }
-          });
-
-          // Update BattleSessions
           await prisma.battleSessions.updateMany({
             where: { attackerUsername: username },
-            data: { attackerUsername: updates.username },
-          });
-          await prisma.battleSessions.updateMany({
-            where: { defenderUsername: username },
-            data: { defenderUsername: updates.username },
+            data: { attackerUsername: updates.username }
           });
 
-          // Update Locations
-          await prisma.locations.update({
-            where: { username },
-            data: { username: updates.username },
-          }).catch(() => {}); // Catch in case the user doesn't have a location
+          await prisma.battleSessions.updateMany({
+            where: { defenderUsername: username },
+            data: { defenderUsername: updates.username }
+          });
+
+          // Update the GameplayUser
+          if (currentUser.GameplayUser) {
+            await prisma.gameplayUser.update({
+              where: { id: currentUser.GameplayUser.id },
+              data: {
+                username: updates.username,
+                ...gameplayUserUpdates
+              }
+            });
+          }
 
           // Update friends arrays
           const usersToUpdate = await prisma.users.findMany({
@@ -514,72 +507,14 @@ export function setupUserApi(app: any) {
             });
           }
 
-          // Update Firebase
-          const db = admin.database();
-          const storageRef = admin.storage().bucket();
-
-          // Update user data in Firebase Realtime Database
-          const userRef = db.ref(`users/${username}`);
-          const userSnapshot = await userRef.once('value');
-          const userData = userSnapshot.val();
-          if (userData) {
-            await db.ref(`users/${updates.username}`).set(userData);
-            await userRef.remove();
-          }
-
-          // Update conversations in Firebase Realtime Database
-          const conversationsRef = db.ref('conversations');
-          const conversationsSnapshot = await conversationsRef.once('value');
-          const conversations = conversationsSnapshot.val();
-
-          if (conversations && typeof conversations === 'object') {
-            for (const [convId, conv] of Object.entries(conversations)) {
-              let updated = false;
-              const conversation = conv as any;
-
-              // Update participants
-              if (conversation.participants && conversation.participants[username]) {
-                conversation.participants[updates.username] = conversation.participants[username];
-                delete conversation.participants[username];
-                updated = true;
-              }
-
-              // Update participantsArray
-              if (conversation.participantsArray) {
-                const index = conversation.participantsArray.indexOf(username);
-                if (index !== -1) {
-                  conversation.participantsArray[index] = updates.username;
-                  updated = true;
-                }
-              }
-
-              // Update lastMessage if necessary
-              if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
-                conversation.lastMessage.senderId = updates.username;
-                updated = true;
-              }
-
-              if (updated) {
-                await conversationsRef.child(convId).set(conversation);
-              }
-            }
-          }
-
-          // Update profile picture in Firebase Storage
-          const oldFilePath = `profileImages/${username}`;
-          const newFilePath = `profileImages/${updates.username}`;
-          const [fileExists] = await storageRef.file(oldFilePath).exists();
-          if (fileExists) {
-            await storageRef.file(oldFilePath).copy(newFilePath);
-            await storageRef.file(oldFilePath).delete();
-
-            // Update the profile picture URL in the database
-            const [newSignedUrl] = await storageRef.file(newFilePath).getSignedUrl({
-              action: 'read',
-              expires: '03-01-2500',
-            });
-            await db.ref(`users/${updates.username}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
-          }
+          // Finally, update the Users table
+          const updatedUserRecord = await prisma.users.update({
+            where: { id: currentUser.id },
+            data: {
+              ...userUpdates,
+            },
+            include: { GameplayUser: true }
+          });
 
           return updatedUserRecord;
         });
