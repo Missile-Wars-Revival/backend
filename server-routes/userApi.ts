@@ -531,7 +531,7 @@ export function setupUserApi(app: any) {
             const conversationsSnapshot = await conversationsRef.once('value');
             const conversations = conversationsSnapshot.val();
 
-            if (conversations) {
+            if (conversations && typeof conversations === 'object') {
               for (const [convId, conv] of Object.entries(conversations)) {
                 let updated = false;
                 const conversation = conv as any;
@@ -563,7 +563,7 @@ export function setupUserApi(app: any) {
                 }
               }
             } else {
-              console.log('No conversations found in the database');
+              console.log('No conversations found in the database or conversations is not an object');
             }
 
             // Update profile picture in Firebase Storage
