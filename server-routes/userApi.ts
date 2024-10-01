@@ -309,93 +309,91 @@ export function setupUserApi(app: any) {
         const db = admin.database();
         const storageRef = admin.storage().bucket();
         try {
-
           await db.ref(`users/${username}`).remove();
 
-                // Delete profile picture from Firebase Storage
-                await storageRef.file(`profileImages/${username}`).delete().catch(() => {});
+          // Delete profile picture from Firebase Storage
+          await storageRef.file(`profileImages/${username}`).delete().catch(() => {});
 
-                // Update conversations
-                const conversationsRef = db.ref('conversations');
-                await conversationsRef.once('value', async (snapshot) => {
-                    const conversations = snapshot.val();
-                    for (const [convId, conv] of Object.entries(conversations)) {
-                        const conversation = conv as any; // Type assertion
-                        let updated = false;
+          // Update conversations
+          const conversationsRef = db.ref('conversations');
+          await conversationsRef.once('value', async (snapshot) => {
+            const conversations = snapshot.val();
+            for (const [convId, conv] of Object.entries(conversations)) {
+              const conversation = conv as any; // Type assertion
+              let updated = false;
 
-                        // Remove user from participants
-                        if (conversation.participants && conversation.participants[username]) {
-                            delete conversation.participants[username];
-                            updated = true;
-                        }
+              // Remove user from participants
+              if (conversation.participants && conversation.participants[username]) {
+                delete conversation.participants[username];
+                updated = true;
+              }
 
-                        // Remove user from participantsArray
-                        if (conversation.participantsArray) {
-                            const index = conversation.participantsArray.indexOf(username);
-                            if (index !== -1) {
-                                conversation.participantsArray.splice(index, 1);
-                                updated = true;
-                            }
-                        }
+              // Remove user from participantsArray
+              if (conversation.participantsArray) {
+                const index = conversation.participantsArray.indexOf(username);
+                if (index !== -1) {
+                  conversation.participantsArray.splice(index, 1);
+                  updated = true;
+                }
+              }
 
-                        // If the conversation now has less than 2 participants, delete it
-                        if (conversation.participantsArray && conversation.participantsArray.length < 2) {
-                            await conversationsRef.child(convId).remove();
-                        } else if (updated) {
-                            // Update the conversation if changes were made
-                            await conversationsRef.child(convId).set(conversation);
-                        }
+              // If the conversation now has less than 2 participants, delete it
+              if (conversation.participantsArray && conversation.participantsArray.length < 2) {
+                await conversationsRef.child(convId).remove();
+              } else if (updated) {
+                // Update the conversation if changes were made
+                await conversationsRef.child(convId).set(conversation);
+              }
             }
-        });
-          // Delete the old file
-          await storageRef.file(`profileImages/${username}`).delete();
-        } catch (error) {
-          console.error("Error updating profile picture in Firebase:", error);
-          // Don't throw the error, as we still want to complete the username change
-        }
-
-        await prisma.$transaction(async (prisma) => {
-          // Delete Notifications
-          await prisma.notifications.deleteMany({ where: { userId: username } });
-
-          // Delete FriendRequests
-          await prisma.friendRequests.deleteMany({ where: { OR: [{ username }, { friend: username }] } });
-
-          // Delete BattleSessions
-          await prisma.battleSessions.deleteMany({
-            where: { OR: [{ attackerUsername: username }, { defenderUsername: username }] }
           });
 
-          // Delete Locations
-          await prisma.locations.delete({ where: { username } }).catch(() => { });
+          // Delete the user data from Prisma
+          await prisma.$transaction(async (prisma) => {
+            // Delete Notifications
+            await prisma.notifications.deleteMany({ where: { userId: username } });
 
-          // Delete InventoryItems
-          await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username } } });
+            // Delete FriendRequests
+            await prisma.friendRequests.deleteMany({ where: { OR: [{ username }, { friend: username }] } });
 
-          // Delete Statistics
-          await prisma.statistics.deleteMany({ where: { GameplayUser: { username } } });
-
-          // Delete GameplayUser
-          await prisma.gameplayUser.delete({ where: { username } }).catch(() => { });
-
-          // Update friends lists of other users
-          const usersToUpdate = await prisma.users.findMany({
-            where: { friends: { has: username } },
-            select: { id: true, friends: true }
-          });
-
-          for (const user of usersToUpdate) {
-            await prisma.users.update({
-              where: { id: user.id },
-              data: { friends: user.friends.filter(friend => friend !== username) }
+            // Delete BattleSessions
+            await prisma.battleSessions.deleteMany({
+              where: { OR: [{ attackerUsername: username }, { defenderUsername: username }] }
             });
-          }
 
-          // Finally, delete the User
-          await prisma.users.delete({ where: { username } });
-        });
+            // Delete Locations
+            await prisma.locations.delete({ where: { username } }).catch(() => {});
 
-        return res.status(200).json({ success: true, message: "Account deleted successfully" });
+            // Delete InventoryItems
+            await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username } } });
+
+            // Delete Statistics
+            await prisma.statistics.deleteMany({ where: { GameplayUser: { username } } });
+
+            // Delete GameplayUser
+            await prisma.gameplayUser.delete({ where: { username } }).catch(() => {});
+
+            // Update friends lists of other users
+            const usersToUpdate = await prisma.users.findMany({
+              where: { friends: { has: username } },
+              select: { id: true, friends: true }
+            });
+
+            for (const user of usersToUpdate) {
+              await prisma.users.update({
+                where: { id: user.id },
+                data: { friends: user.friends.filter(friend => friend !== username) }
+              });
+            }
+
+            // Finally, delete the User
+            await prisma.users.delete({ where: { username } });
+          });
+
+          return res.status(200).json({ success: true, message: "Account deleted successfully" });
+        } catch (error) {
+          console.error("Error deleting account:", error);
+          return res.status(500).json({ success: false, message: "Failed to delete account" });
+        }
       }
 
       // Separate updates for Users and GameplayUser
@@ -454,35 +452,32 @@ export function setupUserApi(app: any) {
       if (updates.username) {
         // If username is being updated, use a transaction
         updatedUser = await prisma.$transaction(async (prisma) => {
-          // First, update the Users table
+          // Update Users table
           const updatedUserRecord = await prisma.users.update({
             where: { username },
             data: userUpdates,
             include: { GameplayUser: true }
           });
 
-          // Update or create GameplayUser if necessary
-          if (Object.keys(gameplayUserUpdates).length > 0 || updates.username) {
-            await prisma.gameplayUser.upsert({
-              where: { username },
-              update: {
-                ...gameplayUserUpdates,
-                username: updates.username || username
-              },
-              create: {
-                username: updates.username || username,
-                ...gameplayUserUpdates,
-                createdAt: new Date().toISOString(),
-              }
-            });
-          }
+          // Update or create GameplayUser
+          await prisma.gameplayUser.upsert({
+            where: { username },
+            update: {
+              ...gameplayUserUpdates,
+              username: updates.username
+            },
+            create: {
+              username: updates.username,
+              ...gameplayUserUpdates,
+              createdAt: new Date().toISOString(),
+            }
+          });
 
           // Update BattleSessions
           await prisma.battleSessions.updateMany({
             where: { attackerUsername: username },
             data: { attackerUsername: updatedUserRecord.username },
           });
-
           await prisma.battleSessions.updateMany({
             where: { defenderUsername: username },
             data: { defenderUsername: updatedUserRecord.username },
@@ -490,18 +485,10 @@ export function setupUserApi(app: any) {
 
           // Update friends arrays
           const usersToUpdate = await prisma.users.findMany({
-            where: {
-              friends: {
-                has: username
-              }
-            },
-            select: {
-              id: true,
-              friends: true
-            }
+            where: { friends: { has: username } },
+            select: { id: true, friends: true }
           });
 
-          // Update each user's friends list
           for (const user of usersToUpdate) {
             await prisma.users.update({
               where: { id: user.id },
@@ -513,96 +500,81 @@ export function setupUserApi(app: any) {
             });
           }
 
+          // Update Firebase
           const db = admin.database();
           const storageRef = admin.storage().bucket();
 
-          try {
-            // Update user data in Firebase Realtime Database
-            const userRef = db.ref(`users/${username}`);
-            const userSnapshot = await userRef.once('value');
-            const userData = userSnapshot.val();
-            if (userData) {
-              await db.ref(`users/${updatedUserRecord.username}`).set(userData);
-              await userRef.remove();
-            }
-
-            // Update conversations in Firebase Realtime Database
-            const conversationsRef = db.ref('conversations');
-            const conversationsSnapshot = await conversationsRef.once('value');
-            const conversations = conversationsSnapshot.val();
-
-            if (conversations && typeof conversations === 'object') {
-              for (const [convId, conv] of Object.entries(conversations)) {
-                let updated = false;
-                const conversation = conv as any;
-
-                // Update participants
-                if (conversation.participants && conversation.participants[username]) {
-                  conversation.participants[updates.username] = conversation.participants[username];
-                  delete conversation.participants[username];
-                  updated = true;
-                }
-
-                // Update participantsArray
-                if (conversation.participantsArray) {
-                  const index = conversation.participantsArray.indexOf(username);
-                  if (index !== -1) {
-                    conversation.participantsArray[index] = updates.username;
-                    updated = true;
-                  }
-                }
-
-                // Update lastMessage if necessary
-                if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
-                  conversation.lastMessage.senderId = updates.username;
-                  updated = true;
-                }
-
-                if (updated) {
-                  await conversationsRef.child(convId).set(conversation);
-                }
-              }
-            } else {
-              console.log('No conversations found in the database or conversations is not an object');
-            }
-
-            // Update profile picture in Firebase Storage
-            const oldFilePath = `profileImages/${username}`;
-            const newFilePath = `profileImages/${updatedUserRecord.username}`;
-            try {
-              const [fileExists] = await storageRef.file(oldFilePath).exists();
-              if (fileExists) {
-                await storageRef.file(oldFilePath).copy(newFilePath);
-                await storageRef.file(oldFilePath).delete();
-
-                // Update the profile picture URL in the database
-                const [newSignedUrl] = await storageRef.file(newFilePath).getSignedUrl({
-                  action: 'read',
-                  expires: '03-01-2500',
-                });
-                await db.ref(`users/${updatedUserRecord.username}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
-              } else {
-                console.log(`No profile picture found for user ${username}`);
-              }
-            } catch (error) {
-              console.error("Error updating profile picture in Firebase:", error);
-              // Decide whether to throw this error or handle it gracefully
-              // throw error; // Uncomment this line if you want to trigger a transaction rollback
-            }
-
-          } catch (error) {
-            console.error("Error updating Firebase:", error);
-            throw error; // Rethrow the error to trigger a transaction rollback
+          // Update user data in Firebase Realtime Database
+          const userRef = db.ref(`users/${username}`);
+          const userSnapshot = await userRef.once('value');
+          const userData = userSnapshot.val();
+          if (userData) {
+            await db.ref(`users/${updatedUserRecord.username}`).set(userData);
+            await userRef.remove();
           }
 
-          // Generate a new token with the updated username
-          newToken = jwt.sign(
-            { username: updatedUserRecord.username, password: decoded.password },
-            process.env.JWT_SECRET || ""
-          );
+          // Update conversations in Firebase Realtime Database
+          const conversationsRef = db.ref('conversations');
+          const conversationsSnapshot = await conversationsRef.once('value');
+          const conversations = conversationsSnapshot.val();
+
+          if (conversations && typeof conversations === 'object') {
+            for (const [convId, conv] of Object.entries(conversations)) {
+              let updated = false;
+              const conversation = conv as any;
+
+              // Update participants
+              if (conversation.participants && conversation.participants[username]) {
+                conversation.participants[updatedUserRecord.username] = conversation.participants[username];
+                delete conversation.participants[username];
+                updated = true;
+              }
+
+              // Update participantsArray
+              if (conversation.participantsArray) {
+                const index = conversation.participantsArray.indexOf(username);
+                if (index !== -1) {
+                  conversation.participantsArray[index] = updatedUserRecord.username;
+                  updated = true;
+                }
+              }
+
+              // Update lastMessage if necessary
+              if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
+                conversation.lastMessage.senderId = updatedUserRecord.username;
+                updated = true;
+              }
+
+              if (updated) {
+                await conversationsRef.child(convId).set(conversation);
+              }
+            }
+          }
+
+          // Update profile picture in Firebase Storage
+          const oldFilePath = `profileImages/${username}`;
+          const newFilePath = `profileImages/${updatedUserRecord.username}`;
+          const [fileExists] = await storageRef.file(oldFilePath).exists();
+          if (fileExists) {
+            await storageRef.file(oldFilePath).copy(newFilePath);
+            await storageRef.file(oldFilePath).delete();
+
+            // Update the profile picture URL in the database
+            const [newSignedUrl] = await storageRef.file(newFilePath).getSignedUrl({
+              action: 'read',
+              expires: '03-01-2500',
+            });
+            await db.ref(`users/${updatedUserRecord.username}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
+          }
 
           return updatedUserRecord;
         });
+
+        // Generate a new token with the updated username
+        newToken = jwt.sign(
+          { username: updatedUser.username, password: decoded.password },
+          process.env.JWT_SECRET || ""
+        );
       } else {
         // If username is not being updated, proceed as before
         updatedUser = await prisma.users.update({
