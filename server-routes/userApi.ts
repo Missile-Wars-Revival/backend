@@ -4,6 +4,7 @@ import { Request, Response } from "express";
 import { getMutualFriends } from "./friendsApi";
 import { JwtPayload } from "jsonwebtoken";
 import * as argon2 from "argon2";
+import * as admin from 'firebase-admin';
 
 interface Statistics {
   badges: string[];
@@ -318,12 +319,12 @@ export function setupUserApi(app: any) {
           await prisma.friendRequests.deleteMany({ where: { OR: [{ username }, { friend: username }] } });
 
           // Delete BattleSessions
-          await prisma.battleSessions.deleteMany({ 
-            where: { OR: [{ attackerUsername: username }, { defenderUsername: username }] } 
+          await prisma.battleSessions.deleteMany({
+            where: { OR: [{ attackerUsername: username }, { defenderUsername: username }] }
           });
 
           // Delete Locations
-          await prisma.locations.delete({ where: { username } }).catch(() => {});
+          await prisma.locations.delete({ where: { username } }).catch(() => { });
 
           // Delete InventoryItems
           await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username } } });
@@ -332,7 +333,7 @@ export function setupUserApi(app: any) {
           await prisma.statistics.deleteMany({ where: { GameplayUser: { username } } });
 
           // Delete GameplayUser
-          await prisma.gameplayUser.delete({ where: { username } }).catch(() => {});
+          await prisma.gameplayUser.delete({ where: { username } }).catch(() => { });
 
           // Update friends lists of other users
           const usersToUpdate = await prisma.users.findMany({
@@ -379,7 +380,7 @@ export function setupUserApi(app: any) {
         }
         userUpdates.password = await argon2.hash(updates.password);
       }
-  
+
       // Handle username update
       if (updates.username) {
         if (updates.username.length < 3 || !updates.username.match(/^[a-zA-Z0-9]+$/)) {
@@ -392,7 +393,7 @@ export function setupUserApi(app: any) {
           return res.status(409).json({ message: "Username already exists", field: "username" });
         }
       }
-  
+
       // Handle email update
       if (updates.email) {
         if (!updates.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
@@ -403,7 +404,7 @@ export function setupUserApi(app: any) {
           return res.status(409).json({ message: "Email already in use", field: "email" });
         }
       }
-  
+
       // Update the Users and related tables
       let updatedUser;
       let newToken;
@@ -430,7 +431,7 @@ export function setupUserApi(app: any) {
             where: { attackerUsername: username },
             data: { attackerUsername: updatedUserRecord.username },
           });
-          
+
           await prisma.battleSessions.updateMany({
             where: { defenderUsername: username },
             data: { defenderUsername: updatedUserRecord.username },
@@ -439,27 +440,53 @@ export function setupUserApi(app: any) {
           // Update friends arrays
           const usersToUpdate = await prisma.users.findMany({
             where: {
-                friends: {
-                    has: username
-                }
+              friends: {
+                has: username
+              }
             },
             select: {
-                id: true,
-                friends: true
+              id: true,
+              friends: true
             }
-        });
+          });
 
-        // Update each user's friends list
-        for (const user of usersToUpdate) {
+          // Update each user's friends list
+          for (const user of usersToUpdate) {
             await prisma.users.update({
-                where: { id: user.id },
-                data: {
-                    friends: user.friends.map(friend => 
-                        friend === username ? updatedUserRecord.username : friend
-                    )
-                }
+              where: { id: user.id },
+              data: {
+                friends: user.friends.map(friend =>
+                  friend === username ? updatedUserRecord.username : friend
+                )
+              }
             });
-        }
+          }
+
+          const db = admin.database();
+          const storageRef = admin.storage().bucket();
+
+          try {
+            // Get the download URL for the old username
+            const [oldFile] = await storageRef.file(`profileImages/${username}`).get();
+            const [oldSignedUrl] = await oldFile.getSignedUrl({
+              action: 'read',
+              expires: '03-01-2500', // Set a far future expiration
+            });
+
+            // Copy the file with the new username
+            await storageRef.file(`profileImages/${username}`).copy(`profileImages/${updatedUserRecord.username}`);
+
+            // Delete the old file
+            await storageRef.file(`profileImages/${username}`).delete();
+
+            // Update the profile picture URL in the database
+            await db.ref(`users/${updatedUserRecord.username}`).update({
+              profilePictureUrl: oldSignedUrl.split('?')[0].replace(username, updatedUserRecord.username)
+            });
+          } catch (error) {
+            console.error("Error updating profile picture in Firebase:", error);
+            // Don't throw the error, as we still want to complete the username change
+          }
 
           // Generate a new token with the updated username
           newToken = jwt.sign(
@@ -475,7 +502,7 @@ export function setupUserApi(app: any) {
           where: { username },
           data: userUpdates,
         });
-        
+
         // Update GameplayUser if necessary
         if (Object.keys(gameplayUserUpdates).length > 0) {
           await prisma.gameplayUser.update({
@@ -484,9 +511,9 @@ export function setupUserApi(app: any) {
           });
         }
       }
-  
+
       const response: any = { success: true, message: "User updated successfully", user: updatedUser };
-      
+
       // Include the new token in the response if the username was changed
       if (newToken) {
         response.token = newToken;
