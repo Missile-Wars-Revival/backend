@@ -530,35 +530,40 @@ export function setupUserApi(app: any) {
             const conversationsRef = db.ref('conversations');
             const conversationsSnapshot = await conversationsRef.once('value');
             const conversations = conversationsSnapshot.val();
-            for (const [convId, conv] of Object.entries(conversations)) {
-              let updated = false;
-              const conversation = conv as any;
 
-              // Update participants
-              if (conversation.participants && conversation.participants[username]) {
-                conversation.participants[updatedUserRecord.username] = conversation.participants[username];
-                delete conversation.participants[username];
-                updated = true;
-              }
+            if (conversations) {
+              for (const [convId, conv] of Object.entries(conversations)) {
+                let updated = false;
+                const conversation = conv as any;
 
-              // Update participantsArray
-              if (conversation.participantsArray) {
-                const index = conversation.participantsArray.indexOf(username);
-                if (index !== -1) {
-                  conversation.participantsArray[index] = updatedUserRecord.username;
+                // Update participants
+                if (conversation.participants && conversation.participants[username]) {
+                  conversation.participants[updates.username] = conversation.participants[username];
+                  delete conversation.participants[username];
                   updated = true;
                 }
-              }
 
-              // Update lastMessage if necessary
-              if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
-                conversation.lastMessage.senderId = updatedUserRecord.username;
-                updated = true;
-              }
+                // Update participantsArray
+                if (conversation.participantsArray) {
+                  const index = conversation.participantsArray.indexOf(username);
+                  if (index !== -1) {
+                    conversation.participantsArray[index] = updates.username;
+                    updated = true;
+                  }
+                }
 
-              if (updated) {
-                await conversationsRef.child(convId).set(conversation);
+                // Update lastMessage if necessary
+                if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
+                  conversation.lastMessage.senderId = updates.username;
+                  updated = true;
+                }
+
+                if (updated) {
+                  await conversationsRef.child(convId).set(conversation);
+                }
               }
+            } else {
+              console.log('No conversations found in the database');
             }
 
             // Update profile picture in Firebase Storage
