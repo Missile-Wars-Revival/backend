@@ -328,6 +328,10 @@ const LANDMINE_ALERT_DISTANCE = 0.05; // 0.05 km = 50 meters
 export const checkPlayerProximity = async () => {
   try {
     const allUsers = await prisma.gameplayUser.findMany({
+      where: {
+        isAlive: true,
+        locActive: true
+      },
       include: { Users: true, Locations: true }
     });
 
@@ -425,6 +429,10 @@ function clearNotification(entityType: string, entityId: string) {
 export const checkAndCollectLoot = async () => {
   try {
     const allUsers = await prisma.gameplayUser.findMany({
+      where: {
+        isAlive: true,
+        locActive: true
+      },
       include: { Users: true, Locations: true }
     });
 
