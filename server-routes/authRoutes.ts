@@ -74,7 +74,7 @@ export function setupAuthRoutes(app: any) {
 
         if (user && (await argon2.verify(user.password, login.password))) {
             const token = jwt.sign(
-                { username: user.username, password: user.password },
+                { username: user.username },
                 process.env.JWT_SECRET || ""
             );
 
@@ -165,7 +165,7 @@ export function setupAuthRoutes(app: any) {
             });
 
             const token = jwt.sign(
-                { username: register.username, password: register.password },
+                { username: register.username },
                 process.env.JWT_SECRET || ""
             );
 
@@ -317,7 +317,7 @@ export function setupAuthRoutes(app: any) {
 
             // Generate a new token with the updated password
             const newToken = jwt.sign(
-                { username: decoded.username, password: hashedNewPassword },
+                { username: decoded.username },
                 process.env.JWT_SECRET || ""
             );
 
@@ -477,7 +477,7 @@ export function setupAuthRoutes(app: any) {
 
             // Generate a new token with the updated username and the current hashed password
             const newToken = jwt.sign(
-                { username: newUsername, password: user.password },
+                { username: newUsername },
                 process.env.JWT_SECRET || ""
             );
 
