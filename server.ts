@@ -79,12 +79,13 @@ if (process.env.NODE_ENV === "development") {
 }
 
 // this function manages entities on the map
-setInterval(deleteExpiredMissiles, 30000);
 setInterval(addRandomLoot, 30000);
+setInterval(updateMissilePositions, 30000);
+
+setInterval(deleteExpiredMissiles, 30000);
 setInterval(deleteExpiredLandmines, 30000);
 setInterval(deleteExpiredLoot, 30000);
 setInterval(deleteExpiredOther, 30000);
-setInterval(updateMissilePositions, 30000);
 
 //player notificaitons
 setInterval(checkPlayerProximity, 15000);
