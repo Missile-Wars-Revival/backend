@@ -7,7 +7,6 @@ import * as path from 'path';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { MissileType } from "@prisma/client";
 import pLimit from 'p-limit';
-import { CronJob } from 'cron';
 
 export const prisma = new PrismaClient();
 
@@ -66,8 +65,6 @@ interface AIBot {
 
 class BehaviorTree {
   private bot: AIBot;
-  private explorationStartTime: number | null = null;
-  private explorationDuration: number = 0;
 
   constructor(bot: AIBot) {
     this.bot = bot;
@@ -123,6 +120,7 @@ class BehaviorTree {
 
       switch(action) {
         case 0: 
+          console.log(`${this.bot.username} is exploring.`);
           await this.explore(); 
           break;
         case 1: 
@@ -210,17 +208,6 @@ class BehaviorTree {
     const nearbyMissiles = await getNearbyMissiles(this.bot);
     const nearbyShields = await this.getNearbyShields(this.bot);
 
-    // Calculate average distance to nearby players
-    const avgPlayerDistance = nearbyPlayers.length > 0
-      ? nearbyPlayers.reduce((sum, player) => sum + geolib.getDistance(
-          { latitude: this.bot.latitude, longitude: this.bot.longitude },
-          { latitude: player.latitude, longitude: player.longitude }
-        ), 0) / nearbyPlayers.length
-      : 0;
-
-    // Calculate time since last attack
-    const timeSinceLastAttack = Date.now() - this.bot.lastAttackAttempt.getTime();
-
     return [
       this.bot.latitude,
       this.bot.longitude,
@@ -237,36 +224,21 @@ class BehaviorTree {
       nearbyMissiles.length,
       nearbyShields.length,
       this.bot.health,
-      this.bot.rankpoints,
-      avgPlayerDistance,
-      timeSinceLastAttack,
-      this.bot.isIdling ? 1 : 0,
-      Object.keys(this.bot.inventory).length // Number of unique items in inventory
+      this.bot.rankpoints
     ];
   }
 
   private async explore() {
-    const currentTime = Date.now();
-
-    if (this.explorationStartTime === null) {
-      // Start a new exploration session
-      this.explorationStartTime = currentTime;
-      this.explorationDuration = Math.floor(Math.random() * (300000 - 60000) + 60000); // Random duration between 1-5 minutes
-      console.log(`${this.bot.username} started exploring for ${Math.floor(this.explorationDuration / 1000)} seconds.`);
-    }
-
-    // Check if the exploration session has ended
-    if (currentTime - this.explorationStartTime >= this.explorationDuration) {
-      console.log(`${this.bot.username} finished exploring after ${Math.floor(this.explorationDuration / 1000)} seconds.`);
-      this.explorationStartTime = null;
-      return;
-    }
-
-    // Perform exploration activities
     const newLocation = getRandomLandCoordinates();
     await updateBotPosition(this.bot, newLocation);
+    console.log(`${this.bot.username} is exploring a new location.`);
 
-    // Optionally, you can add more exploration logic here
+    // Check for loot in the new location
+    const loot = await findNearbyLoot(this.bot, 2000);
+    if (loot) {
+      console.log(`${this.bot.username} found loot while exploring!`);
+      await this.collectLoot();
+    }
   }
 
   private async attack() {
@@ -356,7 +328,7 @@ class BehaviorTree {
 
     // Check if target has valid coordinates
     if (!target.latitude || !target.longitude) {
-      return "Target selected for unknown reasons (invalid coordinates)";
+      return "Target selected for unknown reasons";
     }
 
     const distance = geolib.getDistance(
@@ -368,20 +340,16 @@ class BehaviorTree {
       return `Nearby player within ${distance.toFixed(0)} meters`;
     }
 
-    // Add more specific checks here
-    if (target.rankpoints && this.bot.rankpoints) {
-      const rankDifference = target.rankpoints - this.bot.rankpoints;
-      if (rankDifference > 100) {
-        return `High-value target with ${rankDifference} more rank points`;
-      }
+    const rankDifference = target.rankpoints - this.bot.rankpoints;
+    if (rankDifference > 100) {
+      return `High-value target with ${rankDifference} more rank points`;
     }
 
     if (this.bot.personality.aggressiveness > 0.7) {
       return "Aggressive personality seeking combat";
     }
 
-    // If we reach here, we couldn't determine a specific reason
-    return `Random target selection (Distance: ${distance.toFixed(0)} meters)`;
+    return "Random target selection";
   }
 
   private async selectTarget(): Promise<any> {
@@ -391,21 +359,14 @@ class BehaviorTree {
     }
 
     const nearbyPlayers = await this.getNearbyPlayers();
-    const validNearbyPlayers = nearbyPlayers.filter(player => 
-      player.latitude && player.longitude && player.rankpoints !== undefined
-    );
+    const validNearbyPlayers = nearbyPlayers.filter(player => player.latitude && player.longitude);
     if (validNearbyPlayers.length > 0) {
       return sample(validNearbyPlayers);
     }
 
     const randomPlayer = await getRandomAlivePlayer();
     if (randomPlayer && randomPlayer.Locations && randomPlayer.Locations.latitude && randomPlayer.Locations.longitude) {
-      return {
-        ...randomPlayer,
-        latitude: parseFloat(randomPlayer.Locations.latitude),
-        longitude: parseFloat(randomPlayer.Locations.longitude),
-        rankpoints: randomPlayer.rankPoints
-      };
+      return randomPlayer;
     }
 
     console.log(`${this.bot.username} couldn't find a valid target.`);
@@ -804,34 +765,12 @@ private async idle() {
 }
 
 class NeuralNetwork {
-  model: tf.LayersModel;
+  model: tf.Sequential;
   isTraining: boolean;
 
   constructor() {
     this.model = this.initializeModel();
     this.isTraining = false;
-  }
-
-  private initializeModel(): tf.LayersModel {
-    const model = tf.sequential();
-    
-    // Input layer
-    model.add(tf.layers.dense({ units: 64, activation: 'relu', inputShape: [20] }));
-    
-    // Hidden layers
-    model.add(tf.layers.dense({ units: 128, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
-    
-    // Output layer
-    model.add(tf.layers.dense({ units: 5, activation: 'softmax' }));
-    
-    model.compile({ 
-      optimizer: tf.train.adam(0.001),
-      loss: 'categoricalCrossentropy',
-      metrics: ['accuracy']
-    });
-
-    return model;
   }
 
   predict(input: number[]): tf.Tensor {
@@ -880,7 +819,8 @@ class NeuralNetwork {
     const loadDir = path.join(process.cwd(), 'bot-models', botUsername);
     if (fs.existsSync(loadDir)) {
       try {
-        this.model = await tf.loadLayersModel(`file://${loadDir}/model.json`);
+        const loadedModel = await tf.loadLayersModel(`file://${loadDir}/model.json`);
+        this.model = this.convertToSequential(loadedModel);
         console.log(`Model loaded for bot ${botUsername} from ${loadDir}`);
       } catch (error) {
         console.error(`Error loading model for bot ${botUsername}:`, error);
@@ -890,6 +830,24 @@ class NeuralNetwork {
       console.log(`No saved model found for bot ${botUsername}. Initializing new model.`);
       this.model = this.initializeModel();
     }
+  }
+
+  private initializeModel(): tf.Sequential {
+    const model = tf.sequential();
+    model.add(tf.layers.dense({ units: 64, activation: 'relu', inputShape: [16] })); 
+    model.add(tf.layers.dense({ units: 32, activation: 'relu' }));
+    model.add(tf.layers.dense({ units: 5, activation: 'softmax' }));
+    model.compile({ optimizer: 'adam', loss: 'categoricalCrossentropy' });
+    return model;
+  }
+
+  private convertToSequential(loadedModel: tf.LayersModel): tf.Sequential {
+    const sequentialModel = tf.sequential();
+    for (const layer of loadedModel.layers) {
+      sequentialModel.add(layer);
+    }
+    sequentialModel.compile({ optimizer: 'adam', loss: 'categoricalCrossentropy' });
+    return sequentialModel;
   }
 
   async trainOnLootCollection(input: number[], reward: number) {
@@ -902,6 +860,7 @@ class NeuralNetwork {
     const target = prediction.clone();
     const collectLootIndex = 3;  // Assuming 3 is the index for collectLoot action
     
+    // Create a 2D tensor with the same shape as the prediction
     const updatedTarget = target.arraySync() as number[][];
     updatedTarget[0][collectLootIndex] = reward;
 
@@ -911,45 +870,6 @@ class NeuralNetwork {
     
     target.dispose();
     targetTensor.dispose();
-  }
-
-  async periodicRetraining(bot: AIBot) {
-    if (this.isTraining) {
-      console.log("Training already in progress. Skipping periodic retraining.");
-      return;
-    }
-
-    this.isTraining = true;
-    console.log(`Starting periodic retraining for ${bot.username}...`);
-
-    try {
-      const trainingData = await generateTrainingData(bot); // Generate training samples
-      const inputs = trainingData.map(data => data.input);
-      const outputs = trainingData.map(data => data.output);
-
-      const xs = tf.tensor2d(inputs);
-      const ys = tf.tensor2d(outputs);
-
-      await this.model.fit(xs, ys, {
-        epochs: 10,
-        batchSize: 32,
-        shuffle: true,
-        callbacks: {
-          onEpochEnd: (epoch, logs) => {
-            console.log(`Epoch ${epoch}: loss = ${logs?.loss}, accuracy = ${logs?.acc}`);
-          }
-        }
-      });
-
-      xs.dispose();
-      ys.dispose();
-
-      console.log(`Periodic retraining completed for ${bot.username}.`);
-    } catch (error) {
-      console.error(`Error during periodic retraining for ${bot.username}:`, error);
-    } finally {
-      this.isTraining = false;
-    }
   }
 }
 
@@ -1522,164 +1442,134 @@ async function loadExistingBots() {
 }
 
 async function manageAIBots() {
-  try {
-    await loadExistingBots();
+//load existing bots
+  await loadExistingBots();
 
-    // Main update interval
-    const updateInterval = new CronJob('*/20 * * * * *', async () => {
-      try {
-        const activePlayers = await prisma.users.count({
-          where: { role: "player" },
-        });
+  const updateInterval = setInterval(async () => {
+    try {
+      const activePlayers = await prisma.users.count({
+        where: { role: "player" },
+      });
 
-        const desiredBotCount = Math.min(
-          config.maxBots,
-          Math.max(config.minBots, Math.floor(activePlayers / 2))
-        );
+      const desiredBotCount = Math.min(
+        config.maxBots,
+        Math.max(config.minBots, Math.floor(activePlayers / 2))
+      );
 
-        while (aiBots.length < desiredBotCount) {
-          await createBot();
-        }
-
-        while (aiBots.length > desiredBotCount) {
-          const bot = aiBots.pop();
-          if (bot) {
-            try {
-              // Delete related records first
-              await prisma.$transaction(async (prisma) => {
-                // Delete Notifications
-                await prisma.notifications.deleteMany({ where: { userId: bot.username } });
-
-                // Delete FriendRequests
-                await prisma.friendRequests.deleteMany({ where: { username: bot.username } });
-                await prisma.friendRequests.deleteMany({ where: { friend: bot.username } });
-
-                // Delete BattleSessions
-                await prisma.battleSessions.deleteMany({ where: { attackerUsername: bot.username } });
-                await prisma.battleSessions.deleteMany({ where: { defenderUsername: bot.username } });
-
-                // Delete Locations
-                await prisma.locations.delete({ where: { username: bot.username } }).catch(() => {});
-
-                // Delete InventoryItems
-                await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: bot.username } } });
-
-                // Delete Statistics
-                await prisma.statistics.deleteMany({ where: { GameplayUser: { username: bot.username } } });
-
-                // Delete GameplayUser
-                await prisma.gameplayUser.delete({ where: { username: bot.username } }).catch(() => {});
-
-                // Finally, delete the User
-                await prisma.users.delete({ where: { username: bot.username } });
-              });
-
-              console.log(`Successfully deleted bot: ${bot.username}`);
-            } catch (error) {
-              console.error(`Failed to delete bot ${bot.username}:`, error);
-            }
-          }
-        }
-
-        const botsToUpdate = shuffle(aiBots).slice(0, config.batchSize);
-        await updateBotsInBatch(botsToUpdate);
-
-        for (const bot of botsToUpdate) {
-          if (bot.isOnline && !bot.isIdling) {
-            const target = getRandomLandCoordinates();
-            await dbLimit(() => updateBotPosition(bot, target));
-            await dbLimit(() => bot.behaviorTree.execute());
-            
-            // Reduce training frequency
-            if (Math.random() < 0.05) {  // 5% chance to train on each cycle
-              trainBot(bot).catch(error => console.error(`Error training bot ${bot.username}:`, error));
-            }
-          } else if (Math.random() < 0.1) {
-            bot.isOnline = true;
-            console.log(`${bot.username} is back online.`);
-          }
-        }
-
-        aiBots.forEach(bot => {
-          if (Math.random() < 0.05) { // 5% chance to go offline
-            setBotOffline(bot);
-          } else if (Math.random() < 0.05) { // 5% chance to go to sleep
-            setBotSleeping(bot);
-          }
-        });
-
-        for (const bot of aiBots) {
-          if (bot.isOnline) {
-            const nearbyLoot = await dbLimit(() => findNearbyLoot(bot, 2000));
-            if (nearbyLoot) {
-              console.log(`${bot.username} has detected nearby loot!`);
-              await dbLimit(() => bot.behaviorTree.collectLoot());
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Error in manageAIBots interval:", error);
+      while (aiBots.length < desiredBotCount) {
+        await createBot();
       }
-    });
 
-    // Loot check interval
-    const lootCheckInterval = new CronJob('*/100 * * * * *', async () => {
-      try {
-        for (const bot of aiBots) {
-          if (bot.isOnline) {
-            const nearbyLoot = await dbLimit(() => findNearbyLoot(bot, 2000));
-            if (nearbyLoot) {
-              console.log(`${bot.username} has detected nearby loot!`);
-              await dbLimit(() => bot.behaviorTree.collectLoot());
-            }
+      while (aiBots.length > desiredBotCount) {
+        const bot = aiBots.pop();
+        if (bot) {
+          try {
+            // Delete related records first
+            await prisma.$transaction(async (prisma) => {
+              // Delete Notifications
+              await prisma.notifications.deleteMany({ where: { userId: bot.username } });
+
+              // Delete FriendRequests
+              await prisma.friendRequests.deleteMany({ where: { username: bot.username } });
+              await prisma.friendRequests.deleteMany({ where: { friend: bot.username } });
+
+              // Delete BattleSessions
+              await prisma.battleSessions.deleteMany({ where: { attackerUsername: bot.username } });
+              await prisma.battleSessions.deleteMany({ where: { defenderUsername: bot.username } });
+
+              // Delete Locations
+              await prisma.locations.delete({ where: { username: bot.username } }).catch(() => {});
+
+              // Delete InventoryItems
+              await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: bot.username } } });
+
+              // Delete Statistics
+              await prisma.statistics.deleteMany({ where: { GameplayUser: { username: bot.username } } });
+
+              // Delete GameplayUser
+              await prisma.gameplayUser.delete({ where: { username: bot.username } }).catch(() => {});
+
+              // Finally, delete the User
+              await prisma.users.delete({ where: { username: bot.username } });
+            });
+
+            console.log(`Successfully deleted bot: ${bot.username}`);
+          } catch (error) {
+            console.error(`Failed to delete bot ${bot.username}:`, error);
           }
         }
-      } catch (error) {
-        console.error("Error in loot check interval:", error);
       }
-    });
 
-    // Daily reset job
-    const dailyResetJob = new CronJob('0 0 * * *', () => {
-      try {
+      const botsToUpdate = shuffle(aiBots).slice(0, config.batchSize);
+      await updateBotsInBatch(botsToUpdate);
+
+      for (const bot of botsToUpdate) {
+        if (bot.isOnline && !bot.isIdling) {
+          const target = getRandomLandCoordinates();
+          await dbLimit(() => updateBotPosition(bot, target));
+          await dbLimit(() => bot.behaviorTree.execute());
+          
+          // Reduce training frequency
+          if (Math.random() < 0.05) {  // 5% chance to train on each cycle
+            trainBot(bot).catch(error => console.error(`Error training bot ${bot.username}:`, error));
+          }
+        } else if (Math.random() < 0.1) {
+          bot.isOnline = true;
+          console.log(`${bot.username} is back online.`);
+        }
+      }
+
+      aiBots.forEach(bot => {
+        if (Math.random() < 0.05) { // 5% chance to go offline
+          setBotOffline(bot);
+        } else if (Math.random() < 0.05) { // 5% chance to go to sleep
+          setBotSleeping(bot);
+        }
+      });
+
+      // Reset daily missile count at midnight
+      const now = new Date();
+      if (now.getHours() === 0 && now.getMinutes() === 0) {
         aiBots.forEach(bot => {
           bot.missilesFiredToday = 0;
-          bot.lastMissileFiredAt = null;
-          bot.attackCooldown = 60000;
+          bot.lastMissileFiredAt = null; // Reset the last missile fired time
+          bot.attackCooldown = 60000; // Reset the attack cooldown
         });
         console.log("Daily missile counts and cooldowns reset for all bots.");
-      } catch (error) {
-        console.error("Error in daily reset job:", error);
       }
-    });
 
-    // Start all jobs
-    updateInterval.start();
-    lootCheckInterval.start();
-    dailyResetJob.start();
-
-    // Periodic database connection check
-    setInterval(async () => {
-      try {
-        await prisma.$queryRaw`SELECT 1`;
-      } catch (error) {
-        console.error("Database connection lost. Attempting to reconnect...");
-        await prisma.$connect();
+      for (const bot of aiBots) {
+        if (bot.isOnline) {
+          const nearbyLoot = await dbLimit(() => findNearbyLoot(bot, 2000));
+          if (nearbyLoot) {
+            console.log(`${bot.username} has detected nearby loot!`);
+            await dbLimit(() => bot.behaviorTree.collectLoot());
+          }
+        }
       }
-    }, 5 * 60 * 1000); // Check every 5 minutes
+    } catch (error) {
+      console.error("Error in manageAIBots interval:", error);
+      // Optionally, you might want to clear the interval if a critical error occurs
+      // clearInterval(updateInterval);
+    }
+  }, config.updateInterval);
 
-    // Periodic garbage collection
-    setInterval(() => {
-      if (global.gc) {
-        global.gc();
+  // Check for loot less frequently
+  setInterval(async () => {
+    try {
+      for (const bot of aiBots) {
+        if (bot.isOnline) {
+          const nearbyLoot = await dbLimit(() => findNearbyLoot(bot, 2000));
+          if (nearbyLoot) {
+            console.log(`${bot.username} has detected nearby loot!`);
+            await dbLimit(() => bot.behaviorTree.collectLoot());
+          }
+        }
       }
-    }, 30 * 60 * 1000); // Run every 30 minutes
-
-  } catch (error) {
-    console.error("Error in manageAIBots:", error);
-    // Attempt to restart the entire process
-    setTimeout(() => manageAIBots(), 60000);
-  }
+    } catch (error) {
+      console.error("Error in loot check interval:", error);
+    }
+  }, config.updateInterval * 5); // Check less frequently, e.g., every 5 update intervals
 }
 
 async function trainBot(bot: AIBot) {
@@ -1695,9 +1585,9 @@ async function trainBot(bot: AIBot) {
   console.log(`${bot.username} completed a training cycle.`);
 }
 
-async function generateTrainingData(bot: AIBot, sampleSize: number = 100): Promise<{ input: number[], output: number[] }[]> {
+async function generateTrainingData(bot: AIBot): Promise<{ input: number[], output: number[] }[]> {
   const trainingData = [];
-  for (let i = 0; i < sampleSize; i++) {
+  for (let i = 0; i < 100; i++) {  // Generate 100 training samples
     const nearbyPlayers = await getNearbyPlayers(bot);
     const nearbyLoot = await findNearbyLoot(bot, 2000);
     const nearbyMissiles = await getNearbyMissiles(bot);
@@ -1712,15 +1602,14 @@ async function generateTrainingData(bot: AIBot, sampleSize: number = 100): Promi
       bot.personality.tacticalAwareness,
       bot.personality.riskTolerance,
       bot.missilesFiredToday,
-      bot.inventory['Missiles'] || 0,
+      bot.inventory['missile'] || 0,
       bot.money,
       nearbyPlayers.length,
       nearbyLoot ? 1 : 0,
       nearbyMissiles.length,
       nearbyShields.length,
       bot.health,
-      bot.rankpoints,
-      // Add any additional inputs here
+      bot.rankpoints
     ];
     
     const output = calculateOutputProbabilities(bot, nearbyPlayers, nearbyLoot, nearbyMissiles, nearbyShields);
