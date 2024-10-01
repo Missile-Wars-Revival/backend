@@ -336,70 +336,85 @@ export function setupUserApi(app: any) {
 
       // Perform the username update in a transaction
       await prisma.$transaction(async (prisma) => {
-        // 1. Update the Users table
+        // Update the Users table
         await prisma.users.update({
           where: { username: username },
           data: { username: newUsername },
         });
 
-        // 2. Update Locations
-        await prisma.locations.update({
-          where: { username: username },
-          data: { username: newUsername },
-        });
+        // Update Firebase
+        const db = admin.database();
+        const storageRef = admin.storage().bucket();
 
-        // 3. Update BattleSessions
-        await prisma.battleSessions.updateMany({
-          where: { attackerUsername: username },
-          data: { attackerUsername: newUsername },
-        });
-        await prisma.battleSessions.updateMany({
-          where: { defenderUsername: username },
-          data: { defenderUsername: newUsername },
-        });
-
-        // 4. Update FriendRequests
-        await prisma.friendRequests.updateMany({
-          where: { username: username },
-          data: { username: newUsername },
-        });
-        await prisma.friendRequests.updateMany({
-          where: { friend: username },
-          data: { friend: newUsername },
-        });
-
-        // 5. Update friends lists of other users
-        const usersToUpdate = await prisma.users.findMany({
-          where: {
-            friends: {
-              has: username
-            }
-          },
-          select: {
-            id: true,
-            friends: true
+        try {
+          // Update user data in Firebase Realtime Database
+          const userRef = db.ref(`users/${username}`);
+          const userSnapshot = await userRef.once('value');
+          const userData = userSnapshot.val();
+          if (userData) {
+            await db.ref(`users/${newUsername}`).set(userData);
+            await userRef.remove();
           }
-        });
 
-        for (const user of usersToUpdate) {
-          await prisma.users.update({
-            where: { id: user.id },
-            data: {
-              friends: user.friends.map(friend =>
-                friend === username ? newUsername : friend
-              )
+          // Update conversations in Firebase Realtime Database
+          const conversationsRef = db.ref('conversations');
+          const conversationsSnapshot = await conversationsRef.once('value');
+          const conversations = conversationsSnapshot.val();
+          for (const [convId, conv] of Object.entries(conversations)) {
+            let updated = false;
+            const conversation = conv as any;
+
+            // Update participants
+            if (conversation.participants && conversation.participants[username]) {
+              conversation.participants[newUsername] = conversation.participants[username];
+              delete conversation.participants[username];
+              updated = true;
             }
-          });
+
+            // Update participantsArray
+            if (conversation.participantsArray) {
+              const index = conversation.participantsArray.indexOf(username);
+              if (index !== -1) {
+                conversation.participantsArray[index] = newUsername;
+                updated = true;
+              }
+            }
+
+            // Update lastMessage if necessary
+            if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
+              conversation.lastMessage.senderId = newUsername;
+              updated = true;
+            }
+
+            if (updated) {
+              await conversationsRef.child(convId).set(conversation);
+            }
+          }
+
+          // Update profile picture in Firebase Storage
+          const oldFilePath = `profileImages/${username}`;
+          const newFilePath = `profileImages/${newUsername}`;
+          try {
+            const [fileExists] = await storageRef.file(oldFilePath).exists();
+            if (fileExists) {
+              await storageRef.file(oldFilePath).copy(newFilePath);
+              await storageRef.file(oldFilePath).delete();
+
+              // Update the profile picture URL in the database
+              const [newSignedUrl] = await storageRef.file(newFilePath).getSignedUrl({
+                action: 'read',
+                expires: '03-01-2500',
+              });
+              await db.ref(`users/${newUsername}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
+            } else {
+              console.log(`No profile picture found for user ${username}`);
+            }
+          } catch (error) {
+            console.error("Error updating profile picture in Firebase:", error);
+          }
+        } catch (error) {
+          console.error("Error updating Firebase:", error);
         }
-
-        // 6. Update Notifications
-        await prisma.notifications.updateMany({
-          where: { userId: username },
-          data: { userId: newUsername },
-        });
-
-        // 7. Update Firebase
-        // ... (keep the Firebase update code as it was)
       });
 
       // Generate a new token with the updated username and the current hashed password
