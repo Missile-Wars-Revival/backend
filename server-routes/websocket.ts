@@ -197,8 +197,8 @@ export function setupWebSocket(app: any) {
           include: { GameplayUser: true }
         });
 
-        if (!currentUser || !user.league) {
-          console.log(`Current user or league not found for: ${username}`);
+        if (!currentUser) {
+          console.log(`Current user not found for: ${username}`);
           return;
         }
 
@@ -238,7 +238,6 @@ export function setupWebSocket(app: any) {
           whereClause = {
             AND: [
               { username: { not: { equals: currentUser.username } } }, // Exclude current user
-              //{ league: { tier: user.league.tier, division: user.league.division } }, // Filter by user's league and division
               { isAlive: true },
               { locActive: true },
               {
