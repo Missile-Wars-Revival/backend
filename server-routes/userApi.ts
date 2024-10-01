@@ -314,17 +314,37 @@ export function setupUserApi(app: any) {
 
       if (updates.deleteAccount === true) {
         // Perform user deletion
-        await prisma.$transaction(async (prisma) => {
-          
-          // Delete the user from GameplayUser table
-          await prisma.gameplayUser.delete({
-            where: { username: user.username }
-          });
-          
-          // Delete the user from Users table
-          await prisma.users.delete({
-            where: { username: user.username }
-          });
+          try {
+            // Delete related records first
+            await prisma.$transaction(async (prisma) => {
+              // Delete Notifications
+              await prisma.notifications.deleteMany({ where: { userId: username } });
+
+              // Delete FriendRequests
+              await prisma.friendRequests.deleteMany({ where: { username: username } });
+              await prisma.friendRequests.deleteMany({ where: { friend: username } });
+
+              // Delete BattleSessions
+              await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
+              await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
+
+              // Delete Locations
+              await prisma.locations.delete({ where: { username: username } }).catch(() => {});
+
+              // Delete InventoryItems
+              await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: username } } });
+
+              // Delete Statistics
+              await prisma.statistics.deleteMany({ where: { GameplayUser: { username: username } } });
+
+              // Delete GameplayUser
+              await prisma.gameplayUser.delete({ where: { username: username } }).catch(() => {});
+
+              // Finally, delete the User
+              await prisma.users.delete({ where: { username: username } });
+            });
+
+            console.log(`Successfully deleted bot: ${username}`);
 
           // Delete user data from Firebase
           const db = admin.database();
@@ -358,9 +378,12 @@ export function setupUserApi(app: any) {
               }
             }
           }
-        });
-
-        return res.status(200).json({ message: "User account deleted successfully" });
+      
+          return res.status(200).json({ message: "User account deleted successfully" });
+        } catch (error) {
+          console.error(`Failed to delete user ${username}:`, error);
+          return res.status(500).json({ message: "Failed to delete user account" });
+        }
       }
 
       // If not deleting, proceed with the existing update logic
