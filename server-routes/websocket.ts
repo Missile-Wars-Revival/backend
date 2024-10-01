@@ -160,18 +160,22 @@ export function setupWebSocket(app: any) {
     };
 
     const sendLessPeriodicData = async () => {
+      try {
+        //fetch gameplayer user
+        const user = await prisma.gameplayUser.findFirst({
+          where: {
+            username: username as string,
+          },
+          include: {
+            league: true
+          }
+        });
 
-      //fetch gameplayer user
-      const user = await prisma.gameplayUser.findFirst({
-        where: {
-          username: username as string,
-        },
-        include: {
-          league: true
+        if (!user) {
+          console.log(`User not found: ${username}`);
+          return;
         }
-      });
 
-      if (user) {
         // get health from gameplay user
         let userhealth = { health: user.health }
 
@@ -194,8 +198,10 @@ export function setupWebSocket(app: any) {
         });
 
         if (!currentUser || !user.league) {
+          console.log(`Current user or league not found for: ${username}`);
           return;
         }
+
         //friends data
         const friendsData = await prisma.users.findMany({
           where: {
@@ -339,9 +345,10 @@ export function setupWebSocket(app: any) {
         // Send compressed data through WebSocket
         ws.send(compressedData);
 
-      } else {
-        console.log("User items not found :(")
-        return
+        console.log(`Data sent for user ${username}: health=${userhealth.health}, inventory items=${inventory.length}, player locations=${playerslocations.length}, friends=${friends.length}`);
+
+      } catch (error) {
+        console.error(`Error in sendLessPeriodicData for user ${username}:`, error);
       }
     };
 
