@@ -5,6 +5,7 @@ import nodemailer from 'nodemailer';
 import { Login, LoginSchema, Register, RegisterSchema } from "../interfaces/api";
 import { NextFunction, Request, Response } from "express";
 import { z, ZodError } from "zod";
+import * as admin from 'firebase-admin';
 
 const transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
@@ -17,18 +18,18 @@ const transporter = nodemailer.createTransport({
 });
 
 export const validateSchema =
-  (schema: z.ZodSchema) =>
-    (req: Request, res: Response, next: NextFunction) => {
-      try {
-        schema.parse(req.body);
-        next();
-      } catch (error) {
-        if (error instanceof ZodError) {
-          return res.status(400).json(error.errors);
-        }
-        next(error); // Pass the error to the next error handler
-      }
-    };
+    (schema: z.ZodSchema) =>
+        (req: Request, res: Response, next: NextFunction) => {
+            try {
+                schema.parse(req.body);
+                next();
+            } catch (error) {
+                if (error instanceof ZodError) {
+                    return res.status(400).json(error.errors);
+                }
+                next(error); // Pass the error to the next error handler
+            }
+        };
 
 export async function storeResetCode(userId: number, code: string, expiry: Date) {
     await prisma.passwordResetCodes.create({
@@ -232,7 +233,7 @@ export function setupAuthRoutes(app: any) {
             res.status(500).json({ message: "Failed to process password reset request" });
         }
     });
-    
+
     app.post("/api/resetPassword", async (req: Request, res: Response) => {
         const { email, code, newPassword } = req.body;
 
@@ -320,7 +321,7 @@ export function setupAuthRoutes(app: any) {
                 process.env.JWT_SECRET || ""
             );
 
-            res.status(200).json({ 
+            res.status(200).json({
                 message: "Password changed successfully",
                 token: newToken
             });
@@ -404,11 +405,37 @@ export function setupAuthRoutes(app: any) {
                     await prisma.users.update({
                         where: { id: user.id },
                         data: {
-                            friends: user.friends.map(friend => 
+                            friends: user.friends.map(friend =>
                                 friend === decoded.username ? newUsername : friend
                             )
                         }
                     });
+                }
+                // Update profile picture URL in Firebase
+                const db = admin.database();
+                const storageRef = admin.storage().bucket();
+
+                try {
+                    // Get the download URL for the old username
+                    const [oldFile] = await storageRef.file(`profileImages/${decoded.username}`).get();
+                    const [oldSignedUrl] = await oldFile.getSignedUrl({
+                        action: 'read',
+                        expires: '03-01-2500', // Set a far future expiration
+                    });
+
+                    // Copy the file with the new username
+                    await storageRef.file(`profileImages/${decoded.username}`).copy(`profileImages/${newUsername}`);
+
+                    // Delete the old file
+                    await storageRef.file(`profileImages/${decoded.username}`).delete();
+
+                    // Update the profile picture URL in the database
+                    await db.ref(`users/${newUsername}`).update({
+                        profilePictureUrl: oldSignedUrl.split('?')[0].replace(decoded.username, newUsername)
+                    });
+                } catch (error) {
+                    console.error("Error updating profile picture in Firebase:", error);
+                    // Don't throw the error, as we still want to complete the username change
                 }
             });
 
@@ -418,9 +445,9 @@ export function setupAuthRoutes(app: any) {
                 process.env.JWT_SECRET || ""
             );
 
-            res.status(200).json({ 
+            res.status(200).json({
                 message: "Username changed successfully",
-                token: newToken 
+                token: newToken
             });
         } catch (error) {
             console.error("Username change failed:", error);
@@ -494,7 +521,7 @@ export function setupAuthRoutes(app: any) {
                 await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
 
                 // Delete Locations
-                await prisma.locations.delete({ where: { username: username } }).catch(() => {});
+                await prisma.locations.delete({ where: { username: username } }).catch(() => { });
 
                 // Delete InventoryItems
                 await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: username } } });
@@ -503,7 +530,7 @@ export function setupAuthRoutes(app: any) {
                 await prisma.statistics.deleteMany({ where: { GameplayUser: { username: username } } });
 
                 // Delete GameplayUser
-                await prisma.gameplayUser.delete({ where: { username: username } }).catch(() => {});
+                await prisma.gameplayUser.delete({ where: { username: username } }).catch(() => { });
 
                 // Finally, delete the User
                 await prisma.users.delete({ where: { username: username } });
