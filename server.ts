@@ -45,7 +45,8 @@ try {
 if (serviceAccount) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    databaseURL: "https://missile-wars-revival-10-default-rtdb.firebaseio.com"
+    databaseURL: "https://missile-wars-revival-10-default-rtdb.firebaseio.com",
+    storageBucket: "gs://missile-wars-revival-10.appspot.com"  // Add this line
   });
 } else {
   console.warn("Firebase initialization skipped due to missing credentials");
@@ -79,31 +80,31 @@ if (process.env.NODE_ENV === "development") {
 }
 
 // this function manages entities on the map
-setInterval(addRandomLoot, 30000);
-setInterval(updateMissilePositions, 30000);
+// setInterval(addRandomLoot, 30000);
+// setInterval(updateMissilePositions, 30000);
 
-setInterval(deleteExpiredMissiles, 30000);
-setInterval(deleteExpiredLandmines, 30000);
-setInterval(deleteExpiredLoot, 30000);
-setInterval(deleteExpiredOther, 30000);
+// setInterval(deleteExpiredMissiles, 30000);
+// setInterval(deleteExpiredLandmines, 30000);
+// setInterval(deleteExpiredLoot, 30000);
+// setInterval(deleteExpiredOther, 30000);
 
-//player notificaitons
-setInterval(checkPlayerProximity, 15000);
-//player loot
-setInterval(checkAndCollectLoot, 15000);
+// //player notificaitons
+// setInterval(checkPlayerProximity, 15000);
+// //player loot
+// setInterval(checkAndCollectLoot, 15000);
 
-//manages notifications
-startNotificationManager();
+// //manages notifications
+// startNotificationManager();
 
-// //manages leagues
-setInterval(leagueRunner, 60 * 60 * 1000);
-leagueRunner();
+// // //manages leagues
+// setInterval(leagueRunner, 60 * 60 * 1000);
+// leagueRunner();
 
-//manage damage:
-startDamageProcessing();
+// //manage damage:
+// startDamageProcessing();
 
-//manage shieldbreakers
-startShieldBreakerProcessing();
+// //manage shieldbreakers
+// startShieldBreakerProcessing();
 
 //Bots:
 //manageAIBots();
