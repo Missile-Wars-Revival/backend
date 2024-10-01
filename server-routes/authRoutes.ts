@@ -381,10 +381,14 @@ export function setupAuthRoutes(app: any) {
                     data: { username: newUsername },
                 });
 
-                // Update the gameplayUser's username
-                await prisma.gameplayUser.update({
+                // Update the gameplayUser's username, create if not exists
+                await prisma.gameplayUser.upsert({
                     where: { username: decoded.username },
-                    data: { username: newUsername },
+                    update: { username: newUsername },
+                    create: {
+                        username: newUsername,
+                        createdAt: new Date().toISOString(),
+                    },
                 });
 
                 // Find all users who have the old username in their friends list
@@ -411,77 +415,80 @@ export function setupAuthRoutes(app: any) {
                         }
                     });
                 }
-                // Update profile picture URL in Firebase
+                // Update Firebase
                 const db = admin.database();
                 const storageRef = admin.storage().bucket();
 
                 try {
+                    // Update user data in Firebase Realtime Database
+                    const userRef = db.ref(`users/${decoded.username}`);
+                    const userSnapshot = await userRef.once('value');
+                    const userData = userSnapshot.val();
+                    if (userData) {
+                        await db.ref(`users/${newUsername}`).set(userData);
+                        await userRef.remove();
+                    }
 
-                    await db.ref(`users/${decoded.username}`).once('value', async (snapshot) => {
-                        const userData = snapshot.val();
-                        if (userData) {
-                            await db.ref(`users/${newUsername}`).set(userData);
-                            await db.ref(`users/${decoded.username}`).remove();
-                        }
-                    });
-    
-                    // Update conversations
+                    // Update conversations in Firebase Realtime Database
                     const conversationsRef = db.ref('conversations');
-                    await conversationsRef.once('value', async (snapshot) => {
-                        const conversations = snapshot.val();
-                        for (const [convId, conv] of Object.entries(conversations)) {
-                            let updated = false;
-                            const conversation = conv as any; // Type assertion
-    
-                            // Update participants
-                            if (conversation.participants) {
-                                if (conversation.participants[decoded.username]) {
-                                    conversation.participants[newUsername] = conversation.participants[decoded.username];
-                                    delete conversation.participants[decoded.username];
-                                    updated = true;
-                                }
-                            }
-    
-                            // Update participantsArray
-                            if (conversation.participantsArray) {
-                                const index = conversation.participantsArray.indexOf(decoded.username);
-                                if (index !== -1) {
-                                    conversation.participantsArray[index] = newUsername;
-                                    updated = true;
-                                }
-                            }
-    
-                            // Update lastMessage if necessary
-                            if (conversation.lastMessage && conversation.lastMessage.senderId === decoded.username) {
-                                conversation.lastMessage.senderId = newUsername;
+                    const conversationsSnapshot = await conversationsRef.once('value');
+                    const conversations = conversationsSnapshot.val();
+                    for (const [convId, conv] of Object.entries(conversations)) {
+                        let updated = false;
+                        const conversation = conv as any;
+
+                        // Update participants
+                        if (conversation.participants && conversation.participants[decoded.username]) {
+                            conversation.participants[newUsername] = conversation.participants[decoded.username];
+                            delete conversation.participants[decoded.username];
+                            updated = true;
+                        }
+
+                        // Update participantsArray
+                        if (conversation.participantsArray) {
+                            const index = conversation.participantsArray.indexOf(decoded.username);
+                            if (index !== -1) {
+                                conversation.participantsArray[index] = newUsername;
                                 updated = true;
                             }
-    
-                            if (updated) {
-                                await conversationsRef.child(convId).set(conversation);
-                            }
                         }
-                    });
 
-                    // Get the download URL for the old username
-                    const [oldFile] = await storageRef.file(`profileImages/${decoded.username}`).get();
-                    const [oldSignedUrl] = await oldFile.getSignedUrl({
-                        action: 'read',
-                        expires: '03-01-2500', // Set a far future expiration
-                    });
+                        // Update lastMessage if necessary
+                        if (conversation.lastMessage && conversation.lastMessage.senderId === decoded.username) {
+                            conversation.lastMessage.senderId = newUsername;
+                            updated = true;
+                        }
 
-                    // Copy the file with the new username
-                    await storageRef.file(`profileImages/${decoded.username}`).copy(`profileImages/${newUsername}`);
+                        if (updated) {
+                            await conversationsRef.child(convId).set(conversation);
+                        }
+                    }
 
-                    // Delete the old file
-                    await storageRef.file(`profileImages/${decoded.username}`).delete();
-
-                    // Update the profile picture URL in the database
-                    await db.ref(`users/${newUsername}`).update({
-                        profilePictureUrl: oldSignedUrl.split('?')[0].replace(decoded.username, newUsername)
-                    });
+                    // Update profile picture in Firebase Storage
+                    const oldFilePath = `profileImages/${decoded.username}`;
+                    const newFilePath = `profileImages/${newUsername}`;
+                    try {
+                        const [fileExists] = await storageRef.file(oldFilePath).exists();
+                        if (fileExists) {
+                          await storageRef.file(oldFilePath).copy(newFilePath);
+                          await storageRef.file(oldFilePath).delete();
+          
+                          // Update the profile picture URL in the database
+                          const [newSignedUrl] = await storageRef.file(newFilePath).getSignedUrl({
+                            action: 'read',
+                            expires: '03-01-2500',
+                          });
+                          await db.ref(`users/${newUsername}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
+                        } else {
+                          console.log(`No profile picture found for user ${decoded.username}`);
+                        }
+                      } catch (error) {
+                        console.error("Error updating profile picture in Firebase:", error);
+                        // Decide whether to throw this error or handle it gracefully
+                        // throw error; // Uncomment this line if you want to trigger a transaction rollback
+                      }
                 } catch (error) {
-                    console.error("Error updating profile picture in Firebase:", error);
+                    console.error("Error updating Firebase:", error);
                     // Don't throw the error, as we still want to complete the username change
                 }
             });
