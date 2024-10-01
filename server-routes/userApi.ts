@@ -453,22 +453,32 @@ export function setupUserApi(app: any) {
         // ... existing username validation ...
 
         updatedUser = await prisma.$transaction(async (prisma) => {
-          // First, update the Users table
-          const updatedUserRecord = await prisma.users.update({
+          // First, fetch the current user and GameplayUser
+          const currentUser = await prisma.users.findUnique({
             where: { username },
-            data: {
-              ...userUpdates,
-            },
             include: { GameplayUser: true }
           });
 
-          // Then, update the GameplayUser table
+          if (!currentUser || !currentUser.GameplayUser) {
+            throw new Error("User or GameplayUser not found");
+          }
+
+          // Update the GameplayUser first
           await prisma.gameplayUser.update({
-            where: { username },
+            where: { id: currentUser.GameplayUser.id },
             data: {
               username: updates.username,
               ...gameplayUserUpdates
             }
+          });
+
+          // Then update the Users table
+          const updatedUserRecord = await prisma.users.update({
+            where: { id: currentUser.id },
+            data: {
+              ...userUpdates,
+            },
+            include: { GameplayUser: true }
           });
 
           // Update BattleSessions
@@ -513,7 +523,7 @@ export function setupUserApi(app: any) {
           const userSnapshot = await userRef.once('value');
           const userData = userSnapshot.val();
           if (userData) {
-            await db.ref(`users/${updatedUserRecord.username}`).set(userData);
+            await db.ref(`users/${updates.username}`).set(userData);
             await userRef.remove();
           }
 
@@ -529,7 +539,7 @@ export function setupUserApi(app: any) {
 
               // Update participants
               if (conversation.participants && conversation.participants[username]) {
-                conversation.participants[updatedUserRecord.username] = conversation.participants[username];
+                conversation.participants[updates.username] = conversation.participants[username];
                 delete conversation.participants[username];
                 updated = true;
               }
@@ -538,14 +548,14 @@ export function setupUserApi(app: any) {
               if (conversation.participantsArray) {
                 const index = conversation.participantsArray.indexOf(username);
                 if (index !== -1) {
-                  conversation.participantsArray[index] = updatedUserRecord.username;
+                  conversation.participantsArray[index] = updates.username;
                   updated = true;
                 }
               }
 
               // Update lastMessage if necessary
               if (conversation.lastMessage && conversation.lastMessage.senderId === username) {
-                conversation.lastMessage.senderId = updatedUserRecord.username;
+                conversation.lastMessage.senderId = updates.username;
                 updated = true;
               }
 
@@ -557,7 +567,7 @@ export function setupUserApi(app: any) {
 
           // Update profile picture in Firebase Storage
           const oldFilePath = `profileImages/${username}`;
-          const newFilePath = `profileImages/${updatedUserRecord.username}`;
+          const newFilePath = `profileImages/${updates.username}`;
           const [fileExists] = await storageRef.file(oldFilePath).exists();
           if (fileExists) {
             await storageRef.file(oldFilePath).copy(newFilePath);
@@ -568,7 +578,7 @@ export function setupUserApi(app: any) {
               action: 'read',
               expires: '03-01-2500',
             });
-            await db.ref(`users/${updatedUserRecord.username}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
+            await db.ref(`users/${updates.username}/profilePictureUrl`).set(newSignedUrl.split('?')[0]);
           }
 
           return updatedUserRecord;
