@@ -291,7 +291,7 @@ export function setupUserApi(app: any) {
   });
 
   app.post("/api/editUser", async (req: Request, res: Response) => {
-    const { token, username,updates } = req.body;
+    const { token, username, updates } = req.body;
 
     if (typeof token !== 'string' || !token.trim()) {
       return res.status(400).json({ message: "Token is required and must be a non-empty string." });
@@ -338,28 +338,20 @@ export function setupUserApi(app: any) {
       await prisma.$transaction(async (prisma) => {
         // Update the user's username
         await prisma.users.update({
-          where: { username: username },
+          where: { username: decoded.username },
           data: { username: newUsername },
         });
 
-        // Update the gameplayUser's username
-        const gameplayUser = await prisma.gameplayUser.findUnique({
-          where: { username: username },
+        // Update or create the gameplayUser's username
+        await prisma.gameplayUser.upsert({
+          where: { username: decoded.username },
+          update: { username: newUsername },
+          create: {
+            username: newUsername,
+            createdAt: new Date().toISOString(),
+            // Add any other required fields for GameplayUser here
+          },
         });
-
-        if (gameplayUser) {
-          await prisma.gameplayUser.update({
-            where: { username: username },
-            data: { username: newUsername },
-          });
-        } else {
-          await prisma.gameplayUser.create({
-            data: {
-              username: newUsername,
-              createdAt: new Date().toISOString(),
-            },
-          });
-        }
 
         // Find all users who have the old username in their friends list
         const usersToUpdate = await prisma.users.findMany({
