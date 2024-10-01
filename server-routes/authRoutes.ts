@@ -180,6 +180,7 @@ export function setupAuthRoutes(app: any) {
             res.status(500).json({ message: "Failed to process password reset request" });
         }
     });
+    
     app.post("/api/resetPassword", async (req: Request, res: Response) => {
         const { token, newPassword } = req.body;
 
@@ -273,11 +274,16 @@ export function setupAuthRoutes(app: any) {
             return res.status(400).json({ message: "Token is required and must be a non-empty string." });
         }
 
+        if (typeof newUsername !== 'string' || !newUsername.trim()) {
+            return res.status(400).json({ message: "New username is required and must be a non-empty string." });
+        }
+
         try {
             const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string, password: string };
             if (typeof decoded === 'string' || !decoded.username) {
                 return res.status(401).json({ message: "Invalid token" });
             }
+
             const user = await prisma.users.findUnique({ where: { username: decoded.username } });
             if (!user) {
                 return res.status(404).json({ message: "User not found" });
@@ -289,25 +295,63 @@ export function setupAuthRoutes(app: any) {
                 });
             }
 
-            const existingUser = await prisma.users.findUnique({ where: { username: newUsername } });
+            // Check if the new username already exists (case-insensitive)
+            const existingUser = await prisma.users.findFirst({
+                where: {
+                    username: {
+                        equals: newUsername,
+                        mode: 'insensitive',
+                    },
+                },
+            });
+
             if (existingUser) {
                 return res.status(409).json({ message: "Username already exists" });
             }
 
-            await prisma.users.update({
-                where: { username: decoded.username },
-                data: { username: newUsername },
+            // Perform the username update in a transaction
+            await prisma.$transaction(async (prisma) => {
+                // Update the user's username
+                await prisma.users.update({
+                    where: { username: decoded.username },
+                    data: { username: newUsername },
+                });
+
+                // Update the gameplayUser's username
+                await prisma.gameplayUser.update({
+                    where: { username: decoded.username },
+                    data: { username: newUsername },
+                });
+
+                // Find all users who have the old username in their friends list
+                const usersToUpdate = await prisma.users.findMany({
+                    where: {
+                        friends: {
+                            has: decoded.username
+                        }
+                    },
+                    select: {
+                        id: true,
+                        friends: true
+                    }
+                });
+
+                // Update each user's friends list
+                for (const user of usersToUpdate) {
+                    await prisma.users.update({
+                        where: { id: user.id },
+                        data: {
+                            friends: user.friends.map(friend => 
+                                friend === decoded.username ? newUsername : friend
+                            )
+                        }
+                    });
+                }
             });
 
-            // Update the username in the gameplayUser table
-            await prisma.gameplayUser.update({
-                where: { username: decoded.username },
-                data: { username: newUsername },
-            });
-
-            // Generate a new token with the updated username
+            // Generate a new token with the updated username and the current hashed password
             const newToken = jwt.sign(
-                { username: newUsername, password: decoded.password },
+                { username: newUsername, password: user.password },
                 process.env.JWT_SECRET || ""
             );
 
@@ -352,6 +396,60 @@ export function setupAuthRoutes(app: any) {
         } catch (error) {
             console.error("Email change failed:", error);
             res.status(500).json({ message: "Failed to change email" });
+        }
+    });
+
+    app.post("/api/deleteAccount", async (req: Request, res: Response) => {
+        const { token, username } = req.body;
+
+        if (typeof token !== 'string' || !token.trim()) {
+            return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+        }
+
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string, password: string };
+            if (typeof decoded === 'string' || !decoded.username) {
+                return res.status(401).json({ message: "Invalid token" });
+            }
+
+            // Verify that the username in the token matches the username provided
+            if (decoded.username !== username) {
+                return res.status(403).json({ message: "Unauthorized to delete this account" });
+            }
+
+            // Delete the account and related data
+            await prisma.$transaction(async (prisma) => {
+                // Delete Notifications
+                await prisma.notifications.deleteMany({ where: { userId: username } });
+
+                // Delete FriendRequests
+                await prisma.friendRequests.deleteMany({ where: { username: username } });
+                await prisma.friendRequests.deleteMany({ where: { friend: username } });
+
+                // Delete BattleSessions
+                await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
+                await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
+
+                // Delete Locations
+                await prisma.locations.delete({ where: { username: username } }).catch(() => {});
+
+                // Delete InventoryItems
+                await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: username } } });
+
+                // Delete Statistics
+                await prisma.statistics.deleteMany({ where: { GameplayUser: { username: username } } });
+
+                // Delete GameplayUser
+                await prisma.gameplayUser.delete({ where: { username: username } }).catch(() => {});
+
+                // Finally, delete the User
+                await prisma.users.delete({ where: { username: username } });
+            });
+
+            res.status(200).json({ message: "Account deleted successfully" });
+        } catch (error) {
+            console.error("Account deletion failed:", error);
+            res.status(500).json({ message: "Failed to delete account" });
         }
     });
 }
