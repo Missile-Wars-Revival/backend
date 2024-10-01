@@ -106,7 +106,7 @@ startDamageProcessing();
 startShieldBreakerProcessing();
 
 //Bots:
-manageAIBots();
+//manageAIBots();
 
 // deleteAllBots();
 
