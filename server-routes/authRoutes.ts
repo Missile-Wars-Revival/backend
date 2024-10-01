@@ -375,31 +375,6 @@ export function setupAuthRoutes(app: any) {
 
             // Perform the username update in a transaction
             await prisma.$transaction(async (prisma) => {
-                // Update the user's username
-                await prisma.users.update({
-                    where: { username: decoded.username },
-                    data: { username: newUsername },
-                });
-
-                // Update the gameplayUser's username
-                const gameplayUser = await prisma.gameplayUser.findUnique({
-                    where: { username: decoded.username },
-                });
-
-                if (gameplayUser) {
-                    await prisma.gameplayUser.update({
-                        where: { username: decoded.username },
-                        data: { username: newUsername },
-                    });
-                } else {
-                    await prisma.gameplayUser.create({
-                        data: {
-                            username: newUsername,
-                            createdAt: new Date().toISOString(),
-                        },
-                    });
-                }
-
                 // Find all users who have the old username in their friends list
                 const usersToUpdate = await prisma.users.findMany({
                     where: {
