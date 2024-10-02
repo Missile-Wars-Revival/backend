@@ -6,7 +6,7 @@ import { LoginSchema } from "../interfaces/api";
 import { validateSchema } from "./authRoutes";
 
 export function setupWebApi(app: any) {
-    app.post('/api/login', validateSchema(LoginSchema), async (req: Request, res: Response) => {
+    app.post('/api/Weblogin', validateSchema(LoginSchema), async (req: Request, res: Response) => {
         const { username, password } = req.body;
 
         const user = await prisma.users.findFirst({
@@ -18,7 +18,7 @@ export function setupWebApi(app: any) {
                 { username: user.username },
                 process.env.JWT_SECRET || ""
             );
-
+    
             // Set the token as an HTTP-only cookie
             res.cookie('auth_token', token, {
                 httpOnly: true,
@@ -26,8 +26,9 @@ export function setupWebApi(app: any) {
                 sameSite: 'strict',
                 maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
             });
-
-            res.status(200).json({ message: 'Login successful' });
+    
+            // Also send the token in the response body
+            res.status(200).json({ message: 'Login successful', token: token });
         } else {
             res.status(401).json({ message: 'Invalid username or password' });
         }
@@ -48,13 +49,13 @@ export function setupWebApi(app: any) {
     };
 
     // Logout endpoint
-    app.post('/api/logout', (req: Request, res: Response) => {
+    app.post('/api/Weblogout', (req: Request, res: Response) => {
         res.clearCookie('auth_token');
         res.status(200).json({ message: 'Logged out successfully' });
     });
 
     // Example of a protected route
-    app.get('/api/protected', verifyToken, (req: Request, res: Response) => {
+    app.get('/api/Webprotected', verifyToken, (req: Request, res: Response) => {
         res.status(200).json({ message: 'Access granted to protected route' });
     });
 
