@@ -27,6 +27,7 @@ import { startDamageProcessing } from "./runners/damageProcessor";
 import * as admin from 'firebase-admin'
 import { setupMessageListener } from "./runners/messageListener";
 import { startShieldBreakerProcessing } from "./runners/shieldbreaker";
+import { setupWebApi } from "./server-routes/webApi";
 
 export const prisma = new PrismaClient();
 
@@ -121,6 +122,7 @@ if (serviceAccount) {
 // api routes
 setupAccessoryApi(app);
 setupAuthRoutes(app);
+setupWebApi(app);
 setupEntityApi(app);
 setupFriendsApi(app);
 setupHealthApi(app);
