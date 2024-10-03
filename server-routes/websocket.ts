@@ -114,19 +114,22 @@ export function setupWebSocket(app: any) {
         include: { GameplayUser: true }
       });
 
-      if (!currentUser) {
+      if (!currentUser || !currentUser.GameplayUser) {
         return;
       }
-      //filtering:
+
+      // Check if the user is alive and has an active location
+      const isUserActiveAndAlive = currentUser.GameplayUser.isAlive && currentUser.GameplayUser.locActive;
+
       // Fetch mutual friends usernames and include the current user's username
       const mutualFriendsUsernames = await getMutualFriends(currentUser);
-      mutualFriendsUsernames.push(currentUser.username); // Ensure not to include the current user
+      mutualFriendsUsernames.push(currentUser.username);
 
-      let usernamesToFetchEntitesFrom = [];
+      let usernamesToFetchEntitiesFrom = [];
 
-      if (currentUser.GameplayUser && currentUser.GameplayUser.friendsOnly) {
-        // If friendsOnly is enabled, only fetch missiles from mutual friends
-        usernamesToFetchEntitesFrom = mutualFriendsUsernames;
+      if (currentUser.GameplayUser.friendsOnly) {
+        // If friendsOnly is enabled, only fetch entities from mutual friends
+        usernamesToFetchEntitiesFrom = mutualFriendsUsernames;
       } else {
         // Fetch all usernames who are not in friendsOnly mode or are mutual friends
         const nonFriendsOnlyUsers = await prisma.gameplayUser.findMany({
@@ -136,20 +139,26 @@ export function setupWebSocket(app: any) {
               { username: { in: mutualFriendsUsernames } }
             ]
           },
-          select: {
-            username: true // We only need the username for the missile query
-          }
+          select: { username: true }
         });
 
-        usernamesToFetchEntitesFrom = nonFriendsOnlyUsers.map(u => u.username);
+        usernamesToFetchEntitiesFrom = nonFriendsOnlyUsers.map(u => u.username);
       }
 
-      // Use cached data instead of fetching from the database every time
+      // Filter cached data based on usernamesToFetchEntitiesFrom
+      const filteredMissiles = cache.missiles.filter(missile => usernamesToFetchEntitiesFrom.includes(missile.sentbyusername));
+      const filteredLandmines = cache.landmines.filter(landmine => usernamesToFetchEntitiesFrom.includes(landmine.placedby));
+
+      // Use filtered data, but only if the user is active and alive
       let dataBundle = new middleearth.WebSocketMessage([
-        new middleearth.WSMsg('loot', cache.loot),
+        // Only include these if the user is active and alive
+        ...(isUserActiveAndAlive ? [
+          new middleearth.WSMsg('loot', cache.loot), // Loot is not filtered
+          new middleearth.WSMsg('landmines', filteredLandmines),
+          new middleearth.WSMsg('missiles', filteredMissiles),
+        ] : []),
+        // Always include 'other' data (which includes shields and loot), unfiltered
         new middleearth.WSMsg('other', cache.other),
-        new middleearth.WSMsg('landmines', cache.landmines),
-        new middleearth.WSMsg('missiles', cache.missiles),
       ]);
 
       // Compress the data bundle
