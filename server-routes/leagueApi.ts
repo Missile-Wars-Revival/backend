@@ -441,11 +441,11 @@ export async function checkAndUpdateUserLeagues() {
 
 async function awardLeagueBadge(userId: number, tier: string) {
   const badgeMap: { [key: string]: string } = {
-    'Bronze': 'BRONZE_LEAGUE',
-    'Silver': 'SILVER_LEAGUE',
-    'Gold': 'GOLD_LEAGUE',
-    'Diamond': 'DIAMOND_LEAGUE',
-    'Legend': 'LEGEND_LEAGUE',
+    'Bronze': 'Bronze League',
+    'Silver': 'Silver League',
+    'Gold': 'Gold League',
+    'Diamond': 'Dimond League',
+    'Legend': 'Legend League',
   };
 
   const badge = badgeMap[tier];
