@@ -63,6 +63,8 @@ export const processShieldBreakers = async () => {
                 lte: (parseFloat(shield.locLong) + shield.radius / (111.32 * Math.cos(parseFloat(shield.locLat) * Math.PI / 180))).toString(),
               },
             },
+            isAlive: true,
+            locActive: true,
           },
         });
 
