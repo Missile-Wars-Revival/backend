@@ -235,6 +235,11 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
       const lastDeath = lastDeathTime.get(user.username);
       if (lastDeath && Date.now() - lastDeath < FIVE_MINUTES) {
         console.log(`User ${user.username} is in grace period. Stopping damage application.`);
+        
+        // Alert the attacker about the grace period
+        const gracePeriodMessage = `Your ${damageSource} (${receivedType}) did not damage ${user.username} because they are in a grace period after respawning.`;
+        await sendNotification(attackerUsername, "Attack Ineffective", gracePeriodMessage, "server");
+        
         return;
       }
 
@@ -336,7 +341,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
         if (updatedUser.health <= 0 && updatedUser.isAlive) {
           // Calculate penalties for the eliminated user
           const moneyLoss = Math.floor(updatedUser.money * 0.2);
-          const maxRankPointsLoss = Math.floor(Math.random() * (30 - 5 + 1)) + 5; // Random value between 5 and 30
+          const maxRankPointsLoss = Math.floor(Math.random() * (30 - 10 + 1)) + 10; // Random value between 10 and 30
           const rankPointsLoss = Math.min(updatedUser.rankPoints, maxRankPointsLoss);
 
           await prisma.gameplayUser.update({
@@ -375,6 +380,10 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
           // Create a notification for the eliminated user
           const eliminationMessage = `You have been eliminated by a ${receivedType} ${damageSource} sent by ${attackerUsername}! You lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`;
           await sendNotification(user.username, "Eliminated!", eliminationMessage, attackerUsername);
+
+          //grace period notification
+          const gracePeriodMessage = `You have entered a 5-minute grace period. During this time, you will be protected from all damage.`;
+          await sendNotification(user.username, "Grace Period Activated", gracePeriodMessage, "server");
 
           // Update death statistic
           await updateDeathStatistic(user.id, prisma);

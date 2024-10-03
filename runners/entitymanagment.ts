@@ -381,8 +381,8 @@ export const checkPlayerProximity = async () => {
               }
 
               const message = distance <= missile.radius / 1000
-                ? `A missile is approaching your location! ETA: ${etaString}. Take cover!`
-                : `A missile is approaching nearby! ETA: ${etaString}. Be prepared to take cover.`;
+                ? `A ${missile.type} missile is approaching your location! ETA: ${etaString}. Take cover!`
+                : `A ${missile.type} missile is approaching nearby! ETA: ${etaString}. Be prepared to take cover.`;
               await sendNotification(user.username, "Missile Alert!", message, "Server");
               notifiedEntities.add(entityId);
             }
@@ -403,7 +403,7 @@ export const checkPlayerProximity = async () => {
         const entityId = `landmine-${landmine.id}-${user.id}`;
         
         if (!notifiedEntities.has(entityId) && distance <= LANDMINE_ALERT_DISTANCE) {
-          await sendNotification(user.username, "Landmine Nearby!", `Caution: You're within 50 meters of a landmine!`, "Server");
+          await sendNotification(user.username, "Landmine Nearby!", `Caution: You're within 50 meters of a ${landmine.type} landmine!`, "Server");
           notifiedEntities.add(entityId);
         }
       }
