@@ -89,11 +89,11 @@ async function determineUsernamesToProcess(username: string, gameplayUserMap: Ma
   const mutualFriendsUsernames = mutualFriends.map(friend => friend.username);
 
   if (currentUser.friendsOnly) {
-    // If friendsOnly is true, only return mutual friends
+    // If friendsOnly is true, return mutual friends
     return mutualFriendsUsernames;
   } else {
     // If friendsOnly is false, return:
-    // 1. All mutual friends
+    // 1. All mutual friends (regardless of their friendsOnly status)
     // 2. All users who have friendsOnly set to false
     const nonFriendsOnlyUsers = Array.from(gameplayUserMap.entries())
       .filter(([otherUsername, user]) => !user.friendsOnly && otherUsername !== username)
@@ -253,7 +253,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
       }
 
       // Check if the user is not alive or protected by a shield, and if so, stop the damage application
-      if (!currentUser || !currentUser.isAlive || !currentUser.Locations ||!currentUser.Locations) {
+      if (!currentUser || !currentUser.isAlive ||!currentUser.Locations) {
         console.log(`User ${user.username} is not alive or has no location. Stopping damage application.`);
         return;
       }
