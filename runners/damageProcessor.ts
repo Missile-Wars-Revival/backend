@@ -78,19 +78,28 @@ async function determineUsernamesToProcess(username: string, gameplayUserMap: Ma
   const currentUser = gameplayUserMap.get(username);
   if (!currentUser) return [];
 
+  // Get mutual friends for the current user
+  let mutualFriends;
+  try {
+    mutualFriends = await getMutualFriends({ friends: [], username: username });
+  } catch (error) {
+    console.error(`Error getting mutual friends for ${username}:`, error);
+    mutualFriends = [];
+  }
+  const mutualFriendsUsernames = mutualFriends.map(friend => friend.username);
+
   if (currentUser.friendsOnly) {
-    try {
-      const mutualFriends = await getMutualFriends({ friends: [], username: username });
-      return mutualFriends.map(friend => friend.username);
-    } catch (error) {
-      console.error(`Error getting mutual friends for ${username}:`, error);
-      return [];
-    }
+    // If friendsOnly is true, only return mutual friends
+    return mutualFriendsUsernames;
   } else {
-    // Process entities from all users who are not in friendsOnly mode
-    return Array.from(gameplayUserMap.entries())
-      .filter(([_, user]) => !user.friendsOnly)
+    // If friendsOnly is false, return:
+    // 1. All mutual friends
+    // 2. All users who have friendsOnly set to false
+    const nonFriendsOnlyUsers = Array.from(gameplayUserMap.entries())
+      .filter(([otherUsername, user]) => !user.friendsOnly && otherUsername !== username)
       .map(([username, _]) => username);
+
+    return [...new Set([...mutualFriendsUsernames, ...nonFriendsOnlyUsers])];
   }
 }
 //only players in league and division
