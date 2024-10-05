@@ -256,6 +256,15 @@ export function setupAuthRoutes(app: any) {
 
             const hashedPassword = await argon2.hash(newPassword);
 
+            try {
+                const firebaseUser = await admin.auth().getUserByEmail(user.email);
+                await admin.auth().updateUser(firebaseUser.uid, {
+                    password: newPassword
+                });
+            } catch (firebaseError) {
+                console.error("Error updating password in Firebase:", firebaseError);
+            }
+
             await prisma.users.update({
                 where: { id: user.id },
                 data: { password: hashedPassword },
@@ -309,6 +318,15 @@ export function setupAuthRoutes(app: any) {
             }
 
             const hashedNewPassword = await argon2.hash(newPassword);
+
+            try {
+                const firebaseUser = await admin.auth().getUserByEmail(user.email);
+                await admin.auth().updateUser(firebaseUser.uid, {
+                    password: newPassword
+                });
+            } catch (firebaseError) {
+                console.error("Error updating password in Firebase:", firebaseError);
+            }
 
             await prisma.users.update({
                 where: { username: decoded.username },
@@ -459,16 +477,16 @@ export function setupAuthRoutes(app: any) {
                     try {
                         const [fileExists] = await storageRef.file(oldFilePath).exists();
                         if (fileExists) {
-                          await storageRef.file(oldFilePath).copy(newFilePath);
-                          await storageRef.file(oldFilePath).delete();
+                            await storageRef.file(oldFilePath).copy(newFilePath);
+                            await storageRef.file(oldFilePath).delete();
                         } else {
-                          console.log(`No profile picture found for user ${decoded.username}`);
+                            console.log(`No profile picture found for user ${decoded.username}`);
                         }
-                      } catch (error) {
+                    } catch (error) {
                         console.error("Error updating profile picture in Firebase:", error);
                         // Decide whether to throw this error or handle it gracefully
                         // throw error; // Uncomment this line if you want to trigger a transaction rollback
-                      }
+                    }
                 } catch (error) {
                     console.error("Error updating Firebase:", error);
                     // Don't throw the error, as we still want to complete the username change
@@ -513,6 +531,21 @@ export function setupAuthRoutes(app: any) {
                 return res.status(409).json({ message: "Email already in use" });
             }
 
+            const user = await prisma.users.findUnique({ where: { username: decoded.username } });
+            if (!user) {
+                return res.status(404).json({ message: "User not found" });
+            }
+
+            try {
+                const firebaseUser = await admin.auth().getUserByEmail(user.email);
+                await admin.auth().updateUser(firebaseUser.uid, {
+                    email: newEmail
+                });
+            } catch (firebaseError) {
+                console.error("Error updating email in Firebase:", firebaseError);
+                return res.status(500).json({ message: "Failed to update email in Firebase" });
+            }
+
             await prisma.users.update({
                 where: { username: decoded.username },
                 data: { email: newEmail },
@@ -545,72 +578,72 @@ export function setupAuthRoutes(app: any) {
 
             // Delete related records first
             await prisma.$transaction(async (prisma) => {
-                  // Delete Notifications
-                  await prisma.notifications.deleteMany({ where: { userId: username } });
-    
-                  // Delete FriendRequests
-                  await prisma.friendRequests.deleteMany({ where: { username: username } });
-                  await prisma.friendRequests.deleteMany({ where: { friend: username } });
-    
-                  // Delete BattleSessions
-                  await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
-                  await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
-    
-                  // Delete Locations
-                  await prisma.locations.delete({ where: { username: username } }).catch(() => {});
-    
-                  // Delete InventoryItems
-                  await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: username } } });
-    
-                  // Delete Statistics
-                  await prisma.statistics.deleteMany({ where: { GameplayUser: { username: username } } });
-    
-                  // Delete GameplayUser
-                  await prisma.gameplayUser.delete({ where: { username: username } }).catch(() => {});
-    
-                  // Finally, delete the User
-                  await prisma.users.delete({ where: { username: username } });
-                });
-    
-                console.log(`Successfully deleted ${username}`);
-    
-              // Delete user data from Firebase
-              const db = admin.database();
-              const storageRef = admin.storage().bucket();
-    
-              // Delete user data from Firebase Realtime Database
-              await db.ref(`users/${username}`).remove();
-    
-              // Delete profile picture from Firebase Storage
-              const filePath = `profileImages/${username}`;
-              try {
+                // Delete Notifications
+                await prisma.notifications.deleteMany({ where: { userId: username } });
+
+                // Delete FriendRequests
+                await prisma.friendRequests.deleteMany({ where: { username: username } });
+                await prisma.friendRequests.deleteMany({ where: { friend: username } });
+
+                // Delete BattleSessions
+                await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
+                await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
+
+                // Delete Locations
+                await prisma.locations.delete({ where: { username: username } }).catch(() => { });
+
+                // Delete InventoryItems
+                await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: username } } });
+
+                // Delete Statistics
+                await prisma.statistics.deleteMany({ where: { GameplayUser: { username: username } } });
+
+                // Delete GameplayUser
+                await prisma.gameplayUser.delete({ where: { username: username } }).catch(() => { });
+
+                // Finally, delete the User
+                await prisma.users.delete({ where: { username: username } });
+            });
+
+            console.log(`Successfully deleted ${username}`);
+
+            // Delete user data from Firebase
+            const db = admin.database();
+            const storageRef = admin.storage().bucket();
+
+            // Delete user data from Firebase Realtime Database
+            await db.ref(`users/${username}`).remove();
+
+            // Delete profile picture from Firebase Storage
+            const filePath = `profileImages/${username}`;
+            try {
                 await storageRef.file(filePath).delete();
-              } catch (error) {
-                console.log(`No profile picture found for user ${username}`);
-              }
-    
-              // Remove user from conversations in Firebase Realtime Database
-              const conversationsRef = db.ref('conversations');
-              const conversationsSnapshot = await conversationsRef.once('value');
-              const conversations = conversationsSnapshot.val();
-    
-              if (conversations) {
-                for (const [convId, conv] of Object.entries(conversations)) {
-                  const conversation = conv as any;
-                  if (conversation.participants && conversation.participants[username]) {
-                    delete conversation.participants[username];
-                    if (conversation.participantsArray) {
-                      conversation.participantsArray = conversation.participantsArray.filter((p: string) => p !== username);
-                    }
-                    await conversationsRef.child(convId).set(conversation);
-                  }
-                }
-              }
-          
-              return res.status(200).json({ message: "User account deleted successfully" });
             } catch (error) {
-              console.error(`Failed to delete user ${username}:`, error);
-              return res.status(500).json({ message: "Failed to delete user account" });
+                console.log(`No profile picture found for user ${username}`);
             }
+
+            // Remove user from conversations in Firebase Realtime Database
+            const conversationsRef = db.ref('conversations');
+            const conversationsSnapshot = await conversationsRef.once('value');
+            const conversations = conversationsSnapshot.val();
+
+            if (conversations) {
+                for (const [convId, conv] of Object.entries(conversations)) {
+                    const conversation = conv as any;
+                    if (conversation.participants && conversation.participants[username]) {
+                        delete conversation.participants[username];
+                        if (conversation.participantsArray) {
+                            conversation.participantsArray = conversation.participantsArray.filter((p: string) => p !== username);
+                        }
+                        await conversationsRef.child(convId).set(conversation);
+                    }
+                }
+            }
+
+            return res.status(200).json({ message: "User account deleted successfully" });
+        } catch (error) {
+            console.error(`Failed to delete user ${username}:`, error);
+            return res.status(500).json({ message: "Failed to delete user account" });
+        }
     });
 }
