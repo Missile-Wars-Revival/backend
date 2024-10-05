@@ -410,6 +410,15 @@ export function setupUserApi(app: any) {
           });
         }
         userUpdates.password = await argon2.hash(updates.password);
+
+        try {
+          const firebaseUser = await admin.auth().getUserByEmail(user.email);
+          await admin.auth().updateUser(firebaseUser.uid, {
+            password: updates.password
+          });
+        } catch (firebaseError) {
+          console.error("Error updating password in Firebase:", firebaseError);
+        }
       }
 
       // Handle email update
