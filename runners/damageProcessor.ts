@@ -46,7 +46,7 @@ export const processDamage = async () => {
 
       const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
 
-      // Determine which entities to process for this user
+      // Determine which entities to process for this user (only for missiles)
       const usernamesToProcess = await determineUsernamesToProcess(user.username, gameplayUserMap);
 
       // Check missiles
@@ -59,8 +59,9 @@ export const processDamage = async () => {
         }
       }
 
-      // Check landmines
-      for (const landmine of activeLandmines.filter(l => usernamesToProcess.includes(l.placedBy))) {
+      // Check landmines (no filtering based on friendsOnly)
+      for (const landmine of activeLandmines) {
+        // for (const landmine of activeLandmines.filter(l => usernamesToProcess.includes(l.placedBy))) {
         const landmineCoords = { latitude: parseFloat(landmine.locLat), longitude: parseFloat(landmine.locLong) };
         const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), landmineCoords.latitude.toString(), landmineCoords.longitude.toString());
 
