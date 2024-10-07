@@ -60,7 +60,7 @@ export const processDamage = async () => {
       }
 
       // Check landmines
-      for (const landmine of activeLandmines) {
+      for (const landmine of activeLandmines.filter(l => usernamesToProcess.includes(l.placedBy))) {
         const landmineCoords = { latitude: parseFloat(landmine.locLat), longitude: parseFloat(landmine.locLong) };
         const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), landmineCoords.latitude.toString(), landmineCoords.longitude.toString());
 
