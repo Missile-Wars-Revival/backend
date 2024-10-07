@@ -191,23 +191,32 @@ async function handleLandmineDamage(user: any, landmine: any) {
   
   if (!processedLandmines.get(user.username)!.has(landmine.id)) {
     processedLandmines.get(user.username)!.add(landmine.id);
-    await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type, landmine.id);
-    // Delete the landmine after damage is applied (this will happen after the 30-second delay)
+    
+    // Schedule damage application after 30 seconds
     setTimeout(async () => {
       try {
-        // Check if the landmine still exists before attempting to delete
+        // Check if the landmine still exists before applying damage
         const existingLandmine = await prisma.landmine.findUnique({
           where: { id: landmine.id }
         });
+        
         if (existingLandmine) {
+          // Apply damage
+          await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type, landmine.id);
+          
+          // Delete the landmine after damage is applied
           await prisma.landmine.delete({ where: { id: landmine.id } });
         }
       } catch (error) {
-        console.error(`Failed to delete landmine ${landmine.id}:`, error);
+        console.error(`Failed to process landmine ${landmine.id}:`, error);
       } finally {
         processedLandmines.get(user.username)!.delete(landmine.id);
       }
     }, 30000);
+
+    // Send initial notification immediately
+    const initialMessage = `You've stepped on a landmine! You will take damage in 30 seconds.`;
+    await sendNotification(user.username, "Landmine Damage!", initialMessage, landmine.placedBy);
   }
 }
 
