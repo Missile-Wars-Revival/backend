@@ -102,7 +102,7 @@ setInterval(leagueRunner, 60 * 60 * 1000);
 leagueRunner();
 
 //manage damage:
-//startDamageProcessing();
+startDamageProcessing();
 
 //manage shieldbreakers
 startShieldBreakerProcessing();
