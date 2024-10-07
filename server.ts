@@ -7,7 +7,7 @@ import expressWs from "express-ws";
 import * as jwt from "jsonwebtoken";
 import { JwtPayload } from "jsonwebtoken";
 import { AuthWithLocation, AuthWithLocationSchema } from "./interfaces/api";
-import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, haversine, updateMissilePositions, addRandomLoot, getRandomCoordinates, checkPlayerProximity, deleteExpiredOther, checkAndCollectLoot } from "./runners/entitymanagment";
+import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, updateMissilePositions, addRandomLoot, checkPlayerProximity, deleteExpiredOther, checkAndCollectLoot } from "./runners/entitymanagment";
 import { startNotificationManager } from "./runners/notificationhelper";
 import { deleteAllBots, manageAIBots } from "./bots";
 import { setupNotificationApi } from "./server-routes/notificaitonApi";
@@ -102,7 +102,7 @@ setInterval(leagueRunner, 60 * 60 * 1000);
 leagueRunner();
 
 //manage damage:
-startDamageProcessing();
+//startDamageProcessing();
 
 //manage shieldbreakers
 startShieldBreakerProcessing();
