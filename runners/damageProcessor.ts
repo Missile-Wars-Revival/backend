@@ -200,29 +200,27 @@ async function handleLandmineDamage(user: any, landmine: any) {
     // Schedule damage application after 30 seconds
     setTimeout(async () => {
       try {
-        // Check if the landmine still exists before applying damage
-        const existingLandmine = await prisma.landmine.findUnique({
-          where: { id: landmine.id }
-        });
-        
-        if (existingLandmine) {
-          // Apply damage
-          await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type, landmine.id);
+        await prisma.$transaction(async (prisma) => {
+          // Check if the landmine still exists before applying damage
+          const existingLandmine = await prisma.landmine.findUnique({
+            where: { id: landmine.id }
+          });
           
-          // Schedule landmine deletion after an additional 20 seconds
-          setTimeout(async () => {
-            try {
-              await prisma.landmine.delete({ where: { id: landmine.id } });
-              console.log(`Landmine ${landmine.id} deleted after damage application.`);
-            } catch (deleteError) {
-              console.error(`Failed to delete landmine ${landmine.id}:`, deleteError);
-            }
-          }, 20000);
-        } else {
-          console.log(`Landmine ${landmine.id} not found. No damage applied.`);
-          // Optionally, send a notification to the user that they avoided the landmine
-          await sendNotification(user.username, "Landmine Avoided", "The landmine you stepped on earlier has been removed. No damage taken!", "server");
-        }
+          if (existingLandmine) {
+            // Apply damage
+            await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type, landmine.id);
+            
+            // Delete the landmine immediately after damage is applied
+            await prisma.landmine.delete({ where: { id: landmine.id } });
+            console.log(`Landmine ${landmine.id} deleted after damage application.`);
+          } else {
+            console.log(`Landmine ${landmine.id} not found. No damage applied.`);
+            // Optionally, send a notification to the user that they avoided the landmine
+            await sendNotification(user.username, "Landmine Avoided", "The landmine you stepped on earlier has been removed. No damage taken!", "server");
+          }
+        }, {
+          timeout: 10000 // 10 seconds timeout for the transaction
+        });
       } catch (error) {
         console.error(`Failed to process landmine ${landmine.id}:`, error);
       } finally {
