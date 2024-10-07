@@ -209,8 +209,15 @@ async function handleLandmineDamage(user: any, landmine: any) {
           // Apply damage
           await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type, landmine.id);
           
-          // Delete the landmine after damage is applied
-          await prisma.landmine.delete({ where: { id: landmine.id } });
+          // Schedule landmine deletion after an additional 20 seconds
+          setTimeout(async () => {
+            try {
+              await prisma.landmine.delete({ where: { id: landmine.id } });
+              console.log(`Landmine ${landmine.id} deleted after damage application.`);
+            } catch (deleteError) {
+              console.error(`Failed to delete landmine ${landmine.id}:`, deleteError);
+            }
+          }, 20000);
         } else {
           console.log(`Landmine ${landmine.id} not found. No damage applied.`);
           // Optionally, send a notification to the user that they avoided the landmine
