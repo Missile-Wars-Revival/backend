@@ -324,11 +324,11 @@ const LANDMINE_ALERT_DISTANCE = 0.05; // 0.05 km = 50 meters
 
 const getLeagueAirspace = (league: string): number => {
   switch (league.toLowerCase()) {
-    case 'bronze': return 10;
-    case 'silver': return 20;
-    case 'gold': return 30;
-    case 'diamond': return 40;
-    case 'legend': return 60;
+    case 'bronze': return 30;
+    case 'silver': return 40;
+    case 'gold': return 50;
+    case 'diamond': return 70;
+    case 'legend': return 100;
     default: return 20; 
   }
 };
@@ -403,7 +403,7 @@ export const checkPlayerProximity = async () => {
             }
             
             // New airspace alert logic
-            if (distanceToCurrent <= userAirspace / 1000 && !notifiedEntities.has(airspaceEntityId)) {
+            if (distanceToCurrent <= userAirspace / 1000 && !notifiedEntities.has(airspaceEntityId) && missile.sentBy !== user.username) {
               const airspaceMessage = `A ${missile.type} missile has entered your airspace!`;
               await sendNotification(user.username, "Airspace Alert!", airspaceMessage, "Server");
               notifiedEntities.add(airspaceEntityId);
