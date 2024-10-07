@@ -193,6 +193,10 @@ async function handleLandmineDamage(user: any, landmine: any) {
   if (!processedLandmines.get(user.username)!.has(landmine.id)) {
     processedLandmines.get(user.username)!.add(landmine.id);
     
+    // Send initial notification immediately
+    const initialMessage = `You've stepped on a landmine! You will take damage in 30 seconds.`;
+    await sendNotification(user.username, "Landmine Damage!", initialMessage, landmine.placedBy);
+
     // Schedule damage application after 30 seconds
     setTimeout(async () => {
       try {
@@ -207,6 +211,10 @@ async function handleLandmineDamage(user: any, landmine: any) {
           
           // Delete the landmine after damage is applied
           await prisma.landmine.delete({ where: { id: landmine.id } });
+        } else {
+          console.log(`Landmine ${landmine.id} not found. No damage applied.`);
+          // Optionally, send a notification to the user that they avoided the landmine
+          await sendNotification(user.username, "Landmine Avoided", "The landmine you stepped on earlier has been removed. No damage taken!", "server");
         }
       } catch (error) {
         console.error(`Failed to process landmine ${landmine.id}:`, error);
@@ -214,10 +222,6 @@ async function handleLandmineDamage(user: any, landmine: any) {
         processedLandmines.get(user.username)!.delete(landmine.id);
       }
     }, 30000);
-
-    // Send initial notification immediately
-    const initialMessage = `You've stepped on a landmine! You will take damage in 30 seconds.`;
-    await sendNotification(user.username, "Landmine Damage!", initialMessage, landmine.placedBy);
   }
 }
 
@@ -328,7 +332,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
         });
         if (landmineType) {
           rewardAmount = Math.round(landmineType.price * 1.5);
-          rankPointsReward = 30; // Base rank points for landmine kill
+          rankPointsReward = 20; // Base rank points for landmine kill
         }
       } else if (damageSource === 'missile') {
         const missileType = await prisma.missileType.findUnique({
@@ -336,7 +340,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
         });
         if (missileType) {
           rewardAmount = Math.round(missileType.price * 1.1);
-          rankPointsReward = 20; // Base rank points for missile kill
+          rankPointsReward = 30; // Base rank points for missile kill
         }
       }
 
