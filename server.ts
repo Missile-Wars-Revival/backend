@@ -46,8 +46,8 @@ try {
 if (serviceAccount) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    databaseURL: "https://missile-wars-revival-10-default-rtdb.firebaseio.com",
-    storageBucket: "gs://missile-wars-revival-10.appspot.com"  // Add this line
+    databaseURL: "https://missile-wars-432403-default-rtdb.firebaseio.com/",
+    storageBucket: "gs://missile-wars-432403.appspot.com"  
   });
 } else {
   console.warn("Firebase initialization skipped due to missing credentials");
