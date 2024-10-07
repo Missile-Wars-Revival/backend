@@ -322,6 +322,17 @@ export const addRandomLoot = async () => {
 const MISSILE_ALERT_DISTANCE = 0.5; // 0.5 km = 500 meters
 const LANDMINE_ALERT_DISTANCE = 0.05; // 0.05 km = 50 meters
 
+const getLeagueAirspace = (league: string): number => {
+  switch (league.toLowerCase()) {
+    case 'bronze': return 10;
+    case 'silver': return 20;
+    case 'gold': return 30;
+    case 'diamond': return 40;
+    case 'legend': return 60;
+    default: return 20; 
+  }
+};
+
 export const checkPlayerProximity = async () => {
   try {
     const allUsers = await prisma.gameplayUser.findMany({
@@ -329,13 +340,14 @@ export const checkPlayerProximity = async () => {
         isAlive: true,
         locActive: true
       },
-      include: { Users: true, Locations: true }
+      include: { Users: true, Locations: true, league: true }
     });
 
     for (const user of allUsers) {
       if (!user.Locations) continue;
 
       const userCoords = { latitude: parseFloat(user.Locations.latitude), longitude: parseFloat(user.Locations.longitude) };
+      const userAirspace = getLeagueAirspace(user.league?.tier || 'Bronze');
 
       // Fetch relevant entities based on friendsOnly setting
       let missiles, landmines;
@@ -355,14 +367,17 @@ export const checkPlayerProximity = async () => {
 
       // Check proximity to missiles
       for (const missile of missiles) {
-        const missileCoords = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
-        const distance = haversineDistance(userCoords, missileCoords); // Already in km
+        const missileDestCoords = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
+        const missileCurrentCoords = { latitude: parseFloat(missile.currentLat), longitude: parseFloat(missile.currentLong) };
+        const distanceToDest = haversineDistance(userCoords, missileDestCoords); // Already in km
+        const distanceToCurrent = haversineDistance(userCoords, missileCurrentCoords); // Already in km
         
         const entityId = `missile-${missile.id}-${user.id}`; // Unique identifier for this missile-user pair
+        const airspaceEntityId = `airspace-${missile.id}-${user.id}`; // Unique identifier for airspace alert
         
         if (!notifiedEntities.has(entityId)) {
           if (missile.status !== 'Hit') {
-            if (distance <= missile.radius / 1000 + MISSILE_ALERT_DISTANCE) { // Convert missile.radius from meters to km
+            if (distanceToDest <= missile.radius / 1000 + MISSILE_ALERT_DISTANCE) {
               // Calculate ETA
               const currentTime = new Date();
               const timeToImpact = new Date(missile.timeToImpact);
@@ -380,14 +395,21 @@ export const checkPlayerProximity = async () => {
                 etaString = `${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`;
               }
 
-              const message = distance <= missile.radius / 1000
+              const message = distanceToDest <= missile.radius / 1000
                 ? `A ${missile.type} missile is approaching your location! ETA: ${etaString}. Take cover!`
                 : `A ${missile.type} missile is approaching nearby! ETA: ${etaString}. Be prepared to take cover.`;
               await sendNotification(user.username, "Missile Alert!", message, "Server");
               notifiedEntities.add(entityId);
             }
+            
+            // New airspace alert logic
+            if (distanceToCurrent <= userAirspace / 1000 && !notifiedEntities.has(airspaceEntityId)) {
+              const airspaceMessage = `A ${missile.type} missile has entered your airspace!`;
+              await sendNotification(user.username, "Airspace Alert!", airspaceMessage, "Server");
+              notifiedEntities.add(airspaceEntityId);
+            }
           } else { // missile.status === 'Hit'
-            if (distance <= missile.radius / 1000 + MISSILE_ALERT_DISTANCE) { // Convert missile.radius from meters to km
+            if (distanceToDest <= missile.radius / 1000 + MISSILE_ALERT_DISTANCE) {
               const message = "A missile has impacted nearby! Proceed with caution.";
               await sendNotification(user.username, "Missile Impact Alert!", message, "Server");
               notifiedEntities.add(entityId);

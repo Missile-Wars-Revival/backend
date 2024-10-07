@@ -182,21 +182,22 @@ model Sessions {
 }
 
 model Users {
-  id                 Int                  @id @default(autoincrement())
-  email              String               @default("")
-  password           String               @default("")
-  username           String               @unique @default("")
-  role               String               @default("user")
-  avatar             String               @default("")
-  friends            String[]             @default([])
-  notificationToken  String               @default("")
-  createdAt          DateTime             @default(now())
-  deletedAt          DateTime             @default(now())
-  updatedAt          DateTime             @default(now())
-  stripeCustomerId   String?              @unique
-  GameplayUser       GameplayUser?
-  Notifications      Notifications[]
-  passwordResetCodes PasswordResetCodes[]
+  id                      Int                      @id @default(autoincrement())
+  email                   String                   @default("")
+  password                String                   @default("")
+  username                String                   @unique @default("")
+  role                    String                   @default("user")
+  avatar                  String                   @default("")
+  friends                 String[]                 @default([])
+  notificationToken       String                   @default("")
+  createdAt               DateTime                 @default(now())
+  deletedAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @default(now())
+  stripeCustomerId        String?                  @unique
+  GameplayUser            GameplayUser?
+  notificationPreferences NotificationPreferences?
+  Notifications           Notifications[]
+  passwordResetCodes      PasswordResetCodes[]
 }
 
 model Notifications {
@@ -208,6 +209,19 @@ model Notifications {
   isRead    Boolean  @default(false)
   sentby    String   @default("")
   user      Users    @relation(fields: [userId], references: [username])
+}
+
+model NotificationPreferences {
+  id                 Int     @id @default(autoincrement())
+  userId             Int     @unique
+  incomingEntities   Boolean @default(true)
+  entityDamage       Boolean @default(true)
+  entitiesInAirspace Boolean @default(true)
+  eliminationReward  Boolean @default(true)
+  lootDrops          Boolean @default(true)
+  friendRequests     Boolean @default(true)
+  leagues            Boolean @default(true)
+  user               Users   @relation(fields: [userId], references: [id])
 }
 
 model League {
