@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { JwtPayload } from "jsonwebtoken";
-
+import { Prisma } from '@prisma/client';
 
 export function setupNotificationApi(app: any) {
 
@@ -127,4 +127,102 @@ export function setupNotificationApi(app: any) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
+
+  interface NotificationPreferences {
+    id: number;
+    userId: number;
+    incomingEntities: boolean;
+    entityDamage: boolean;
+    entitiesInAirspace: boolean;
+    eliminationReward: boolean;
+    lootDrops: boolean;
+    friendRequests: boolean;
+    leagues: boolean;
+  }
+
+  app.get("/api/notificationPreferences", async (req: Request, res: Response) => {
+    const token = req.query.token as string;
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      const user = await prisma.users.findUnique({
+        where: { username: decoded.username },
+        include: { notificationPreferences: true }
+      });
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (!user.notificationPreferences) {
+        // If preferences don't exist, create default preferences
+        const defaultPreferences = await prisma.notificationPreferences.create({
+          data: {
+            userId: user.id,
+            // All preferences default to true
+          }
+        });
+        return res.status(200).json({ preferences: defaultPreferences });
+      }
+
+      res.status(200).json({ preferences: user.notificationPreferences });
+    } catch (error) {
+      console.error("Error fetching notification preferences:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  app.patch("/api/notificationPreferences", async (req: Request, res: Response) => {
+    const { token, preferences } = req.body;
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      const user = await prisma.users.findUnique({
+        where: { username: decoded.username },
+        include: { notificationPreferences: true }
+      });
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Create a type-safe update object
+      const preferencesData: Prisma.NotificationPreferencesUncheckedCreateInput = {
+        userId: user.id,
+        incomingEntities: preferences.incomingEntities ?? true,
+        entityDamage: preferences.entityDamage ?? true,
+        entitiesInAirspace: preferences.entitiesInAirspace ?? true,
+        eliminationReward: preferences.eliminationReward ?? true,
+        lootDrops: preferences.lootDrops ?? true,
+        friendRequests: preferences.friendRequests ?? true,
+        leagues: preferences.leagues ?? true,
+      };
+
+      let updatedPreferences;
+
+      if (user.notificationPreferences) {
+        updatedPreferences = await prisma.notificationPreferences.update({
+          where: { userId: user.id },
+          data: preferencesData
+        });
+      } else {
+        updatedPreferences = await prisma.notificationPreferences.create({
+          data: preferencesData
+        });
+      }
+
+      res.status(200).json({ message: "Preferences updated successfully", preferences: updatedPreferences });
+    } catch (error) {
+      console.error("Error updating notification preferences:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
 }
