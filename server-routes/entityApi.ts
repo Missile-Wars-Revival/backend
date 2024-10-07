@@ -456,11 +456,7 @@ export function setupEntityApi(app: any) {
   });
 
   app.post("/api/placeshield", async (req: Request, res: Response) => {
-    const { token, type, loclat, loclong } = req.body;
-
-    const ONE_HOUR_IN_MS = 60 * 60 * 1000;
-    const TWELVE_HOURS_IN_MS = 12 * 60 * 60 * 1000;
-    
+    const { token, type, loclat, loclong } = req.body;    
 
     try {
       // Verify the token and decode it
@@ -502,7 +498,7 @@ export function setupEntityApi(app: any) {
       const shieldProperties = shieldTypes.reduce((acc, shield) => {
         acc[shield.name] = {
           radius: shield.radius,
-          duration: shield.duration * 60 * 60 * 1000 // Convert hours to milliseconds
+          duration: shield.duration * 60 * 1000
         };
         return acc;
       }, {} as Record<string, { radius: number, duration: number }>);
