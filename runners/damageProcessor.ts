@@ -60,7 +60,7 @@ export const processDamage = async () => {
       }
 
       // Check landmines
-      for (const landmine of activeLandmines.filter(l => usernamesToProcess.includes(l.placedBy))) {
+      for (const landmine of activeLandmines) {
         const landmineCoords = { latitude: parseFloat(landmine.locLat), longitude: parseFloat(landmine.locLong) };
         const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), landmineCoords.latitude.toString(), landmineCoords.longitude.toString());
 
@@ -185,52 +185,52 @@ async function handleMissileDamage(user: any, missile: any) {
 }
 
 async function handleLandmineDamage(user: any, landmine: any) {
-  console.log(`Handling landmine damage for user ${user.username}, landmine ID: ${landmine.id}`);
+  // console.log(`Handling landmine damage for user ${user.username}, landmine ID: ${landmine.id}`);
   
   if (!processedLandmines.has(user.username)) {
     processedLandmines.set(user.username, new Set());
-    console.log(`Created new Set for user ${user.username} in processedLandmines`);
+    // console.log(`Created new Set for user ${user.username} in processedLandmines`);
   }
   
   if (!processedLandmines.get(user.username)!.has(landmine.id)) {
     processedLandmines.get(user.username)!.add(landmine.id);
-    console.log(`Added landmine ${landmine.id} to processedLandmines for user ${user.username}`);
+    // console.log(`Added landmine ${landmine.id} to processedLandmines for user ${user.username}`);
     
-    console.log(`Setting 30-second timer for landmine ${landmine.id}`);
+    // console.log(`Sending warning notification for landmine ${landmine.id}`);
+    const warningMessage = `Warning! You've stepped on a ${landmine.type} landmine! You will take damage in 30 seconds.`;
+    await sendNotification(user.username, "Landmine Damage!", warningMessage, "server");
+    
+    // console.log(`Setting 30-second timer for landmine ${landmine.id}`);
     setTimeout(async () => {
-      const startTime = Date.now();
-      console.log(`Timer expired for landmine ${landmine.id}, starting processing`);
+      // console.log(`Timer expired for landmine ${landmine.id}, preparing to apply damage`);
       try {
         await prisma.$transaction(async (prisma) => {
-          console.log(`Starting transaction for landmine ${landmine.id}`);
+          // console.log(`Starting transaction for landmine ${landmine.id}`);
           const existingLandmine = await prisma.landmine.findUnique({
             where: { id: landmine.id }
           });
           
           if (existingLandmine) {
-            console.log(`Landmine ${landmine.id} found, applying damage to user ${user.username}`);
+            // console.log(`Landmine ${landmine.id} found, applying damage to user ${user.username}`);
             await applyDamage(user, landmine.damage, landmine.placedBy, 'landmine', landmine.type, landmine.id);
             
-            console.log(`Deleting landmine ${landmine.id}`);
+            // console.log(`Deleting landmine ${landmine.id}`);
             await prisma.landmine.delete({ where: { id: landmine.id } });
           } else {
-            console.log(`Landmine ${landmine.id} not found, skipping damage application`);
+            // console.log(`Landmine ${landmine.id} not found, skipping damage application`);
           }
         }, {
           timeout: 10000
         });
-        
-        const endTime = Date.now();
-        console.log(`Landmine ${landmine.id} processing completed. Time taken: ${endTime - startTime}ms`);
       } catch (error) {
         console.error(`Failed to process landmine ${landmine.id}:`, error);
       } finally {
         processedLandmines.get(user.username)!.delete(landmine.id);
-        console.log(`Removed landmine ${landmine.id} from processedLandmines for user ${user.username}`);
+        // console.log(`Removed landmine ${landmine.id} from processedLandmines for user ${user.username}`);
       }
     }, 30000);
   } else {
-    console.log(`Landmine ${landmine.id} already processed for user ${user.username}, skipping`);
+    // console.log(`Landmine ${landmine.id} already processed for user ${user.username}, skipping`);
   }
 }
 
@@ -247,10 +247,10 @@ interface GameplayUser {
     };
   }
 async function applyDamage(user: GameplayUser, damage: number, attackerUsername: string, damageSource: 'missile' | 'landmine', receivedType: string, entityId: number) {
-  console.log(`Applying damage to user ${user.username}. Damage: ${damage}, Source: ${damageSource}, Type: ${receivedType}, Entity ID: ${entityId}`);
+  // console.log(`Applying damage to user ${user.username}. Damage: ${damage}, Source: ${damageSource}, Type: ${receivedType}, Entity ID: ${entityId}`);
   try {
     const applyDamageRecursively = async () => {
-      console.log(`Starting recursive damage application for user ${user.username}`);
+      // console.log(`Starting recursive damage application for user ${user.username}`);
       
       // Fetch the latest user data and active shields
       const [currentUser, activeShields] = await Promise.all([
@@ -265,12 +265,12 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
           }
         })
       ]);
-      console.log(`Fetched current user data and active shields for user ${user.username}`);
+      // console.log(`Fetched current user data and active shields for user ${user.username}`);
 
       // Check if the user is in the grace period
       const lastDeath = lastDeathTime.get(user.username);
       if (lastDeath && Date.now() - lastDeath < FIVE_MINUTES) {
-        console.log(`User ${user.username} is in grace period. Stopping damage application.`);
+        // console.log(`User ${user.username} is in grace period. Stopping damage application.`);
         
         // Alert the attacker about the grace period
         const gracePeriodMessage = `Your ${damageSource} (${receivedType}) did not damage ${user.username} because they are in a grace period after respawning.`;
@@ -281,7 +281,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
       // Check if the user is not alive or protected by a shield, and if so, stop the damage application
       if (!currentUser || !currentUser.isAlive ||!currentUser.Locations) {
-        console.log(`User ${user.username} is not alive or has no location. Stopping damage application.`);
+        // console.log(`User ${user.username} is not alive or has no location. Stopping damage application.`);
         return;
       }
 
@@ -291,13 +291,13 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
       };
 
       if (isUserProtectedByShield(userCoords, activeShields)) {
-        console.log(`User ${user.username} is protected by a shield. Stopping damage application.`);
+        // console.log(`User ${user.username} is protected by a shield. Stopping damage application.`);
         return;
       }
 
       // For missiles, check if the user is still within the impact radius
       if (damageSource === 'missile') {
-        console.log(`Checking missile impact for user ${user.username}`);
+        // console.log(`Checking missile impact for user ${user.username}`);
         const missile = await prisma.missile.findUnique({
           where: { id: entityId, status: 'Hit' }
         });
@@ -307,18 +307,18 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
           const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), missileCoords.latitude.toString(), missileCoords.longitude.toString());
 
           if (distance > missile.radius) {
-            console.log(`User ${user.username} has moved out of the missile's impact radius. No damage applied.`);
+            // console.log(`User ${user.username} has moved out of the missile's impact radius. No damage applied.`);
             return;
           }
         } else {
-          console.log(`Missile ${entityId} not found or no longer active. No damage applied.`);
+          // console.log(`Missile ${entityId} not found or no longer active. No damage applied.`);
           return;
         }
       }
 
       // For landmines, check if the user is still within the activation radius
       if (damageSource === 'landmine') {
-        console.log(`Checking landmine activation for user ${user.username}`);
+        // console.log(`Checking landmine activation for user ${user.username}`);
         const landmine = await prisma.landmine.findUnique({
           where: { id: entityId }
         });
@@ -328,11 +328,11 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
           const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), landmineCoords.latitude.toString(), landmineCoords.longitude.toString());
 
           if (distance > 10) { // Assuming 10 is the activation radius for landmines
-            console.log(`User ${user.username} has moved away from the landmine. No damage applied.`);
+            // console.log(`User ${user.username} has moved away from the landmine. No damage applied.`);
             return;
           }
         } else {
-          console.log(`Landmine ${entityId} not found. No damage applied.`);
+          // console.log(`Landmine ${entityId} not found. No damage applied.`);
           return;
         }
       }
@@ -366,21 +366,21 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
       // Cap total rank points reward
       rankPointsReward = Math.min(rankPointsReward, 67);
 
-      console.log(`Calculated rewards for ${damageSource}: ${rewardAmount} coins, ${rankPointsReward} rank points`);
+      // console.log(`Calculated rewards for ${damageSource}: ${rewardAmount} coins, ${rankPointsReward} rank points`);
 
-      // Continue with the existing damage application logic
+      // Apply damage
       await prisma.$transaction(async (prisma) => {
-        console.log(`Starting transaction for damage application to user ${user.username}`);
+        // console.log(`Starting transaction for damage application to user ${user.username}`);
         const updatedUser = await prisma.gameplayUser.update({
           where: { id: user.id },
           data: { health: { decrement: damage } },
           include: { Locations: true }
         });
 
-        console.log(`User ${user.username} health updated to ${updatedUser.health}`);
+        // console.log(`User ${user.username} health updated to ${updatedUser.health}`);
 
         if (updatedUser.health <= 0 && updatedUser.isAlive) {
-          console.log(`User ${user.username} has been eliminated`);
+          // console.log(`User ${user.username} has been eliminated`);
           // Calculate penalties for the eliminated user
           const moneyLoss = Math.floor(updatedUser.money * 0.2);
           const maxRankPointsLoss = Math.floor(Math.random() * (30 - 10 + 1)) + 10; // Random value between 10 and 30
@@ -396,7 +396,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
             }
           });
 
-          console.log(`User ${user.username} eliminated. Lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`);
+          // console.log(`User ${user.username} eliminated. Lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`);
 
           // Use the pre-calculated rewardAmount and rankPointsReward here
           const updatedAttacker = await prisma.gameplayUser.update({
@@ -407,7 +407,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
             },
           });
 
-          console.log(`Attacker ${attackerUsername} updated. New balance: ${updatedAttacker.money}, New rank points: ${updatedAttacker.rankPoints}`);
+          // console.log(`Attacker ${attackerUsername} updated. New balance: ${updatedAttacker.money}, New rank points: ${updatedAttacker.rankPoints}`);
 
           // Create a notification for the attacker
           await prisma.notifications.create({
@@ -432,32 +432,34 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
           // Set the last death time for the user
           lastDeathTime.set(user.username, Date.now());
-        } else if (updatedUser.isAlive && damageSource === 'missile') {
+        } else if (updatedUser.isAlive) {
           // Send damage notification
-          const damageMessage = `You have taken ${damage} damage from a ${receivedType} missile sent by ${attackerUsername}!`;
+          const damageMessage = `You have taken ${damage} damage from a ${receivedType} ${damageSource} placed by ${attackerUsername}!`;
           await sendNotification(user.username, "Damaged!", damageMessage, attackerUsername);
 
-          // Schedule next damage application after 30 seconds
-          console.log(`Scheduling next missile damage application for user ${user.username} in 30 seconds`);
-          setTimeout(applyDamageRecursively, 30000);
+          // console.log(`Damage notification sent to user ${user.username}`);
+
+          if (damageSource === 'missile') {
+            // Schedule next damage application after 30 seconds
+            // console.log(`Scheduling next missile damage application for user ${user.username} in 30 seconds`);
+            setTimeout(applyDamageRecursively, 30000);
+          }
         }
       }, {
         timeout: 10000 // 10 seconds
       });
       
-      console.log(`Damage application completed for user ${user.username}`);
+      // console.log(`Damage application completed for user ${user.username}`);
     };
 
-    // Start the damage cycle immediately for missiles, or apply once for landmines
-    if (damageSource === 'missile') {
-      console.log(`Scheduling initial missile damage for user ${user.username}`);
+    // Apply damage immediately for landmines, or schedule for missiles
+    if (damageSource === 'landmine') {
+      // console.log(`Applying immediate landmine damage for user ${user.username}`);
+      await applyDamageRecursively();
+    } else if (damageSource === 'missile') {
+      // console.log(`Scheduling initial missile damage for user ${user.username}`);
       const initialMissileMessage = `Warning! A ${receivedType} missile from ${attackerUsername} is heading your way! Impact in 30 seconds.`;
       await sendNotification(user.username, "Missile Damage!", initialMissileMessage, attackerUsername);
-      setTimeout(applyDamageRecursively, 30000);
-    } else {
-      console.log(`Scheduling landmine damage for user ${user.username}`);
-      const initialMessage = `You've stepped on a landmine! You will take damage in 30 seconds.`;
-      await sendNotification(user.username, "Landmine Damage!", initialMessage, attackerUsername);
       setTimeout(applyDamageRecursively, 30000);
     }
 
@@ -493,7 +495,7 @@ export const startDamageProcessing = () => {
     processDamage();
     cleanupProcessedEntities();
   }, PROCESS_INTERVAL);
-  console.log('Damage processing started, running every 15 seconds');
+  // console.log('Damage processing started, running every 15 seconds');
 };
 
 function cleanupProcessedEntities() {
