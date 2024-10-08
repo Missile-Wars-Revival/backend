@@ -95,7 +95,7 @@ export function setupWebSocket(app: any) {
   app.ws("/", (ws: any, req: Request) => {
     const authResult = authenticate(ws, req);
 
-    if (!authResult.success) {
+    if (!authResult.success || !authResult.username) {
       console.log("Connection attempted but authentication failed");
       ws.close(1008, "Authentication failed");
       return;
@@ -239,7 +239,7 @@ export function setupWebSocket(app: any) {
               { username: { not: { equals: currentUser.username } } }, // Exclude current user
               { username: { in: mutualFriendsUsernames } }, // Filter by mutual friends
               { locActive: true },
-              { isAlive: true } 
+              { isAlive: true }
             ]
           };
         } else {
@@ -303,11 +303,11 @@ export function setupWebSocket(app: any) {
 
           const previousLocation: Location | null = currentLocation.previousLat && currentLocation.previousLong
             ? {
-                latitude: currentLocation.previousLat,
-                longitude: currentLocation.previousLong,
-                updatedAt: currentLocation.lastUpdated,
-                lastUpdated: currentLocation.lastUpdated
-              }
+              latitude: currentLocation.previousLat,
+              longitude: currentLocation.previousLong,
+              updatedAt: currentLocation.lastUpdated,
+              lastUpdated: currentLocation.lastUpdated
+            }
             : null;
 
           const transportStatus = calculateTransportStatus(currentLocation, previousLocation);
@@ -365,55 +365,35 @@ export function setupWebSocket(app: any) {
     sendLessPeriodicData();
     const lessintervalId = setInterval(sendLessPeriodicData, 10000);
 
-    ws.on("message", (message: Buffer /*: WebSocketMessage*/) => {
-      //logVerbose("Received message:", message);
-      // Determine if a message is encoded in MessagePack by trying
-      // to unpack it
-
+    ws.on("message", (message: Buffer) => {
       let wsm: middleearth.WebSocketMessage;
-
-      if (message.toString().slice(0, 6) === "devcon") {
-        let devmsg = message.toString();
-        ws.send("Accessing dev console...");
-        let words = devmsg.split(' ');
-        if (words[1] === "add") {
-          ws.send("Adding missile...");
-        } else if (words[1] === "stop") {
-          clearInterval(intervalId);
-          clearInterval(lessintervalId);
-        }
-
-      }
 
       try {
         wsm = middleearth.unzip(message);
-        logVerbose("Decoded MessagePack:", wsm);
       } catch {
-        logVerbose("Not valid MessagePack");
-        // Fall back to JSON if not MessagePack
         try {
           wsm = JSON.parse(message.toString());
-          logVerbose("Is JSON:", wsm);
         } catch {
-          logVerbose("Not JSON, cannot decode");
+          console.error("Invalid message format");
           return;
         }
       }
+
       try {
-        // Handle main communications here
         wsm.messages.forEach(async function (msg) {
-          //for more specifc requests:
           switch (msg.itemType) {
             case "Echo":
               ws.send(middleearth.zip_single(msg));
               break;
-
+            case "playerLocation":
+              await handlePlayerLocation(ws, msg, username);
+              break;
             default:
-              logVerbose("Msg received, but is not yet implemented and was skipped");
+              console.log(`Unhandled message type: ${msg.itemType}`);
           }
         });
-      } catch {
-        logVerbose("Unable to handle messages. Please make sure they are being formatted correctly inside a WebSocketMessage.");
+      } catch (error) {
+        console.error("Error handling message:", error);
       }
     });
 
@@ -438,10 +418,10 @@ function calculateDistance(loc1: { latitude: number; longitude: number }, loc2: 
   const Δφ = (loc2.latitude - loc1.latitude) * Math.PI / 180;
   const Δλ = (loc2.longitude - loc1.longitude) * Math.PI / 180;
 
-  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-            Math.cos(φ1) * Math.cos(φ2) *
-            Math.sin(Δλ/2) * Math.sin(Δλ/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) *
+    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return R * c; // Distance in meters
 }
@@ -456,8 +436,58 @@ function isInSea(location: { latitude: number; longitude: number }): boolean {
     { name: 'Arctic', minLat: 60, maxLat: 90, minLong: -180, maxLong: 180 }
   ];
 
-  return oceans.some(ocean => 
+  return oceans.some(ocean =>
     location.latitude >= ocean.minLat && location.latitude <= ocean.maxLat &&
     location.longitude >= ocean.minLong && location.longitude <= ocean.maxLong
   );
+}
+
+async function handlePlayerLocation(ws: WebSocket, msg: any, username: string) {
+  const locationData = msg.data;
+  
+  if (!locationData || typeof locationData.latitude !== 'number' || typeof locationData.longitude !== 'number') {
+    console.error('Invalid location data');
+    return;
+  }
+
+  const now = new Date().toISOString();
+
+  try {
+    const lastLocation = await prisma.locations.findFirst({
+      where: { username: username },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (lastLocation) {
+      // Update existing location
+      await prisma.locations.update({
+        where: { username: username },
+        data: {
+          previousLat: lastLocation.latitude,
+          previousLong: lastLocation.longitude,
+          latitude: locationData.latitude.toString(),
+          longitude: locationData.longitude.toString(),
+          lastUpdated: lastLocation.updatedAt,
+          updatedAt: now,
+        },
+      });
+    } else {
+      // Create new location
+      await prisma.locations.create({
+        data: {
+          username: username,
+          latitude: locationData.latitude.toString(),
+          longitude: locationData.longitude.toString(),
+          updatedAt: now,
+          lastUpdated: now,
+        },
+      });
+    }
+
+    console.log(`Updated location for user ${username}`);
+    ws.send(JSON.stringify({ message: "Location updated successfully" }));
+  } catch (error) {
+    console.error('Error updating location:', error);
+    ws.send(JSON.stringify({ error: "Failed to update location" }));
+  }
 }
