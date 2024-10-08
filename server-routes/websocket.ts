@@ -288,7 +288,7 @@ export function setupWebSocket(app: any) {
           const speed = distance / timeDiff; // in meters per second
 
           // Debugging output
-          console.log(`Distance: ${distance} meters, Time Diff: ${timeDiff} seconds, Speed: ${speed} m/s`);
+          // console.log(`Distance: ${distance} meters, Time Diff: ${timeDiff} seconds, Speed: ${speed} m/s`);
 
           let transportStatus = 'walking'; // Default status
           // Adjusted speed thresholds (in meters per second)
@@ -298,14 +298,14 @@ export function setupWebSocket(app: any) {
           else if (speed > 1.5) transportStatus = 'bicycle';  // Approx. 5.4 km/h
 
           // Check if in sea
-          const isCurrentlyInSea = await isInSea({ 
-            latitude: parseFloat(currentLocation.latitude), 
-            longitude: parseFloat(currentLocation.longitude) 
-          });
+          // const isCurrentlyInSea = await isInSea({ 
+          //   latitude: parseFloat(currentLocation.latitude), 
+          //   longitude: parseFloat(currentLocation.longitude) 
+          // });
 
-          if (isCurrentlyInSea) {
-            transportStatus = speed > 6 ? 'ship' : 'boat'; // Fast or slow boat
-          }
+          // if (isCurrentlyInSea) {
+          //   transportStatus = speed > 6 ? 'ship' : 'boat'; // Fast or slow boat
+          // }
 
           // Update transport status in the database
           await prisma.locations.update({
