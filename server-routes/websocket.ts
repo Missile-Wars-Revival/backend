@@ -283,16 +283,26 @@ export function setupWebSocket(app: any) {
             { latitude: parseFloat(previousLocation.latitude), longitude: parseFloat(previousLocation.longitude) },
             { latitude: parseFloat(currentLocation.latitude), longitude: parseFloat(currentLocation.longitude) }
           );
+
           const speed = distance / timeDiff; // in meters per second
 
-          if (speed > 250) return 'plane';     // Approx. 900 km/h
-          if (speed > 83) return 'highspeed';  // Approx. 300 km/h (high-speed train)
-          if (speed > 28) return 'car';        // Approx. 100 km/h
-          if (speed > 4) return 'bicycle';     // Approx. 15 km/h
+          // Debugging output
+          // console.log(`Current Location: ${JSON.stringify(currentLocation)}`);
+          // console.log(`Previous Location: ${JSON.stringify(previousLocation)}`);
+          console.log(`Distance: ${distance} meters, Time Diff: ${timeDiff} seconds, Speed: ${speed} m/s`);
+
+          // Adjusted speed thresholds (in meters per second)
+          if (speed > 70) return 'plane';     // Approx. 252 km/h
+          if (speed > 23) return 'highspeed';  // Approx. 83 km/h
+          if (speed > 8) return 'car';        // Approx. 28.8 km/h
+          if (speed > 1.5) return 'bicycle';  // Approx. 5.4 km/h
+
+          // Check if in sea
           if (isInSea({ latitude: parseFloat(currentLocation.latitude), longitude: parseFloat(currentLocation.longitude) })) {
-            if (speed > 15) return 'ship';     // Fast boat or ship
+            if (speed > 6) return 'ship';     // Fast boat or ship
             return 'boat';                     // Slow boat
           }
+
           return 'walking';
         };
 
@@ -427,19 +437,58 @@ function calculateDistance(loc1: { latitude: number; longitude: number }, loc2: 
 }
 
 function isInSea(location: { latitude: number; longitude: number }): boolean {
-  // This is a simplified check using major ocean bounding boxes
-  const oceans = [
-    { name: 'Pacific', minLat: -60, maxLat: 60, minLong: -180, maxLong: -80 },
-    { name: 'Atlantic', minLat: -60, maxLat: 60, minLong: -80, maxLong: 20 },
-    { name: 'Indian', minLat: -60, maxLat: 30, minLong: 20, maxLong: 120 },
-    { name: 'Southern', minLat: -90, maxLat: -60, minLong: -180, maxLong: 180 },
-    { name: 'Arctic', minLat: 60, maxLat: 90, minLong: -180, maxLong: 180 }
-  ];
+  const oceans = {
+    Pacific: [
+      { lat: -60, lng: -180 },
+      { lat: 60, lng: -180 },
+      { lat: 60, lng: -80 },
+      { lat: -60, lng: -80 },
+    ],
+    Atlantic: [
+      { lat: -60, lng: -80 },
+      { lat: 60, lng: -80 },
+      { lat: 60, lng: 20 },
+      { lat: -60, lng: 20 },
+    ],
+    Indian: [
+      { lat: -60, lng: 20 },
+      { lat: 30, lng: 20 },
+      { lat: 30, lng: 120 },
+      { lat: -60, lng: 120 },
+    ],
+    Southern: [
+      { lat: -90, lng: -180 },
+      { lat: -60, lng: -180 },
+      { lat: -60, lng: 180 },
+      { lat: -90, lng: 180 },
+    ],
+    Arctic: [
+      { lat: 60, lng: -180 },
+      { lat: 90, lng: -180 },
+      { lat: 90, lng: 180 },
+      { lat: 60, lng: 180 },
+    ],
+  };
 
-  return oceans.some(ocean =>
-    location.latitude >= ocean.minLat && location.latitude <= ocean.maxLat &&
-    location.longitude >= ocean.minLong && location.longitude <= ocean.maxLong
-  );
+  const point = { lat: location.latitude, lng: location.longitude };
+
+  return Object.values(oceans).some(polygon => isPointInPolygon(point, polygon));
+}
+
+function isPointInPolygon(point: { lat: number; lng: number }, polygon: { lat: number; lng: number }[]): boolean {
+  let inside = false;
+  const { lat, lng } = point;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const { lat: lat1, lng: lng1 } = polygon[i];
+    const { lat: lat2, lng: lng2 } = polygon[j];
+
+    const intersect = ((lat1 > lat) !== (lat2 > lat)) &&
+      (lng < (lng2 - lng1) * (lat - lat1) / (lat2 - lat1) + lng1);
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
 }
 
 async function handlePlayerLocation(ws: WebSocket, msg: any, username: string) {
