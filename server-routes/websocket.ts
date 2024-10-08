@@ -331,18 +331,13 @@ export function setupWebSocket(app: any) {
 
           const transportStatus = await calculateTransportStatus(currentLocation, previousLocation, gpu.username);
 
-          const userWithTransportStatus = await prisma.locations.findUnique({
-            where: { username: gpu.username },
-            select: { transportStatus: true }
-          });
-
           return {
             username: gpu.username,
             latitude: currentLocation.latitude,
             longitude: currentLocation.longitude,
             updatedAt: currentLocation.updatedAt,
             health: gpu.health,
-            userWithTransportStatus
+            transportStatus
           };
         }));
 
@@ -460,16 +455,32 @@ async function isInSea(location: { latitude: number; longitude: number }): Promi
     out body;
   `;
 
-  try {
-    const response = await axios.get(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-    const data = response.data;
+  const maxRetries = 5; // Maximum number of retries
+  let attempt = 0;
 
-    // Check if any way returned is classified as an ocean
-    return data.elements.length > 0;
-  } catch (error) {
-    console.error("Error querying Overpass API:", error);
-    return false; // Default to false on error
+  while (attempt < maxRetries) {
+    try {
+      const response = await axios.get(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+      const data = response.data;
+
+      // Check if any way returned is classified as an ocean
+      return data.elements.length > 0;
+    } catch (error: any) {
+      if (error.response && error.response.status === 429) {
+        // If rate limited, wait and retry
+        attempt++;
+        const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
+        console.error(`Rate limit exceeded. Retrying in ${waitTime / 1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      } else {
+        console.error("Error querying Overpass API:", error);
+        return false; // Default to false on other errors
+      }
+    }
   }
+
+  console.error("Max retries reached. Returning false.");
+  return false; // Return false if max retries reached
 }
 
 async function handlePlayerLocation(ws: WebSocket, msg: any, username: string) {
