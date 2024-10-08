@@ -298,10 +298,10 @@ export function setupWebSocket(app: any) {
           if (speed > 1.5) return 'bicycle';  // Approx. 5.4 km/h
 
           // Check if in sea
-          if (isInSea({ latitude: parseFloat(currentLocation.latitude), longitude: parseFloat(currentLocation.longitude) })) {
-            if (speed > 6) return 'ship';     // Fast boat or ship
-            return 'boat';                     // Slow boat
-          }
+          // if (isInSea({ latitude: parseFloat(currentLocation.latitude), longitude: parseFloat(currentLocation.longitude) })) {
+          //   if (speed > 6) return 'ship';     // Fast boat or ship
+          //   return 'boat';                     // Slow boat
+          // }
 
           return 'walking';
         };
