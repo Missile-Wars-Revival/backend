@@ -95,16 +95,17 @@ model LandmineType {
 }
 
 model Locations {
-  username     String       @id @unique @default("")
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @default(now())
-  deletedAt    DateTime     @default(now())
-  latitude     String       @default("")
-  longitude    String       @default("")
-  lastUpdated  DateTime     @default(now())
-  previousLat  String       @default("")
-  previousLong String       @default("")
-  GameplayUser GameplayUser @relation(fields: [username], references: [username])
+  username        String       @id @unique @default("")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @default(now())
+  deletedAt       DateTime     @default(now())
+  latitude        String       @default("")
+  longitude       String       @default("")
+  lastUpdated     DateTime     @default(now())
+  previousLat     String       @default("")
+  previousLong    String       @default("")
+  transportStatus String       @default("walking")
+  GameplayUser    GameplayUser @relation(fields: [username], references: [username])
 }
 
 model Loot {
