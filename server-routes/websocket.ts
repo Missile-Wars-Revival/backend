@@ -5,7 +5,8 @@ import * as middleearth from "middle-earth";
 import { prisma } from "../server";
 import { getMutualFriends } from "./friendsApi";
 import { aiBots } from "../bots";
-import { Missile, Loot, Other, Landmine } from "middle-earth"; // Adjust the import path as needed
+import { Missile, Loot, Other, Landmine } from "middle-earth"; 
+import axios from 'axios';
 
 function logVerbose(...items: any[]) {
   // Logs an item only if the VERBOSE_MODE env variable is set
@@ -273,7 +274,7 @@ export function setupWebSocket(app: any) {
           previousLong?: string;
         }
 
-        const calculateTransportStatus = (currentLocation: Location, previousLocation: Location | null) => {
+        const calculateTransportStatus = async (currentLocation: Location, previousLocation: Location | null, username: string) => {
           if (!previousLocation) return 'walking';
 
           const timeDiff = (currentLocation.updatedAt.getTime() - previousLocation.updatedAt.getTime()) / 1000; // in seconds
@@ -287,27 +288,35 @@ export function setupWebSocket(app: any) {
           const speed = distance / timeDiff; // in meters per second
 
           // Debugging output
-          // console.log(`Current Location: ${JSON.stringify(currentLocation)}`);
-          // console.log(`Previous Location: ${JSON.stringify(previousLocation)}`);
           console.log(`Distance: ${distance} meters, Time Diff: ${timeDiff} seconds, Speed: ${speed} m/s`);
 
+          let transportStatus = 'walking'; // Default status
           // Adjusted speed thresholds (in meters per second)
-          if (speed > 70) return 'plane';     // Approx. 252 km/h
-          if (speed > 23) return 'highspeed';  // Approx. 83 km/h
-          if (speed > 8) return 'car';        // Approx. 28.8 km/h
-          if (speed > 1.5) return 'bicycle';  // Approx. 5.4 km/h
+          if (speed > 70) transportStatus = 'plane';     // Approx. 252 km/h
+          else if (speed > 23) transportStatus = 'highspeed';  // Approx. 83 km/h
+          else if (speed > 8) transportStatus = 'car';        // Approx. 28.8 km/h
+          else if (speed > 1.5) transportStatus = 'bicycle';  // Approx. 5.4 km/h
 
           // Check if in sea
-          // if (isInSea({ latitude: parseFloat(currentLocation.latitude), longitude: parseFloat(currentLocation.longitude) })) {
-          //   if (speed > 6) return 'ship';     // Fast boat or ship
-          //   return 'boat';                     // Slow boat
-          // }
+          const isCurrentlyInSea = await isInSea({ 
+            latitude: parseFloat(currentLocation.latitude), 
+            longitude: parseFloat(currentLocation.longitude) 
+          });
 
-          return 'walking';
+          if (isCurrentlyInSea) {
+            transportStatus = speed > 6 ? 'ship' : 'boat'; // Fast or slow boat
+          }
+
+          // Update transport status in the database
+          await prisma.locations.update({
+            where: { username: username },
+            data: { transportStatus: transportStatus }
+          });
+
+          return transportStatus;
         };
 
-        // Mapping to format output with transport status
-        const locations = allGameplayUsers.map((gpu) => {
+        const locations = await Promise.all(allGameplayUsers.map(async (gpu) => {
           const currentLocation = gpu.Locations;
           if (!currentLocation) return null; // Skip this user if no location data
 
@@ -320,7 +329,12 @@ export function setupWebSocket(app: any) {
             }
             : null;
 
-          const transportStatus = calculateTransportStatus(currentLocation, previousLocation);
+          const transportStatus = await calculateTransportStatus(currentLocation, previousLocation, gpu.username);
+
+          const userWithTransportStatus = await prisma.locations.findUnique({
+            where: { username: gpu.username },
+            select: { transportStatus: true }
+          });
 
           return {
             username: gpu.username,
@@ -328,9 +342,12 @@ export function setupWebSocket(app: any) {
             longitude: currentLocation.longitude,
             updatedAt: currentLocation.updatedAt,
             health: gpu.health,
-            transportStatus
+            userWithTransportStatus
           };
-        }).filter(Boolean); // Remove any null entries
+        }));
+
+        // Remove any null entries
+        const filteredLocations = locations.filter(Boolean);
 
         // Add AI bots to the locations
         const aiLocations = aiBots
@@ -344,7 +361,7 @@ export function setupWebSocket(app: any) {
           }));
 
         // Combine real player locations with AI bot locations
-        const allLocations = [...locations, ...aiLocations];
+        const allLocations = [...filteredLocations, ...aiLocations];
 
         //bundle for sending
         let playerslocations = allLocations
@@ -436,59 +453,23 @@ function calculateDistance(loc1: { latitude: number; longitude: number }, loc2: 
   return R * c; // Distance in meters
 }
 
-function isInSea(location: { latitude: number; longitude: number }): boolean {
-  const oceans = {
-    Pacific: [
-      { lat: -60, lng: -180 },
-      { lat: 60, lng: -180 },
-      { lat: 60, lng: -80 },
-      { lat: -60, lng: -80 },
-    ],
-    Atlantic: [
-      { lat: -60, lng: -80 },
-      { lat: 60, lng: -80 },
-      { lat: 60, lng: 20 },
-      { lat: -60, lng: 20 },
-    ],
-    Indian: [
-      { lat: -60, lng: 20 },
-      { lat: 30, lng: 20 },
-      { lat: 30, lng: 120 },
-      { lat: -60, lng: 120 },
-    ],
-    Southern: [
-      { lat: -90, lng: -180 },
-      { lat: -60, lng: -180 },
-      { lat: -60, lng: 180 },
-      { lat: -90, lng: 180 },
-    ],
-    Arctic: [
-      { lat: 60, lng: -180 },
-      { lat: 90, lng: -180 },
-      { lat: 90, lng: 180 },
-      { lat: 60, lng: 180 },
-    ],
-  };
+async function isInSea(location: { latitude: number; longitude: number }): Promise<boolean> {
+  const query = `
+    [out:json];
+    way["natural"="water"](around:1000, ${location.latitude}, ${location.longitude});
+    out body;
+  `;
 
-  const point = { lat: location.latitude, lng: location.longitude };
+  try {
+    const response = await axios.get(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+    const data = response.data;
 
-  return Object.values(oceans).some(polygon => isPointInPolygon(point, polygon));
-}
-
-function isPointInPolygon(point: { lat: number; lng: number }, polygon: { lat: number; lng: number }[]): boolean {
-  let inside = false;
-  const { lat, lng } = point;
-
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const { lat: lat1, lng: lng1 } = polygon[i];
-    const { lat: lat2, lng: lng2 } = polygon[j];
-
-    const intersect = ((lat1 > lat) !== (lat2 > lat)) &&
-      (lng < (lng2 - lng1) * (lat - lat1) / (lat2 - lat1) + lng1);
-    if (intersect) inside = !inside;
+    // Check if any way returned is classified as an ocean
+    return data.elements.length > 0;
+  } catch (error) {
+    console.error("Error querying Overpass API:", error);
+    return false; // Default to false on error
   }
-
-  return inside;
 }
 
 async function handlePlayerLocation(ws: WebSocket, msg: any, username: string) {
