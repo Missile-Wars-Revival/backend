@@ -74,6 +74,7 @@ function checkNotificationPreference(title: string, preferences: NotificationPre
         "Missile Alert!": "incomingEntities",
         "Incoming Missile!": "incomingEntities",
         "Missile Damage!": "entityDamage",
+        "Damage!": "entityDamage",
         "Loot Nearby!": "lootDrops",
         "Loot Collected!": "lootDrops",
         "Shield Destroyed": "entityDamage",
