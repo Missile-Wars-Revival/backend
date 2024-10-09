@@ -337,6 +337,7 @@ export function setupWebSocket(app: any) {
             longitude: currentLocation.longitude,
             updatedAt: currentLocation.updatedAt,
             health: gpu.health,
+            randomlocation: gpu.randomLocation,
             transportStatus
           };
         }));

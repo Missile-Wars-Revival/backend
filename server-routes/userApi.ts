@@ -252,6 +252,97 @@ export function setupUserApi(app: any) {
     }
   });
 
+  app.patch("/api/randomLocation", async (req: Request, res: Response) => {
+    const token = req.query.token;
+
+    if (typeof token !== 'string' || !token.trim()) {
+      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
+
+      console.log("Decoded token:", decoded);
+
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token: username not found" });
+      }
+
+      if (typeof req.body.randomLocation !== 'boolean') {
+        return res.status(400).json({ message: "randomLocation status must be provided and be a boolean." });
+      }
+
+      const updatedUser = await prisma.gameplayUser.update({
+        where: {
+          username: decoded.username
+        },
+        data: {
+          randomLocation: req.body.randomLocation
+        },
+        select: {
+          username: true,
+          randomLocation: true
+        }
+      });
+
+      console.log("Updated user:", updatedUser);
+
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.status(200).json({
+        message: "randomLocation status updated successfully",
+        user: updatedUser
+      });
+    } catch (error) {
+      console.error("Error updating randomLocation status:", error);
+      if (error instanceof jwt.JsonWebTokenError) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/getrandomLocation", async (req: Request, res: Response) => {
+    try {
+      const token = req.query.token as string;
+
+      if (!token) {
+        return res.status(400).json({ message: "Token is required" });
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
+
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token: username not found" });
+      }
+
+      const user = await prisma.gameplayUser.findUnique({
+        where: {
+          username: decoded.username
+        },
+        select: {
+          username: true,
+          randomLocation: true
+        }
+      });
+
+      console.log("Retrieve user:", user);
+
+      if (user) {
+        console.log("Sending randomLocation value:", user.randomLocation);
+        res.status(200).json({ randomLocation: user.randomLocation });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
+    } catch (error) {
+      console.error("Error in getrandomLocation:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+
   app.get("/api/getlocActive", async (req: Request, res: Response) => {
     try {
       const token = req.query.token as string;
@@ -314,37 +405,37 @@ export function setupUserApi(app: any) {
 
       if (updates.deleteAccount === true) {
         // Perform user deletion
-          try {
-            // Delete related records first
-            await prisma.$transaction(async (prisma) => {
-              // Delete Notifications
-              await prisma.notifications.deleteMany({ where: { userId: username } });
+        try {
+          // Delete related records first
+          await prisma.$transaction(async (prisma) => {
+            // Delete Notifications
+            await prisma.notifications.deleteMany({ where: { userId: username } });
 
-              // Delete FriendRequests
-              await prisma.friendRequests.deleteMany({ where: { username: username } });
-              await prisma.friendRequests.deleteMany({ where: { friend: username } });
+            // Delete FriendRequests
+            await prisma.friendRequests.deleteMany({ where: { username: username } });
+            await prisma.friendRequests.deleteMany({ where: { friend: username } });
 
-              // Delete BattleSessions
-              await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
-              await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
+            // Delete BattleSessions
+            await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
+            await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
 
-              // Delete Locations
-              await prisma.locations.delete({ where: { username: username } }).catch(() => {});
+            // Delete Locations
+            await prisma.locations.delete({ where: { username: username } }).catch(() => { });
 
-              // Delete InventoryItems
-              await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: username } } });
+            // Delete InventoryItems
+            await prisma.inventoryItem.deleteMany({ where: { GameplayUser: { username: username } } });
 
-              // Delete Statistics
-              await prisma.statistics.deleteMany({ where: { GameplayUser: { username: username } } });
+            // Delete Statistics
+            await prisma.statistics.deleteMany({ where: { GameplayUser: { username: username } } });
 
-              // Delete GameplayUser
-              await prisma.gameplayUser.delete({ where: { username: username } }).catch(() => {});
+            // Delete GameplayUser
+            await prisma.gameplayUser.delete({ where: { username: username } }).catch(() => { });
 
-              // Finally, delete the User
-              await prisma.users.delete({ where: { username: username } });
-            });
+            // Finally, delete the User
+            await prisma.users.delete({ where: { username: username } });
+          });
 
-            console.log(`Successfully deleted ${username}`);
+          console.log(`Successfully deleted ${username}`);
 
           // Delete user data from Firebase
           const db = admin.database();
@@ -378,7 +469,7 @@ export function setupUserApi(app: any) {
               }
             }
           }
-      
+
           return res.status(200).json({ message: "User account deleted successfully" });
         } catch (error) {
           console.error(`Failed to delete user ${username}:`, error);
@@ -549,9 +640,9 @@ export function setupUserApi(app: any) {
 
       // Generate a new token with the updated username and password (if changed)
       const newToken = jwt.sign(
-        { 
-          username: updates.username || username, 
-          password: updates.password ? userUpdates.password : user.password 
+        {
+          username: updates.username || username,
+          password: updates.password ? userUpdates.password : user.password
         },
         process.env.JWT_SECRET || ""
       );
