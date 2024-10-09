@@ -192,18 +192,12 @@ export function setupNotificationApi(app: any) {
         leagues: preferences.leagues ?? true,
       };
 
-      let updatedPreferences;
-
-      if (user.notificationPreferences) {
-        updatedPreferences = await prisma.notificationPreferences.update({
-          where: { userId: user.id },
-          data: preferencesData
-        });
-      } else {
-        updatedPreferences = await prisma.notificationPreferences.create({
-          data: preferencesData
-        });
-      }
+      // Update all preferences in a single operation
+      const updatedPreferences = await prisma.notificationPreferences.upsert({
+        where: { userId: user.id },
+        update: preferencesData,
+        create: preferencesData
+      });
 
       res.status(200).json({ message: "Preferences updated successfully", preferences: updatedPreferences });
     } catch (error) {
