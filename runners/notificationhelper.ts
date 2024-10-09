@@ -1,15 +1,24 @@
 import Expo from "expo-server-sdk";
 import { prisma } from "../server";
+import { NotificationPreferences } from "@prisma/client";
 
 const expo = new Expo();
 
 export async function sendNotification(username: string, title: string, body: string, sentby: string) {
     const user = await prisma.users.findUnique({
       where: { username },
+      include: { notificationPreferences: true },
     });
   
     if (!user) {
       console.log(`No user found for username: ${username}`);
+      return;
+    }
+
+    // Check user notification preferences based on title
+    const shouldSendNotification = checkNotificationPreference(title, user.notificationPreferences);
+    if (!shouldSendNotification) {
+      console.log(`Notification not sent for ${username} due to preferences.`);
       return;
     }
 
@@ -55,17 +64,44 @@ export async function sendNotification(username: string, title: string, body: st
     } catch (error) {
       console.error('Error sending notification:', error);
     }
-  }
+}
 
-  export function startNotificationManager() {
+// Function to check notification preferences based on title
+function checkNotificationPreference(title: string, preferences: NotificationPreferences | null): boolean {
+    if (!preferences) return false; // No preferences set
+
+    const preferenceMap: { [key: string]: keyof NotificationPreferences } = {
+        "Missile Alert!": "incomingEntities",
+        "Incoming Missile!": "incomingEntities",
+        "Missile Damage!": "entityDamage",
+        "Loot Nearby!": "lootDrops",
+        "Loot Collected!": "lootDrops",
+        "Shield Destroyed": "entityDamage",
+        "Airspace Alert!": "entitiesInAirspace",
+        "Grace Period Activated": "entityDamage",
+        "Eliminated!": "entityDamage",
+        "League Promotion!": "leagues",
+        "League Change": "leagues",
+        "Landmine Nearby!": "entitiesInAirspace",
+        "Landmine Damage!": "entityDamage",
+        "Friend Request": "friendRequests",
+        "Friend Accepted": "friendRequests",
+    };
+
+    const preferenceKey = preferenceMap[title];
+    // Ensure the returned value is a boolean
+    return preferenceKey ? !!preferences[preferenceKey] : true;
+}
+
+export function startNotificationManager() {
     // Run immediately on start
     cleanupOldNotifications();
     
     // Then run every 24 hours
     setInterval(cleanupOldNotifications, 24 * 60 * 60 * 1000);
-  }
+}
   
-  async function cleanupOldNotifications() {
+async function cleanupOldNotifications() {
     const oneMonthAgo = new Date();
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
@@ -109,4 +145,4 @@ export async function sendNotification(username: string, title: string, body: st
     } catch (error) {
       console.error('Error cleaning up notifications:', error);
     }
-  }
+}
