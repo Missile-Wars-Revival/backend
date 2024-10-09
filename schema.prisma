@@ -34,6 +34,7 @@ model GameplayUser {
   isAlive                                                      Boolean          @default(true)
   leagueId                                                     String?
   locActive                                                    Boolean          @default(true)
+  randomLocation                                               Boolean          @default(false)
   BattleSessions_BattleSessions_attackerUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_attackerUsernameToGameplayUser")
   BattleSessions_BattleSessions_defenderUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_defenderUsernameToGameplayUser")
   BattleSessions_BattleSessions_gameplayUserIdToGameplayUser   BattleSessions[] @relation("BattleSessions_gameplayUserIdToGameplayUser")
