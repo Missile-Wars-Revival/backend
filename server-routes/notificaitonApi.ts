@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
-import { JwtPayload } from "jsonwebtoken";
 import { Prisma } from '@prisma/client';
 
 export function setupNotificationApi(app: any) {
@@ -128,18 +127,6 @@ export function setupNotificationApi(app: any) {
     }
   });
 
-  interface NotificationPreferences {
-    id: number;
-    userId: number;
-    incomingEntities: boolean;
-    entityDamage: boolean;
-    entitiesInAirspace: boolean;
-    eliminationReward: boolean;
-    lootDrops: boolean;
-    friendRequests: boolean;
-    leagues: boolean;
-  }
-
   app.get("/api/notificationPreferences", async (req: Request, res: Response) => {
     const token = req.query.token as string;
 
@@ -175,7 +162,7 @@ export function setupNotificationApi(app: any) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-  app.patch("/api/notificationPreferences", async (req: Request, res: Response) => {
+  app.patch("/api/changeNotificationPreferences", async (req: Request, res: Response) => {
     const { token, preferences } = req.body;
 
     try {
