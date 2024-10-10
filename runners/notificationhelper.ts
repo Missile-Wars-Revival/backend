@@ -68,7 +68,7 @@ export async function sendNotification(username: string, title: string, body: st
 
 // Function to check notification preferences based on title
 function checkNotificationPreference(title: string, preferences: NotificationPreferences | null): boolean {
-    if (!preferences) return false; // No preferences set
+    if (!preferences) return true; // No preferences set
 
     const preferenceMap: { [key: string]: keyof NotificationPreferences } = {
         "Missile Alert!": "incomingEntities",
