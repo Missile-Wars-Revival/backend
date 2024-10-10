@@ -1473,10 +1473,6 @@ async function manageAIBots() {
               await prisma.friendRequests.deleteMany({ where: { username: bot.username } });
               await prisma.friendRequests.deleteMany({ where: { friend: bot.username } });
 
-              // Delete BattleSessions
-              await prisma.battleSessions.deleteMany({ where: { attackerUsername: bot.username } });
-              await prisma.battleSessions.deleteMany({ where: { defenderUsername: bot.username } });
-
               // Delete Locations
               await prisma.locations.delete({ where: { username: bot.username } }).catch(() => {});
 
@@ -1708,16 +1704,6 @@ async function deleteAllBots() {
         OR: [
           { GameplayUser: { Users: { role: "bot" } } },
           { friend: { in: await prisma.users.findMany({ where: { role: "bot" }, select: { username: true } }).then(users => users.map(u => u.username)) } }
-        ]
-      }
-    });
-
-    // Delete BattleSessions related to bots
-    await prisma.battleSessions.deleteMany({
-      where: { 
-        OR: [
-          { GameplayUser_BattleSessions_attackerUsernameToGameplayUser: { Users: { role: "bot" } } },
-          { GameplayUser_BattleSessions_defenderUsernameToGameplayUser: { Users: { role: "bot" } } }
         ]
       }
     });
