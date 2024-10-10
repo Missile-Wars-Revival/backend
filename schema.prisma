@@ -19,31 +19,28 @@ model FriendRequests {
 }
 
 model GameplayUser {
-  id                                                           Int              @id @default(autoincrement())
-  username                                                     String           @unique @default("")
-  level                                                        Int              @default(1)
-  exp                                                          Int              @default(0)
-  money                                                        Int              @default(2000)
-  health                                                       Int              @default(100)
-  friendsOnly                                                  Boolean          @default(false)
-  rank                                                         String           @default("Private")
-  rankPoints                                                   Int              @default(0)
-  createdAt                                                    DateTime         @default(now())
-  updatedAt                                                    DateTime         @default(now())
-  deletedAt                                                    DateTime         @default(now())
-  isAlive                                                      Boolean          @default(true)
-  leagueId                                                     String?
-  locActive                                                    Boolean          @default(true)
-  randomLocation                                               Boolean          @default(false)
-  BattleSessions_BattleSessions_attackerUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_attackerUsernameToGameplayUser")
-  BattleSessions_BattleSessions_defenderUsernameToGameplayUser BattleSessions[] @relation("BattleSessions_defenderUsernameToGameplayUser")
-  BattleSessions_BattleSessions_gameplayUserIdToGameplayUser   BattleSessions[] @relation("BattleSessions_gameplayUserIdToGameplayUser")
-  FriendRequests                                               FriendRequests[]
-  league                                                       League?          @relation(fields: [leagueId], references: [id])
-  Users                                                        Users            @relation(fields: [username], references: [username])
-  InventoryItem                                                InventoryItem[]
-  Locations                                                    Locations?
-  Statistics                                                   Statistics[]
+  id             Int              @id @default(autoincrement())
+  username       String           @unique @default("")
+  level          Int              @default(1)
+  exp            Int              @default(0)
+  money          Int              @default(2000)
+  health         Int              @default(100)
+  friendsOnly    Boolean          @default(false)
+  rank           String           @default("Private")
+  rankPoints     Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @default(now())
+  deletedAt      DateTime         @default(now())
+  isAlive        Boolean          @default(true)
+  leagueId       String?
+  locActive      Boolean          @default(true)
+  randomLocation Boolean          @default(false)
+  FriendRequests FriendRequests[]
+  league         League?          @relation(fields: [leagueId], references: [id])
+  Users          Users            @relation(fields: [username], references: [username])
+  InventoryItem  InventoryItem[]
+  Locations      Locations?
+  Statistics     Statistics[]
 }
 
 model PasswordResetCodes {
@@ -52,7 +49,7 @@ model PasswordResetCodes {
   code      String
   expiry    DateTime
   createdAt DateTime @default(now())
-  user      Users    @relation(fields: [userId], references: [id])
+  user      Users    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model InventoryItem {
@@ -177,10 +174,11 @@ model RefreshTokens {
 }
 
 model Sessions {
-  lastIp        String @default("")
-  username      String @id @default("")
-  lastLoginTime String @default("")
-  userAgent     String @default("")
+  lastIp        String   @default("")
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  lastLoginTime DateTime @default(now())
+  user          Users    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Users {
@@ -200,6 +198,7 @@ model Users {
   notificationPreferences NotificationPreferences?
   Notifications           Notifications[]
   passwordResetCodes      PasswordResetCodes[]
+  Sessions                Sessions[]
 }
 
 model Notifications {
@@ -234,22 +233,4 @@ model League {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   players   GameplayUser[]
-}
-
-model BattleSessions {
-  sessionId                                                  String
-  attackerUsername                                           String        @default("")
-  defenderUsername                                           String        @default("")
-  gameplayUserId                                             Int?
-  result                                                     String        @default("")
-  status                                                     String        @default("")
-  target                                                     String        @default("")
-  createdAt                                                  DateTime      @default(now())
-  updatedAt                                                  DateTime      @default(now())
-  deletedAt                                                  DateTime      @default(now())
-  GameplayUser_BattleSessions_attackerUsernameToGameplayUser GameplayUser  @relation("BattleSessions_attackerUsernameToGameplayUser", fields: [attackerUsername], references: [username])
-  GameplayUser_BattleSessions_defenderUsernameToGameplayUser GameplayUser  @relation("BattleSessions_defenderUsernameToGameplayUser", fields: [defenderUsername], references: [username])
-  GameplayUser_BattleSessions_gameplayUserIdToGameplayUser   GameplayUser? @relation("BattleSessions_gameplayUserIdToGameplayUser", fields: [gameplayUserId], references: [id])
-
-  @@id([attackerUsername, defenderUsername])
 }
