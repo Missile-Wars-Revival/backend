@@ -81,8 +81,11 @@ function authenticate(
         return;
       }
 
+      // Get the actual client IP address
+      const ip = getClientIp(req);
+
       // Update or create the session
-      await updateOrCreateSession(user.id, req.ip);
+      await updateOrCreateSession(user.id, ip);
 
       console.log(`Authentication successful for user: ${decoded.username}`);
       resolve({ success: true, username: decoded.username });
@@ -91,6 +94,20 @@ function authenticate(
       resolve({ success: false });
     }
   });
+}
+
+// Helper function to get the client's IP address
+function getClientIp(req: Request): string {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (forwardedFor) {
+    // If it's an array, take the first item
+    return Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor.split(',')[0];
+  }
+  // Fallback to other headers or remote address
+  return req.headers['x-real-ip'] as string || 
+         req.connection.remoteAddress || 
+         req.socket.remoteAddress || 
+         'unknown';
 }
 
 interface CacheData {
