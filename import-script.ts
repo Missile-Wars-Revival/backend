@@ -8,26 +8,28 @@
 //     const data = JSON.parse(fs.readFileSync('database-export.json', 'utf-8'));
 
 //     // Define the order of imports
-//     const importOrder = [
-//       'Users',
-//       'League',
-//       'GameplayUser',
-//       'InventoryItem',
-//       'Statistics',
-//       'Landmine',
-//       'LandmineType',
-//       'Locations',
-//       'Loot',
-//       'Other',
-//       'Messages',
-//       'Missile',
-//       'MissileType',
-//       'RefreshTokens',
-//       'Sessions',
-//       'Notifications',
-//       'BattleSessions',
-//       'FriendRequests'
-//     ];
+//     const models = [
+//         'FriendRequests',
+//         'GameplayUser',
+//         'PasswordResetCodes',
+//         'InventoryItem',
+//         'Statistics',
+//         'Landmine',
+//         'LandmineType',
+//         'Locations',
+//         'Loot',
+//         'Other',
+//         'OtherType',
+//         'Messages',
+//         'Missile',
+//         'MissileType',
+//         'RefreshTokens',
+//         'Sessions',
+//         'Users',
+//         'Notifications',
+//         'NotificationPreferences',
+//         'League',
+//       ]
 
 //     for (const model of importOrder) {
 //       if (model in data) {

@@ -9,6 +9,7 @@
 //   const models = [
 //     'FriendRequests',
 //     'GameplayUser',
+//     'PasswordResetCodes',
 //     'InventoryItem',
 //     'Statistics',
 //     'Landmine',
@@ -16,6 +17,7 @@
 //     'Locations',
 //     'Loot',
 //     'Other',
+//     'OtherType',
 //     'Messages',
 //     'Missile',
 //     'MissileType',
@@ -23,8 +25,8 @@
 //     'Sessions',
 //     'Users',
 //     'Notifications',
+//     'NotificationPreferences',
 //     'League',
-//     'BattleSessions'
 //   ]
 
 //   for (const model of models) {

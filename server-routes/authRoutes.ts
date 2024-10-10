@@ -538,9 +538,8 @@ export function setupAuthRoutes(app: any) {
 
             try {
                 const firebaseUser = await admin.auth().getUserByEmail(user.email);
-                await admin.auth().updateUser(firebaseUser.uid, {
-                    email: newEmail
-                });
+                await admin.auth().deleteUser(firebaseUser.uid);
+
             } catch (firebaseError) {
                 console.error("Error updating email in Firebase:", firebaseError);
                 return res.status(500).json({ message: "Failed to update email in Firebase" });
@@ -584,10 +583,6 @@ export function setupAuthRoutes(app: any) {
                 // Delete FriendRequests
                 await prisma.friendRequests.deleteMany({ where: { username: username } });
                 await prisma.friendRequests.deleteMany({ where: { friend: username } });
-
-                // Delete BattleSessions
-                await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
-                await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
 
                 // Delete Locations
                 await prisma.locations.delete({ where: { username: username } }).catch(() => { });

@@ -415,10 +415,6 @@ export function setupUserApi(app: any) {
             await prisma.friendRequests.deleteMany({ where: { username: username } });
             await prisma.friendRequests.deleteMany({ where: { friend: username } });
 
-            // Delete BattleSessions
-            await prisma.battleSessions.deleteMany({ where: { attackerUsername: username } });
-            await prisma.battleSessions.deleteMany({ where: { defenderUsername: username } });
-
             // Delete Locations
             await prisma.locations.delete({ where: { username: username } }).catch(() => { });
 
@@ -504,9 +500,7 @@ export function setupUserApi(app: any) {
 
         try {
           const firebaseUser = await admin.auth().getUserByEmail(user.email);
-          await admin.auth().updateUser(firebaseUser.uid, {
-            password: updates.password
-          });
+          await admin.auth().deleteUser(firebaseUser.uid);
         } catch (firebaseError) {
           console.error("Error updating password in Firebase:", firebaseError);
         }
