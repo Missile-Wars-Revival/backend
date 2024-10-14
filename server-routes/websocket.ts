@@ -445,9 +445,9 @@ export function setupWebSocket(app: any) {
       };
 
       // Reduce the frequency of updates
-      const intervalId = setInterval(sendPeriodicData, 5000); // Change to 5 seconds
+      const intervalId = setInterval(sendPeriodicData, 1000); 
       sendLessPeriodicData();
-      const lessintervalId = setInterval(sendLessPeriodicData, 10000);
+      const lessintervalId = setInterval(sendLessPeriodicData, 5000);
 
       ws.on("message", (message: Buffer) => {
         let wsm: middleearth.WebSocketMessage;
