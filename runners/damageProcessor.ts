@@ -88,19 +88,19 @@ async function determineUsernamesToProcess(username: string, gameplayUserMap: Ma
   }
   const mutualFriendsUsernames = mutualFriends.map(friend => friend.username);
 
-  if (currentUser.friendsOnly) {
-    // If friendsOnly is true, return mutual friends
-    return mutualFriendsUsernames;
-  } else {
-    // If friendsOnly is false, return:
-    // 1. All mutual friends (regardless of their friendsOnly status)
-    // 2. All users who have friendsOnly set to false
-    const nonFriendsOnlyUsers = Array.from(gameplayUserMap.entries())
-      .filter(([otherUsername, user]) => !user.friendsOnly && otherUsername !== username)
-      .map(([username, _]) => username);
+  // Always include mutual friends
+  const usersToProcess = new Set(mutualFriendsUsernames);
 
-    return [...new Set([...mutualFriendsUsernames, ...nonFriendsOnlyUsers])];
+  // If the current user is not in friendsOnly mode, add all non-friendsOnly users
+  if (!currentUser.friendsOnly) {
+    gameplayUserMap.forEach((user, otherUsername) => {
+      if (!user.friendsOnly && otherUsername !== username) {
+        usersToProcess.add(otherUsername);
+      }
+    });
   }
+
+  return Array.from(usersToProcess);
 }
 //only players in league and division
 // async function determineUsernamesToProcess(username: string, gameplayUserMap: Map<string, { friendsOnly: boolean, league?: { tier: string, division: number } }>) {
