@@ -13,7 +13,7 @@ import { deleteAllBots, manageAIBots } from "./bots";
 import { setupNotificationApi } from "./server-routes/notificaitonApi";
 import { setupFriendsApi } from "./server-routes/friendsApi";
 import { setupMoneyApi } from "./server-routes/moneyApi";
-import { setupAuthRoutes, validateSchema } from "./server-routes/authRoutes";
+import { setupAuthRoutes } from "./server-routes/authRoutes";
 import { setupEntityApi } from "./server-routes/entityApi";
 import { setupAccessoryApi } from "./server-routes/accessoryApi";
 import { setupWebSocket } from "./server-routes/websocket";
@@ -28,6 +28,7 @@ import * as admin from 'firebase-admin'
 import { setupMessageListener } from "./runners/messageListener";
 import { startShieldBreakerProcessing } from "./runners/shieldbreaker";
 import { setupWebApi } from "./server-routes/webApi";
+import { validateSchema } from "./utils/schema";
 
 export const prisma = new PrismaClient();
 

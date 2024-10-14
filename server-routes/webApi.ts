@@ -3,7 +3,7 @@ import { prisma } from "../server";
 import { NextFunction, Request, Response } from "express";
 import * as argon2 from "argon2";
 import { LoginSchema } from "../interfaces/api";
-import { validateSchema } from "./authRoutes";
+import { validateSchema } from "../utils/schema";
 
 export function setupWebApi(app: any) {
     app.post('/api/Weblogin', validateSchema(LoginSchema), async (req: Request, res: Response) => {
