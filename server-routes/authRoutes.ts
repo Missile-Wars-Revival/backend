@@ -3,9 +3,9 @@ import { prisma } from "../server";
 import * as argon2 from "argon2";
 import nodemailer from 'nodemailer';
 import { Login, LoginSchema, Register, RegisterSchema } from "../interfaces/api";
-import { NextFunction, Request, Response } from "express";
-import { z, ZodError } from "zod";
+import { Request, Response } from "express";
 import * as admin from 'firebase-admin';
+import { validateSchema } from "../utils/schema";
 
 const transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
@@ -16,20 +16,6 @@ const transporter = nodemailer.createTransport({
         pass: process.env.EMAIL_PASS,
     },
 });
-
-export const validateSchema =
-    (schema: z.ZodSchema) =>
-        (req: Request, res: Response, next: NextFunction) => {
-            try {
-                schema.parse(req.body);
-                next();
-            } catch (error) {
-                if (error instanceof ZodError) {
-                    return res.status(400).json(error.errors);
-                }
-                next(error); // Pass the error to the next error handler
-            }
-        };
 
 export async function storeResetCode(userId: number, code: string, expiry: Date) {
     await prisma.passwordResetCodes.create({
