@@ -583,12 +583,23 @@ async function handlePlayerLocation(ws: WebSocket, msg: any, username: string) {
       );
       const speed = distance / timeDiff; // in meters per second
 
-      // Set a maximum allowed speed (e.g., 1000 m/s, which is about 3600 km/h)
-      const MAX_ALLOWED_SPEED = 1000;
+      // Define speed thresholds for different transportation modes (in m/s)
+      const WALKING_SPEED = 2; // ~7.2 km/h
+      const DRIVING_SPEED = 50; // ~180 km/h
+      const HIGH_SPEED_TRAIN = 100; // ~360 km/h
+      const AIRPLANE_SPEED = 250; // ~900 km/h
+      const MAX_ALLOWED_SPEED = 300; // ~1080 km/h
+
+      let transportMode = 'walking';
+      if (speed > AIRPLANE_SPEED) transportMode = 'airplane';
+      else if (speed > HIGH_SPEED_TRAIN) transportMode = 'high-speed train';
+      else if (speed > DRIVING_SPEED) transportMode = 'driving';
 
       if (speed > MAX_ALLOWED_SPEED) {
-        console.warn(`Suspicious rapid movement detected for user ${username}. Speed: ${speed.toFixed(2)} m/s`);
+        console.warn(`Extremely rapid movement detected for user ${username}. Speed: ${speed.toFixed(2)} m/s`);
         penaltyApplied = true;
+      } else {
+        console.log(`User ${username} appears to be ${transportMode}. Speed: ${speed.toFixed(2)} m/s`);
       }
     }
 
