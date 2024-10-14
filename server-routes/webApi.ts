@@ -2,37 +2,44 @@ import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { NextFunction, Request, Response } from "express";
 import * as argon2 from "argon2";
-import { LoginSchema } from "../interfaces/api";
-import { validateSchema } from "../utils/schema";
+import { z } from "zod";
+import { handleAsync } from "../utils/router";
 
 export function setupWebApi(app: any) {
-    app.post('/api/Weblogin', validateSchema(LoginSchema), async (req: Request, res: Response) => {
-        const { username, password } = req.body;
-
-        const user = await prisma.users.findFirst({
-            where: { username },
-        });
-
-        if (user && (await argon2.verify(user.password, password))) {
-            const token = jwt.sign(
-                { username: user.username },
-                process.env.JWT_SECRET || ""
-            );
-    
-            // Set the token as an HTTP-only cookie
-            res.cookie('auth_token', token, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'strict',
-                maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-            });
-    
-            // Also send the token in the response body
-            res.status(200).json({ message: 'Login successful', token: token });
-        } else {
-            res.status(401).json({ message: 'Invalid username or password' });
-        }
+    const LoginSchema = z.object({
+        username: z.string(),
+        password: z.string(),
     });
+    app.post(
+        '/api/Weblogin',
+        handleAsync(async (req: Request, res: Response) => {
+            const { username, password } = await LoginSchema.parseAsync(req.body);
+
+            const user = await prisma.users.findFirst({
+                where: { username },
+            });
+
+            if (user && (await argon2.verify(user.password, password))) {
+                const token = jwt.sign(
+                    { username: user.username },
+                    process.env.JWT_SECRET || ""
+                );
+        
+                // Set the token as an HTTP-only cookie
+                res.cookie('auth_token', token, {
+                    httpOnly: true,
+                    secure: process.env.NODE_ENV === 'production',
+                    sameSite: 'strict',
+                    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+                });
+        
+                // Also send the token in the response body
+                res.status(200).json({ message: 'Login successful', token: token });
+            } else {
+                res.status(401).json({ message: 'Invalid username or password' });
+            }
+        })
+    );
     // Middleware to verify JWT token
     const verifyToken = (req: Request, res: Response, next: NextFunction) => {
         const token = req.cookies.auth_token;

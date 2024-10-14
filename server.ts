@@ -1,4 +1,4 @@
-import express from "express";
+import express, { NextFunction, Request, Response } from "express";
 import bodyParser from "body-parser";
 import { PrismaClient } from "@prisma/client";
 import swaggerUi from "swagger-ui-express";
@@ -29,6 +29,8 @@ import { setupMessageListener } from "./runners/messageListener";
 import { startShieldBreakerProcessing } from "./runners/shieldbreaker";
 import { setupWebApi } from "./server-routes/webApi";
 import { validateSchema } from "./utils/schema";
+import { APIError } from "./utils/router";
+import { ZodError } from "zod";
 
 export const prisma = new PrismaClient();
 
@@ -217,6 +219,22 @@ app.post(
     }
   }
 );
+
+// error handling from router
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof APIError) {
+    res.status(err.status).json({ message: err.message })
+    return
+  }
+
+  if (err instanceof ZodError) {
+    res.status(400).json(err.errors)
+    return
+  }
+
+  console.error("An error occured on", req.url, ":", err)
+  res.status(500).send({ message: "Internal Server Error" })
+})
 
 ////////////////////////
 
