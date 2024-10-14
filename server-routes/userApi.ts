@@ -398,7 +398,11 @@ export function setupUserApi(app: any) {
         return res.status(401).json({ message: "Invalid token" });
       }
 
-      const user = await prisma.users.findUnique({ where: { username: username } });
+      if (username !== decoded.username) {
+        return res.status(403).json({ message: "Not allowed to edit this user" });
+      }
+
+      const user = await prisma.users.findUnique({ where: { username: decoded.username } });
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
