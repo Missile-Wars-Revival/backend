@@ -1,55 +1,53 @@
 import { prisma } from "../server";
 import { Request, Response } from "express";
 import { verifyToken } from "../utils/jwt";
+import { handleAsync } from "../utils/router";
+import { z } from "zod";
 
 export function setupHealthApi(app: any) {
     //isAlive
-    app.patch("/api/isAlive", async (req: Request, res: Response) => {
-        const token = req.query.token;
+    const IsAliveQuerySchema = z.object({
+        token: z.string()
+    })
+    const IsAliveBodySchema = z.object({
+        isAlive: z.boolean()
+    })
+    app.patch("/api/isAlive", handleAsync(async (req: Request, res: Response) => {
+        const { token } = await IsAliveQuerySchema.parseAsync(req.query);
+        const { isAlive } = await IsAliveBodySchema.parseAsync(req.body)
 
-        // Check if token is provided and is a valid string
-        if (typeof token !== 'string' || !token.trim()) {
-            return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+        // Verify the token
+        const claims = await verifyToken(token);
+
+        const updatedUser = await prisma.gameplayUser.update({
+            where: {
+                username: claims.username
+            },
+            data: {
+                isAlive: isAlive
+            }
+        });
+
+        // If no user is found or updated, send a 404 error
+        if (!updatedUser) {
+            return res.status(404).json({ message: "User not found" });
         }
 
-        try {
-            // Verify the token
-            const claims = await verifyToken(token);
-
-            if (typeof req.body.isAlive !== 'boolean') {
-                return res.status(400).json({ message: "isAlive status must be provided and be a boolean." });
+        // Return the updated user info
+        res.status(200).json({
+            message: "isAlive status updated successfully",
+            user: {
+                username: updatedUser.username,
+                isAlive: updatedUser.isAlive
             }
+        });
+    }));
 
-            const updatedUser = await prisma.gameplayUser.update({
-                where: {
-                    username: claims.username
-                },
-                data: {
-                    isAlive: req.body.isAlive
-                }
-            });
-
-            // If no user is found or updated, send a 404 error
-            if (!updatedUser) {
-                return res.status(404).json({ message: "User not found" });
-            }
-
-            // Return the updated user info
-            res.status(200).json({
-                message: "isAlive status updated successfully",
-                user: {
-                    username: updatedUser.username,
-                    isAlive: updatedUser.isAlive
-                }
-            });
-        } catch (error) {
-            console.error("Error updating isAlive status:", error);
-            res.status(500).json({ message: "Internal server error" });
-        }
-    });
-
-    app.post("/api/getisAlive", async (req: Request, res: Response) => {
-        const { token } = req.body;
+    const GetIsAliveSchema = z.object({
+        token: z.string()
+    })
+    app.post("/api/getisAlive", handleAsync(async (req: Request, res: Response) => {
+        const { token } = await GetIsAliveSchema.parseAsync(req.body);
 
         const claims = await verifyToken(token);
 
@@ -63,16 +61,20 @@ export function setupHealthApi(app: any) {
             },
         });
 
-        if (user) {
-            res.status(200).json({ isAlive: user.isAlive });
-        } else {
+        if (!user) {
             res.status(404).json({ message: "User not found" });
+            return
         }
-    });
+
+        res.status(200).json({ isAlive: user.isAlive });
+    }));
 
     //health
+    const GetHealthSchema = z.object({
+        token: z.string()
+    })
     app.post("/api/getHealth", async (req: Request, res: Response) => {
-        const { token } = req.body;
+        const { token } = await GetHealthSchema.parseAsync(req.body);
 
         const claims = await verifyToken(token)
 
@@ -86,111 +88,110 @@ export function setupHealthApi(app: any) {
             },
         });
 
-        if (user) {
-            res.status(200).json({ health: user.health });
-        } else {
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        
+        res.status(200).json({ health: user.health });
+    });
+
+    const AddHealthSchema = z.object({
+        token: z.string(),
+        amount: z.number().int().positive().min(0).max(100)
+    })
+    app.post("/api/addHealth", handleAsync(async (req: Request, res: Response) => {
+        const { token, amount } = await AddHealthSchema.parseAsync(req.body);
+
+        const claims = await verifyToken(token)
+
+        const user = await prisma.gameplayUser.findUnique({
+            where: {
+                username: claims.username,
+            },
+        });
+
+        if (!user) {
             res.status(404).json({ message: "User not found" });
+            return
         }
-    });
 
-    app.post("/api/addHealth", async (req: Request, res: Response) => {
-        const { token, amount } = req.body;
+        // Calculate new health without exceeding 100
+        const newHealth = Math.min(user.health + amount, 100);
 
-        try {
-            const claims = await verifyToken(token)
+        await prisma.gameplayUser.update({
+            where: {
+                username: claims.username,
+            },
+            data: {
+                health: newHealth,
+            },
+        });
 
-            const user = await prisma.gameplayUser.findUnique({
-                where: {
-                    username: claims.username,
-                },
-            });
+        res.status(200).json({ message: "Health added", health: newHealth });
+    }));
 
-            if (!user) {
-                res.status(404).json({ message: "User not found" });
-                return
-            }
+    const RemoveHealthSchema = z.object({
+        token: z.string(),
+        amount: z.number().int().positive().min(0).max(100)
+    })
+    app.post("/api/removeHealth", handleAsync(async (req: Request, res: Response) => {
+        const { token, amount } = await RemoveHealthSchema.parseAsync(req.body);
 
-            // Calculate new health without exceeding 100
-            const newHealth = Math.min(user.health + amount, 100);
+        const claims = await verifyToken(token)
 
-            await prisma.gameplayUser.update({
-                where: {
-                    username: claims.username,
-                },
-                data: {
-                    health: newHealth,
-                },
-            });
+        const user = await prisma.gameplayUser.findUnique({
+            where: { username: claims.username },
+        });
 
-            res.status(200).json({ message: "Health added", health: newHealth });
-        } catch (error) {
-            res.status(500).json({ message: "Error verifying token" });
+        if (!user) {
+            res.status(404).json({ message: "User not found" });
+            return
         }
-    });
 
-    app.post("/api/removeHealth", async (req: Request, res: Response) => {
-        const { token, amount } = req.body;
+        const newHealth = Math.max(user.health - amount, 0);
+        const newIsAlive = newHealth > 0;
 
-        try {
-            const claims = await verifyToken(token)
+        await prisma.gameplayUser.update({
+            where: { username: claims.username },
+            data: {
+                health: newHealth,
+                isAlive: newIsAlive,
+            },
+        });
 
-            const user = await prisma.gameplayUser.findUnique({
-                where: { username: claims.username },
-            });
+        res.status(200).json({ message: "Health updated", health: newHealth, isAlive: newIsAlive });
+    }));
 
-            if (!user) {
-                res.status(404).json({ message: "User not found" });
-                return
-            }
+    const SetHealthSchema = z.object({
+        token: z.string(),
+        newHealth: z.number().int().positive().min(0).max(100)
+    })
+    app.post("/api/setHealth", handleAsync(async (req: Request, res: Response) => {
+        const { token, newHealth } = await SetHealthSchema.parseAsync(req.body);
 
-            const newHealth = Math.max(user.health - amount, 0);
-            const newIsAlive = newHealth > 0;
+        const claims = await verifyToken(token);
 
-            await prisma.gameplayUser.update({
-                where: { username: claims.username },
-                data: {
-                    health: newHealth,
-                    isAlive: newIsAlive,
-                },
-            });
+        const username = claims.username;
 
-            res.status(200).json({ message: "Health updated", health: newHealth, isAlive: newIsAlive });
-        } catch (error) {
-            res.status(500).json({ message: "Error updating health" });
+        const user = await prisma.gameplayUser.findUnique({
+            where: { username: username },
+        });
+
+        if (!user) {
+            res.status(404).json({ message: "User not found" });
+            return
         }
-    });
 
-    app.post("/api/setHealth", async (req: Request, res: Response) => {
-        const { token, newHealth } = req.body;
+        const newIsAlive = newHealth > 0;
 
-        try {
-            const claims = await verifyToken(token);
+        await prisma.gameplayUser.update({
+            where: { username: username },
+            data: {
+                health: newHealth,
+                isAlive: newIsAlive,
+            },
+        });
 
-            const username = claims.username;
-
-            const user = await prisma.gameplayUser.findUnique({
-                where: { username: username },
-            });
-
-            if (!user) {
-                res.status(404).json({ message: "User not found" });
-                return
-            }
-
-            const clampedHealth = Math.max(0, Math.min(newHealth, 100));
-            const newIsAlive = clampedHealth > 0;
-
-            await prisma.gameplayUser.update({
-                where: { username: username },
-                data: {
-                    health: clampedHealth,
-                    isAlive: newIsAlive,
-                },
-            });
-
-            res.status(200).json({ message: "Health set", health: clampedHealth, isAlive: newIsAlive });
-        } catch (error) {
-            res.status(500).json({ message: "Error setting health" });
-        }
-    });
+        res.status(200).json({ message: "Health set", health: newHealth, isAlive: newIsAlive });
+    }));
 }

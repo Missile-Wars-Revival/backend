@@ -313,49 +313,44 @@ export function setupEntityApi(app: any) {
     landmineid: z.number().int(),
     landminedamage: z.number().int()
   })
-  app.post("/api/steppedonlandmine", async (req: Request, res: Response) => {
+  app.post("/api/steppedonlandmine", handleAsync(async (req: Request, res: Response) => {
     const { token, landmineid, landminedamage } = await SteppedOnLandmineSchema.parseAsync(req.body);
 
-    try {
-      // Verify the token and ensure it's decoded as an object
-      const claims = await verifyToken(token);
+    // Verify the token and ensure it's decoded as an object
+    const claims = await verifyToken(token);
 
-      // Retrieve the user from the database
-      const user = await prisma.gameplayUser.findFirst({
-        where: {
-          username: claims.username,
-        },
-      });
+    // Retrieve the user from the database
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: claims.username,
+      },
+    });
 
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      await prisma.gameplayUser.update({
-        where: {
-          username: claims.username,
-        },
-        data: {
-          health: user.health - landminedamage,
-        },
-      });
-
-      //Logic to alert user and reward that placed landmine here!!
-
-      //delete landmine
-      const result = await prisma.landmine.delete({
-        where: {
-          id: landmineid,
-        }
-      });
-
-      // Successful add item response
-      res.status(200).json({ message: `${result} Landmine removed successfully with id ${landmineid}` });
-    } catch (error) {
-      console.error("Add item failed: ", error);
-      res.status(500).json({ message: "Landmine removed failed" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
-  });
+
+    await prisma.gameplayUser.update({
+      where: {
+        username: claims.username,
+      },
+      data: {
+        health: user.health - landminedamage,
+      },
+    });
+
+    //Logic to alert user and reward that placed landmine here!!
+
+    //delete landmine
+    const result = await prisma.landmine.delete({
+      where: {
+        id: landmineid,
+      }
+    });
+
+    // Successful add item response
+    res.status(200).json({ message: `${result} Landmine removed successfully with id ${landmineid}` });
+  }));
 
   //place loot
   //this will take a location, item name
