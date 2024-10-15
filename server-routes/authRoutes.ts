@@ -4,10 +4,10 @@ import * as argon2 from "argon2";
 import nodemailer from 'nodemailer';
 import { Request, Response } from "express";
 import * as admin from 'firebase-admin';
-import { APIError, handleAsync } from "../utils/router";
+import { handleAsync } from "../utils/router";
 import { z } from "zod";
 import { signToken, verifyToken } from "../utils/jwt";
-import { PrismaClientKnownRequestError, PrismaClientValidationError } from "@prisma/client/runtime/library";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import { emailSchema } from "../utils/schema";
 
 const transporter = nodemailer.createTransport({
@@ -173,7 +173,7 @@ export function setupAuthRoutes(app: any) {
                 },
             });
 
-            const token = signToken({ username: register.username })
+            const token = signToken({ username: register.username });
 
             res.status(200).json({ message: "User created", token });
         })
@@ -365,7 +365,7 @@ export function setupAuthRoutes(app: any) {
             // contains the username
             const newToken = signToken({
                 username: claims.username
-            })
+            });
 
             res.status(200).json({
                 message: "Password changed successfully",
@@ -514,7 +514,7 @@ export function setupAuthRoutes(app: any) {
             });
 
             // Generate a new token with the updated username and the current hashed password
-            const newToken = signToken({ username: newUsername })
+            const newToken = signToken({ username: newUsername });
 
             res.status(200).json({
                 message: "Username changed successfully",
