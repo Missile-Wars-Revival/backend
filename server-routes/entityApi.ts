@@ -1,9 +1,8 @@
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { Request, Response } from "express";
-import { JwtPayload } from "jsonwebtoken";
 import { getRandomCoordinates, haversine } from "../runners/entitymanagment";
 import { sendNotification } from "../runners/notificationhelper";
+import { verifyToken } from "../utils/jwt";
 
 //Entering missiles and landmines into DB
 
@@ -12,13 +11,10 @@ export function setupEntityApi(app: any) {
     const { token, destLat, destLong, type } = req.body;
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       const user = await prisma.gameplayUser.findFirst({
-        where: { username: decoded.username }
+        where: { username: claims.username }
       });
 
       if (!user) {
@@ -26,7 +22,7 @@ export function setupEntityApi(app: any) {
       }
 
       const userLocation = await prisma.locations.findUnique({
-        where: { username: decoded.username }
+        where: { username: claims.username }
       });
 
       if (!userLocation) {
@@ -115,15 +111,12 @@ export function setupEntityApi(app: any) {
 
     try {
       // Verify the token and ensure it's decoded as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       // Ensure user and their location are found
       const [user, userLocation, playerlocation] = await Promise.all([
-        prisma.gameplayUser.findFirst({ where: { username: decoded.username } }),
-        prisma.locations.findUnique({ where: { username: decoded.username } }),
+        prisma.gameplayUser.findFirst({ where: { username: claims.username } }),
+        prisma.locations.findUnique({ where: { username: claims.username } }),
         prisma.locations.findUnique({ where: { username: playerusername } })
       ]);
 
@@ -213,16 +206,12 @@ export function setupEntityApi(app: any) {
 
     try {
       // Verify the token and ensure it's decoded as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       // Retrieve the user from the database
       const user = await prisma.gameplayUser.findFirst({
         where: {
-          username: decoded.username,
+          username: claims.username,
         },
       });
 
@@ -309,23 +298,19 @@ export function setupEntityApi(app: any) {
 
     try {
       // Verify the token and ensure it's decoded as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       // Retrieve the user from the database
       const user = await prisma.gameplayUser.findFirst({
         where: {
-          username: decoded.username,
+          username: claims.username,
         },
       });
 
       if (user) {
         await prisma.gameplayUser.update({
           where: {
-            username: (decoded as JwtPayload).username as string,
+            username: claims.username,
           },
           data: {
             health: user.health - landminedamage,
@@ -364,16 +349,12 @@ export function setupEntityApi(app: any) {
 
     try {
       // Verify the token and ensure it's decoded as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       // Retrieve the user from the database
       const user = await prisma.gameplayUser.findFirst({
         where: {
-          username: decoded.username,
+          username: claims.username,
         },
       });
 
@@ -460,14 +441,11 @@ export function setupEntityApi(app: any) {
 
     try {
       // Verify the token and decode it
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       // Retrieve the user first
       const user = await prisma.gameplayUser.findUnique({ 
-        where: { username: decoded.username } 
+        where: { username: claims.username } 
       });
 
       if (!user) {
@@ -535,15 +513,11 @@ export function setupEntityApi(app: any) {
   app.post("/api/lootpickup", async (req: Request, res: Response) => {
     const { token, lootid, amount } = req.body;
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       const user = await prisma.gameplayUser.findFirst({
         where: {
-          username: decoded.username,
+          username: claims.username,
         },
       });
 
@@ -556,7 +530,7 @@ export function setupEntityApi(app: any) {
         // Update user
         await prisma.gameplayUser.update({
           where: {
-            username: decoded.username,
+            username: claims.username,
           },
           data: {
             money: user.money + amount,
@@ -607,12 +581,9 @@ export function setupEntityApi(app: any) {
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-        if (typeof decoded === 'string' || !decoded.username) {
-            return res.status(401).json({ success: false, message: "Invalid token" });
-        }
+        const claims = await verifyToken(token);
 
-        const killedUsername = decoded.username;
+        const killedUsername = claims.username;
 
         const sender = await prisma.gameplayUser.findUnique({
             where: { username: sentby },

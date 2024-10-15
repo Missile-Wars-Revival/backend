@@ -1,7 +1,7 @@
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { Request, Response } from "express";
 import { sendNotification } from "../runners/notificationhelper";
+import { verifyToken } from "../utils/jwt";
 
 const MAX_PLAYERS_PER_LEAGUE = 50;
 const SOFT_LIMIT_BUFFER = 5;
@@ -11,15 +11,12 @@ export function setupLeagueApi(app: any) {
   app.get("/api/topleagues", async (req: Request, res: Response) => {
     const { token } = req.query;
 
-    if (!token) {
+    if (!token || typeof token !== "string") {
       return res.status(400).json({ success: false, message: "Missing token" });
     }
 
     try {
-      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ success: false, message: "Invalid token" });
-      }
+      await verifyToken(token)
 
       const leagues = await prisma.league.findMany({
         include: {
@@ -69,18 +66,15 @@ export function setupLeagueApi(app: any) {
   app.get("/api/leagues/current", async (req: Request, res: Response) => {
     const { token } = req.query;
 
-    if (!token) {
+    if (!token || typeof token !== "string") {
       return res.status(400).json({ success: false, message: "Missing token" });
     }
 
     try {
-      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ success: false, message: "Invalid token" });
-      }
+      const claims = await verifyToken(token)
 
       let user = await prisma.gameplayUser.findUnique({
-        where: { username: decoded.username },
+        where: { username: claims.username },
         include: { league: true }
       });
 
@@ -116,18 +110,15 @@ export function setupLeagueApi(app: any) {
   app.get("/api/leagues/players", async (req: Request, res: Response) => {
     const { token } = req.query;
 
-    if (!token) {
+    if (!token || typeof token !== "string") {
       return res.status(400).json({ success: false, message: "Missing token" });
     }
 
     try {
-      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ success: false, message: "Invalid token" });
-      }
+      const claims = await verifyToken(token)
 
       let user = await prisma.gameplayUser.findUnique({
-        where: { username: decoded.username },
+        where: { username: claims.username },
         include: { league: true }
       });
 
@@ -149,7 +140,7 @@ export function setupLeagueApi(app: any) {
         id: player.id.toString(),
         username: player.username,
         points: player.rankPoints,
-        isCurrentUser: player.username === decoded.username
+        isCurrentUser: player.username === claims.username
       }));
 
       //console.log('Full league players response:', JSON.stringify(formattedPlayers, null, 2));
@@ -164,15 +155,12 @@ export function setupLeagueApi(app: any) {
   app.get("/api/top100players", async (req: Request, res: Response) => {
     const { token } = req.query;
 
-    if (!token) {
+    if (!token || typeof token !== "string") {
       return res.status(400).json({ success: false, message: "Missing token" });
     }
 
     try {
-      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ success: false, message: "Invalid token" });
-      }
+      const claims = await verifyToken(token)
 
       const top100Players = await prisma.gameplayUser.findMany({
         select: {
@@ -196,7 +184,7 @@ export function setupLeagueApi(app: any) {
         username: player.username,
         points: player.rankPoints,
         league: player.league ? `${player.league.tier} ${player.league.division}` : null,
-        isCurrentUser: player.username === decoded.username
+        isCurrentUser: player.username === claims.username
       }));
 
       return res.json({ success: true, players: formattedPlayers });

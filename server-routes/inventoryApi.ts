@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
-import { JwtPayload } from "jsonwebtoken";
+import { verifyToken } from "../utils/jwt";
 
 export function setupInventoryApi(app: any) {
     app.post("/api/addItem", async (req: Request, res: Response) => {
@@ -9,16 +8,12 @@ export function setupInventoryApi(app: any) {
 
         try {
             // Verify the token and ensure it's decoded as an object
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-            if (typeof decoded === 'string' || !decoded.username) {
-                return res.status(401).json({ message: "Invalid token" });
-            }
+            const claims = await verifyToken(token);
 
             // Retrieve the user from the database
             const user = await prisma.gameplayUser.findFirst({
                 where: {
-                    username: decoded.username,
+                    username: claims.username,
                 },
             });
 
@@ -86,11 +81,7 @@ export function setupInventoryApi(app: any) {
         const { token, itemName, quantity } = req.body;
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-            if (typeof decoded === 'string' || !decoded.username) {
-                return res.status(401).json({ message: "Invalid token" });
-            }
+            const claims = await verifyToken(token);
 
             if (!itemName || !quantity) {
                 return res.status(400).send('Missing required fields');
@@ -98,7 +89,7 @@ export function setupInventoryApi(app: any) {
 
             const user = await prisma.gameplayUser.findFirst({
                 where: {
-                    username: decoded.username,
+                    username: claims.username,
                 },
             });
 
@@ -136,11 +127,7 @@ export function setupInventoryApi(app: any) {
         const { token, itemName, quantity } = req.body;
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-            if (typeof decoded === 'string' || !decoded.username) {
-                return res.status(401).json({ message: "Invalid token" });
-            }
+            const claims = await verifyToken(token)
 
             if (!itemName || !quantity) {
                 return res.status(400).send('Missing required fields');
@@ -148,7 +135,7 @@ export function setupInventoryApi(app: any) {
 
             const user = await prisma.gameplayUser.findFirst({
                 where: {
-                    username: decoded.username,
+                    username: claims.username,
                 },
             });
 

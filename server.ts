@@ -4,9 +4,6 @@ import { PrismaClient } from "@prisma/client";
 import swaggerUi from "swagger-ui-express";
 import swaggerJSDoc from "swagger-jsdoc";
 import expressWs from "express-ws";
-import * as jwt from "jsonwebtoken";
-import { JwtPayload } from "jsonwebtoken";
-import { AuthWithLocation, AuthWithLocationSchema } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, updateMissilePositions, addRandomLoot, checkPlayerProximity, deleteExpiredOther, checkAndCollectLoot } from "./runners/entitymanagment";
 import { startNotificationManager } from "./runners/notificationhelper";
 import { deleteAllBots, manageAIBots } from "./bots";
@@ -28,9 +25,9 @@ import * as admin from 'firebase-admin'
 import { setupMessageListener } from "./runners/messageListener";
 import { startShieldBreakerProcessing } from "./runners/shieldbreaker";
 import { setupWebApi } from "./server-routes/webApi";
-import { validateSchema } from "./utils/schema";
-import { APIError } from "./utils/router";
-import { ZodError } from "zod";
+import { APIError, handleAsync } from "./utils/router";
+import { z, ZodError } from "zod";
+import { verifyToken } from "./utils/jwt";
 
 export const prisma = new PrismaClient();
 
@@ -139,33 +136,29 @@ setupLeagueApi(app);
 
 
 // Next to convert to WS
+// TODO: Move this to server-routes/ ?
+const AuthWithLocationSchema = z.object({
+  token: z.string(),
+  latitude: z.string(),
+  longitude: z.string(),
+});
 app.post(
   "/api/dispatch",
-  validateSchema(AuthWithLocationSchema),
-  async (req, res) => {
-    const location: AuthWithLocation = req.body;
-
-    if (!location.token) {
-      return res.status(401).json({ message: "Missing token" });
-    }
-
-    const decoded = jwt.verify(location.token, process.env.JWT_SECRET || "");
-
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid token" });
-    }
+  handleAsync(async (req, res) => {
+    const location = await AuthWithLocationSchema.parseAsync(req.body);
+    const claims = await verifyToken(location.token);
 
     // Check if the user exists
     const user = await prisma.gameplayUser.findFirst({
       where: {
-        username: (decoded as JwtPayload).username as string,
+        username: claims.username,
       },
     });
 
     if (user) {
       const lastLocation = await prisma.locations.findFirst({
         where: {
-          username: (decoded as JwtPayload).username as string,
+          username: claims.username,
         },
         orderBy: {
           updatedAt: "desc",
@@ -199,7 +192,7 @@ app.post(
         try {
           await prisma.locations.create({
             data: {
-              username: (decoded as JwtPayload).username as string,
+              username: claims.username,
               latitude: location.latitude,
               longitude: location.longitude,
               updatedAt: now,
@@ -217,7 +210,7 @@ app.post(
       res.status(404).json({ message: "User not found" });
       console.log("user not found")
     }
-  }
+  })
 );
 
 // error handling from router

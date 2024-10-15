@@ -1,6 +1,5 @@
 import { Request } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
-import * as jwt from "jsonwebtoken";
 import * as middleearth from "middle-earth";
 import { prisma } from "../server";
 import { getMutualFriends } from "./friendsApi";
@@ -8,6 +7,7 @@ import { aiBots } from "../bots";
 import { Missile, Loot, Other, Landmine } from "middle-earth"; 
 import axios from 'axios';
 import { sendNotification } from "../runners/notificationhelper";
+import { verifyToken } from "../utils/jwt";
 
 function logVerbose(...items: any[]) {
   // Logs an item only if the VERBOSE_MODE env variable is set
@@ -61,22 +61,16 @@ function authenticate(
 
   return new Promise(async (resolve) => {
     try {
-      const decoded = jwt.verify(authToken, process.env.JWT_SECRET || "") as { username: string; };
-
-      if (!decoded.username) {
-        console.log("Invalid token: Username is missing.");
-        resolve({ success: false });
-        return;
-      }
+      const claims = await verifyToken(authToken);
 
       // Fetch the user based on the username from the token
       const user = await prisma.users.findUnique({
-        where: { username: decoded.username },
+        where: { username: claims.username },
         include: { GameplayUser: true }
       });
 
       if (!user) {
-        console.log(`User not found: ${decoded.username}`);
+        console.log(`User not found: ${claims.username}`);
         resolve({ success: false });
         return;
       }
@@ -87,8 +81,8 @@ function authenticate(
       // Update or create the session
       await updateOrCreateSession(user.id, ip);
 
-      console.log(`Authentication successful for user: ${decoded.username}`);
-      resolve({ success: true, username: decoded.username });
+      console.log(`Authentication successful for user: ${claims.username}`);
+      resolve({ success: true, username: claims.username });
     } catch (error) {
       console.log("Authentication failed. Invalid token.", error);
       resolve({ success: false });

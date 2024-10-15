@@ -1,7 +1,6 @@
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { Request, Response } from "express";
-import { JwtPayload } from "jsonwebtoken";
+import { verifyToken } from "../utils/jwt";
 
 export function setupHealthApi(app: any) {
     //isAlive
@@ -15,12 +14,7 @@ export function setupHealthApi(app: any) {
 
         try {
             // Verify the token
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-            // Ensure the token contains a username
-            if (typeof decoded === 'string' || !decoded.username) {
-                return res.status(401).json({ message: "Invalid token" });
-            }
+            const claims = await verifyToken(token);
 
             if (typeof req.body.isAlive !== 'boolean') {
                 return res.status(400).json({ message: "isAlive status must be provided and be a boolean." });
@@ -28,7 +22,7 @@ export function setupHealthApi(app: any) {
 
             const updatedUser = await prisma.gameplayUser.update({
                 where: {
-                    username: decoded.username
+                    username: claims.username
                 },
                 data: {
                     isAlive: req.body.isAlive
@@ -57,15 +51,15 @@ export function setupHealthApi(app: any) {
     app.post("/api/getisAlive", async (req: Request, res: Response) => {
         const { token } = req.body;
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+        const claims = await verifyToken(token);
 
-        if (!decoded) {
+        if (!claims) {
             return res.status(401).json({ message: "Invalid token" });
         }
 
         const user = await prisma.gameplayUser.findFirst({
             where: {
-                username: (decoded as JwtPayload).username as string,
+                username: claims.username
             },
         });
 
@@ -80,15 +74,15 @@ export function setupHealthApi(app: any) {
     app.post("/api/getHealth", async (req: Request, res: Response) => {
         const { token } = req.body;
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+        const claims = await verifyToken(token)
 
-        if (!decoded) {
+        if (!claims) {
             return res.status(401).json({ message: "Invalid token" });
         }
 
         const user = await prisma.gameplayUser.findFirst({
             where: {
-                username: (decoded as JwtPayload).username as string,
+                username: claims.username
             },
         });
 
@@ -103,39 +97,32 @@ export function setupHealthApi(app: any) {
         const { token, amount } = req.body;
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const claims = await verifyToken(token)
 
-            // Check if decoded is of type JwtPayload and has a username property
-            if (typeof decoded === 'object' && 'username' in decoded) {
-                const username = decoded.username;
+            const user = await prisma.gameplayUser.findUnique({
+                where: {
+                    username: claims.username,
+                },
+            });
 
-                const user = await prisma.gameplayUser.findUnique({
-                    where: {
-                        username: username,
-                    },
-                });
-
-                if (user) {
-                    // Calculate new health without exceeding 100
-                    const newHealth = Math.min(user.health + amount, 100);
-
-                    await prisma.gameplayUser.update({
-                        where: {
-                            username: username,
-                        },
-                        data: {
-                            health: newHealth,
-                        },
-                    });
-
-                    res.status(200).json({ message: "Health added", health: newHealth });
-                } else {
-                    res.status(404).json({ message: "User not found" });
-                }
-            } else {
-                // If decoded does not have a username property
-                res.status(401).json({ message: "Invalid token" });
+            if (!user) {
+                res.status(404).json({ message: "User not found" });
+                return
             }
+
+            // Calculate new health without exceeding 100
+            const newHealth = Math.min(user.health + amount, 100);
+
+            await prisma.gameplayUser.update({
+                where: {
+                    username: claims.username,
+                },
+                data: {
+                    health: newHealth,
+                },
+            });
+
+            res.status(200).json({ message: "Health added", health: newHealth });
         } catch (error) {
             res.status(500).json({ message: "Error verifying token" });
         }
@@ -145,34 +132,29 @@ export function setupHealthApi(app: any) {
         const { token, amount } = req.body;
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const claims = await verifyToken(token)
 
-            if (typeof decoded === 'object' && 'username' in decoded) {
-                const username = decoded.username;
+            const user = await prisma.gameplayUser.findUnique({
+                where: { username: claims.username },
+            });
 
-                const user = await prisma.gameplayUser.findUnique({
-                    where: { username: username },
-                });
-
-                if (user) {
-                    const newHealth = Math.max(user.health - amount, 0);
-                    const newIsAlive = newHealth > 0;
-
-                    await prisma.gameplayUser.update({
-                        where: { username: username },
-                        data: {
-                            health: newHealth,
-                            isAlive: newIsAlive,
-                        },
-                    });
-
-                    res.status(200).json({ message: "Health updated", health: newHealth, isAlive: newIsAlive });
-                } else {
-                    res.status(404).json({ message: "User not found" });
-                }
-            } else {
-                res.status(401).json({ message: "Invalid token" });
+            if (!user) {
+                res.status(404).json({ message: "User not found" });
+                return
             }
+
+            const newHealth = Math.max(user.health - amount, 0);
+            const newIsAlive = newHealth > 0;
+
+            await prisma.gameplayUser.update({
+                where: { username: claims.username },
+                data: {
+                    health: newHealth,
+                    isAlive: newIsAlive,
+                },
+            });
+
+            res.status(200).json({ message: "Health updated", health: newHealth, isAlive: newIsAlive });
         } catch (error) {
             res.status(500).json({ message: "Error updating health" });
         }
@@ -182,34 +164,31 @@ export function setupHealthApi(app: any) {
         const { token, newHealth } = req.body;
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const claims = await verifyToken(token);
 
-            if (typeof decoded === 'object' && 'username' in decoded) {
-                const username = decoded.username;
+            const username = claims.username;
 
-                const user = await prisma.gameplayUser.findUnique({
-                    where: { username: username },
-                });
+            const user = await prisma.gameplayUser.findUnique({
+                where: { username: username },
+            });
 
-                if (user) {
-                    const clampedHealth = Math.max(0, Math.min(newHealth, 100));
-                    const newIsAlive = clampedHealth > 0;
-
-                    await prisma.gameplayUser.update({
-                        where: { username: username },
-                        data: {
-                            health: clampedHealth,
-                            isAlive: newIsAlive,
-                        },
-                    });
-
-                    res.status(200).json({ message: "Health set", health: clampedHealth, isAlive: newIsAlive });
-                } else {
-                    res.status(404).json({ message: "User not found" });
-                }
-            } else {
-                res.status(401).json({ message: "Invalid token" });
+            if (!user) {
+                res.status(404).json({ message: "User not found" });
+                return
             }
+
+            const clampedHealth = Math.max(0, Math.min(newHealth, 100));
+            const newIsAlive = clampedHealth > 0;
+
+            await prisma.gameplayUser.update({
+                where: { username: username },
+                data: {
+                    health: clampedHealth,
+                    isAlive: newIsAlive,
+                },
+            });
+
+            res.status(200).json({ message: "Health set", health: clampedHealth, isAlive: newIsAlive });
         } catch (error) {
             res.status(500).json({ message: "Error setting health" });
         }

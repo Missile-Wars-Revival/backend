@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { sendNotification } from "../runners/notificationhelper";
 import * as geolib from 'geolib';
+import { verifyToken } from "../utils/jwt";
 
 export async function getMutualFriends(currentUser: { friends: any; username: string; }) {
     const mutualFriends = [];
@@ -32,12 +32,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
   
     try {
       // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-  
-      // Ensure the token contains a username
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token)
   
       // Check if friendsOnly status is provided in the request body
       if (typeof req.body.friendsOnly !== 'boolean') {
@@ -47,7 +42,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       // Update the friendsOnly status in the GameplayUser table
       const updatedUser = await prisma.gameplayUser.update({
         where: {
-          username: decoded.username
+          username: claims.username
         },
         data: {
           friendsOnly: req.body.friendsOnly
@@ -86,14 +81,11 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
   
     try {
       // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token)
   
       // Fetch the current user to get their friends list
       const currentUser = await prisma.users.findUnique({
-        where: { username: decoded.username },
+        where: { username: claims.username },
         select: { friends: true }
       });
   
@@ -113,7 +105,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
             },
             {
               username: {
-                not: decoded.username, // Exclude the current user
+                not: claims.username, // Exclude the current user
                 notIn: currentUser.friends // Exclude friends
               }
             }
@@ -141,14 +133,11 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
   
     try {
       // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token)
   
       // Fetch the current user to get their friends list
       const currentUser = await prisma.users.findUnique({
-        where: { username: decoded.username },
+        where: { username: claims.username },
         select: { friends: true }
       });
   
@@ -174,7 +163,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       });
   
       // Filter out mutual friends
-      const nonMutualFriends = addedFriends.filter(friend => !friend.friends.includes(decoded.username));
+      const nonMutualFriends = addedFriends.filter(friend => !friend.friends.includes(claims.username));
   
       // Format the response to only include username and updatedAt
       const formattedFriends = nonMutualFriends.map(({ username, updatedAt }) => ({ username, updatedAt }));
@@ -200,15 +189,12 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
     }
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token. Token must contain a username." });
-      }
+      const claims = await verifyToken(token)
   
       // Fetch the main user object to get access to the friends list
       const mainUser = await prisma.users.findUnique({
         where: {
-          username: decoded.username,
+          username: claims.username,
         },
         select: { friends: true }
       });
@@ -223,7 +209,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       const nearbyUsers = await prisma.gameplayUser.findMany({
         where: {
           AND: [
-            { username: { not: { equals: decoded.username } } }, // Exclude self
+            { username: { not: { equals: claims.username } } }, // Exclude self
             { username: { not: { in: mainUser.friends } } }, // Exclude friends
             { friendsOnly: false }, // Only include users with friendsOnly set to false
             {
@@ -276,15 +262,11 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
     }
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-  
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
   
       const user = await prisma.users.findUnique({
         where: {
-          username: decoded.username,
+          username: claims.username,
         },
         select: {
           friends: true // Just retrieve the friends array
@@ -303,7 +285,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
               in: user.friends,
             },
             friends: {
-              has: decoded.username // Check if these users also have the current user in their friends list (mutal friends)
+              has: claims.username // Check if these users also have the current user in their friends list (mutal friends)
             }
           },
         });
@@ -326,13 +308,10 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
     }
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string; };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token: Username is missing." });
-      }
+      const claims = await verifyToken(token)
   
       const user = await prisma.users.findFirst({
-        where: { username: decoded.username },
+        where: { username: claims.username },
       });
   
       if (!user) {
@@ -385,14 +364,11 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
     }
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string; };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token: Username is missing." });
-      }
+      const claims = await verifyToken(token);
   
       const user = await prisma.users.findFirst({
         where: {
-          username: decoded.username,
+          username: claims.username,
         },
       });
   

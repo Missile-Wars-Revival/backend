@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { Prisma } from '@prisma/client';
+import { verifyToken } from "../utils/jwt";
 
 export function setupNotificationApi(app: any) {
 
@@ -10,14 +10,11 @@ export function setupNotificationApi(app: any) {
   
     try {
       // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
   
       // Update the user, setting notificationToken to null or an empty string
       await prisma.users.update({
-        where: { username: decoded.username },
+        where: { username: claims.username },
         data: { notificationToken: "" } // Using an empty string instead of null
       });
   
@@ -29,16 +26,17 @@ export function setupNotificationApi(app: any) {
   });
   
   app.get("/api/notifications", async (req: Request, res: Response) => {
-    const token = req.query.token as string;
+    const token = req.query.token;
+
+    if (!token || typeof token !== "string") {
+      return res.status(401).json({ message: "Missing token" });
+    }
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
   
       const notifications = await prisma.notifications.findMany({
-        where: { userId: decoded.username },
+        where: { userId: claims.username },
         orderBy: { timestamp: 'desc' }
       });
   
@@ -53,15 +51,12 @@ export function setupNotificationApi(app: any) {
     const { token, notificationId } = req.body;
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
   
       const deletedNotification = await prisma.notifications.deleteMany({
         where: {
           id: notificationId,
-          userId: decoded.username
+          userId: claims.username
         }
       });
   
@@ -80,15 +75,12 @@ export function setupNotificationApi(app: any) {
     const { token, notificationId } = req.body;
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
   
       const updatedNotification = await prisma.notifications.updateMany({
         where: {
           id: notificationId,
-          userId: decoded.username
+          userId: claims.username
         },
         data: { isRead: true }
       });
@@ -108,14 +100,11 @@ export function setupNotificationApi(app: any) {
     const { token } = req.body;
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
   
       const deletedNotifications = await prisma.notifications.deleteMany({
         where: {
-          userId: decoded.username,
+          userId: claims.username,
           title: "New Message"
         }
       });
@@ -128,16 +117,17 @@ export function setupNotificationApi(app: any) {
   });
 
   app.get("/api/notificationPreferences", async (req: Request, res: Response) => {
-    const token = req.query.token as string;
+    const token = req.query.token;
+
+    if (!token || typeof token !== "string") {
+      return res.status(401).json({ message: "Missing token" });
+    }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       const user = await prisma.users.findUnique({
-        where: { username: decoded.username },
+        where: { username: claims.username },
         include: { notificationPreferences: true }
       });
 
@@ -166,13 +156,10 @@ export function setupNotificationApi(app: any) {
     const { token, preferences } = req.body;
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token)
 
       const user = await prisma.users.findUnique({
-        where: { username: decoded.username },
+        where: { username: claims.username },
         include: { notificationPreferences: true }
       });
 
