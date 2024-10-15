@@ -575,57 +575,57 @@ async function handlePlayerLocation(ws: WebSocket, msg: any, username: string) {
     let penaltyApplied = false;
 
     // Check for rapid location changes
-    if (lastLocation) {
-      const timeDiff = (now.getTime() - lastLocation.updatedAt.getTime()) / 1000; // in seconds
-      const distance = calculateDistance(
-        { latitude: parseFloat(lastLocation.latitude), longitude: parseFloat(lastLocation.longitude) },
-        { latitude: locationData.latitude, longitude: locationData.longitude }
-      );
-      const speed = distance / timeDiff; // in meters per second
+    // if (lastLocation) {
+    //   const timeDiff = (now.getTime() - lastLocation.updatedAt.getTime()) / 1000; // in seconds
+    //   const distance = calculateDistance(
+    //     { latitude: parseFloat(lastLocation.latitude), longitude: parseFloat(lastLocation.longitude) },
+    //     { latitude: locationData.latitude, longitude: locationData.longitude }
+    //   );
+    //   const speed = distance / timeDiff; // in meters per second
 
-      // Define speed thresholds for different transportation modes (in m/s)
-      const WALKING_SPEED = 2; // ~7.2 km/h
-      const DRIVING_SPEED = 50; // ~180 km/h
-      const HIGH_SPEED_TRAIN = 100; // ~360 km/h
-      const AIRPLANE_SPEED = 250; // ~900 km/h
-      const MAX_ALLOWED_SPEED = 300; // ~1080 km/h
+    //   // Define speed thresholds for different transportation modes (in m/s)
+    //   const WALKING_SPEED = 2; // ~7.2 km/h
+    //   const DRIVING_SPEED = 50; // ~180 km/h
+    //   const HIGH_SPEED_TRAIN = 100; // ~360 km/h
+    //   const AIRPLANE_SPEED = 250; // ~900 km/h
+    //   const MAX_ALLOWED_SPEED = 300; // ~1080 km/h
 
-      let transportMode = 'walking';
-      if (speed > AIRPLANE_SPEED) transportMode = 'airplane';
-      else if (speed > HIGH_SPEED_TRAIN) transportMode = 'high-speed train';
-      else if (speed > DRIVING_SPEED) transportMode = 'driving';
+    //   let transportMode = 'walking';
+    //   if (speed > AIRPLANE_SPEED) transportMode = 'airplane';
+    //   else if (speed > HIGH_SPEED_TRAIN) transportMode = 'high-speed train';
+    //   else if (speed > DRIVING_SPEED) transportMode = 'driving';
 
-      if (speed > MAX_ALLOWED_SPEED) {
-        console.warn(`Extremely rapid movement detected for user ${username}. Speed: ${speed.toFixed(2)} m/s`);
-        penaltyApplied = true;
-      } else {
-        console.log(`User ${username} appears to be ${transportMode}. Speed: ${speed.toFixed(2)} m/s`);
-      }
-    }
+    //   if (speed > MAX_ALLOWED_SPEED) {
+    //     console.warn(`Extremely rapid movement detected for user ${username}. Speed: ${speed.toFixed(2)} m/s`);
+    //     penaltyApplied = true;
+    //   } else {
+    //     console.log(`User ${username} appears to be ${transportMode}. Speed: ${speed.toFixed(2)} m/s`);
+    //   }
+    // }
 
-    // Check for location within reasonable bounds
-    if (Math.abs(locationData.latitude) > 90 || Math.abs(locationData.longitude) > 180) {
-      console.warn(`Invalid location coordinates for user ${username}`);
-      penaltyApplied = true;
-    }
+    // // Check for location within reasonable bounds
+    // if (Math.abs(locationData.latitude) > 90 || Math.abs(locationData.longitude) > 180) {
+    //   console.warn(`Invalid location coordinates for user ${username}`);
+    //   penaltyApplied = true;
+    // }
 
-    if (penaltyApplied) {
-      // Apply penalty: reduce coins by 1000
-      const penaltyAmount = 1000;
-      await prisma.gameplayUser.update({
-        where: { username: username },
-        data: {
-          money: {
-            decrement: penaltyAmount
-          }
-        }
-      });
+    // if (penaltyApplied) {
+    //   // Apply penalty: reduce coins by 1000
+    //   const penaltyAmount = 1000;
+    //   await prisma.gameplayUser.update({
+    //     where: { username: username },
+    //     data: {
+    //       money: {
+    //         decrement: penaltyAmount
+    //       }
+    //     }
+    //   });
 
-      sendNotification(username, "Suspicious Activity Detected", `Unusual movement detected. You have been penalized ${penaltyAmount} coins.`, "Server");
+    //   sendNotification(username, "Suspicious Activity Detected", `Unusual movement detected. You have been penalized ${penaltyAmount} coins.`, "Server");
 
-      ws.send(JSON.stringify({ error: "Suspicious activity detected. You have been penalized." }));
-      return;
-    }
+    //   ws.send(JSON.stringify({ error: "Suspicious activity detected. You have been penalized." }));
+    //   return;
+    // }
 
     if (lastLocation) {
       // Update existing location
