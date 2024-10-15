@@ -1,8 +1,7 @@
 import { Request, Response } from "express";
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
-import { JwtPayload } from "jsonwebtoken";
 import Stripe from "stripe";
+import { verifyToken } from "../utils/jwt";
 
 export function setupMoneyApi(app: any) {
 
@@ -14,36 +13,30 @@ export function setupMoneyApi(app: any) {
     const { token, amount } = req.body;
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const claims = await verifyToken(token);
 
-      // Ensure decoded is an object and has the username property
-      if (typeof decoded === 'object' && 'username' in decoded) {
-        const username = decoded.username;
+      const user = await prisma.gameplayUser.findFirst({
+        where: {
+          username: claims.username,
+        },
+      });
 
-        const user = await prisma.gameplayUser.findFirst({
-          where: {
-            username: username,
-          },
-        });
-
-        if (user) {
-          // Perform the update if the user is found
-          await prisma.gameplayUser.update({
-            where: {
-              username: username,
-            },
-            data: {
-              money: user.money + amount, // Ensure correct arithmetic operation
-            },
-          });
-
-          res.status(200).json({ message: "Money added" });
-        } else {
-          res.status(404).json({ message: "User not found" });
-        }
-      } else {
-        res.status(401).json({ message: "Invalid token" });
+      if (!user) {
+        res.status(404).json({ message: "User not found" });
+        return
       }
+
+      // Perform the update if the user is found
+      await prisma.gameplayUser.update({
+        where: {
+          username: claims.username,
+        },
+        data: {
+          money: user.money + amount, // Ensure correct arithmetic operation
+        },
+      });
+
+      res.status(200).json({ message: "Money added" });
     } catch (error) {
       res.status(500).json({ message: "Error verifying token" });
     }
@@ -52,46 +45,43 @@ export function setupMoneyApi(app: any) {
   app.post("/api/removeMoney", async (req: Request, res: Response) => {
     const { token, amount } = req.body;
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid token" });
-    }
+    const claims = await verifyToken(token);
 
     const user = await prisma.gameplayUser.findFirst({
       where: {
-        username: (decoded as JwtPayload).username as string,
+        username: claims.username
       },
     });
 
-    if (user) {
-      await prisma.gameplayUser.update({
-        where: {
-          username: (decoded as JwtPayload).username as string,
-        },
-        data: {
-          money: user.money - amount,
-        },
-      });
-
-      res.status(200).json({ message: "Money removed" });
-    } else {
+    if (!user) {
       res.status(404).json({ message: "User not found" });
+      return
     }
+
+    await prisma.gameplayUser.update({
+      where: {
+        username: claims.username
+      },
+      data: {
+        money: user.money - amount,
+      },
+    });
+
+    res.status(200).json({ message: "Money removed" });
   });
 
   app.get("/api/getMoney", async (req: Request, res: Response) => {
     const { token } = req.query;
 
-    const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-
-    if (!decoded) {
+    if (!token || typeof token !== "string") {
       return res.status(401).json({ message: "Invalid token" });
     }
 
+    const claims = await verifyToken(token);
+
     const user = await prisma.gameplayUser.findFirst({
       where: {
-        username: (decoded as JwtPayload).username as string,
+        username: claims.username
       },
     });
 
@@ -106,16 +96,12 @@ export function setupMoneyApi(app: any) {
 
     try {
       // Verify the token and ensure it's treated as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       // Retrieve the user from the database
       const user = await prisma.gameplayUser.findFirst({
         where: {
-          username: decoded.username,
+          username: claims.username,
         },
       });
 
@@ -136,7 +122,7 @@ export function setupMoneyApi(app: any) {
       await prisma.$transaction(async (prisma: { gameplayUser: { update: (arg0: { where: { username: any; }; data: { money: number; }; }) => any; }; inventoryItem: { findFirst: (arg0: { where: { name: any; userId: any; }; }) => any; update: (arg0: { where: { id: any; }; data: { quantity: any; }; }) => any; create: (arg0: { data: { name: any; quantity: any; category: any; userId: any; }; }) => any; }; }) => {
         // Update user's money
         await prisma.gameplayUser.update({
-          where: { username: decoded.username },
+          where: { username: claims.username },
           data: { money: user.money - money },
         });
 
@@ -182,20 +168,16 @@ export function setupMoneyApi(app: any) {
   app.post('/api/payment-intent', async (req: Request, res: Response) => {
     const { token, productId, price } = req.body;
 
-    if (!token || typeof token !== 'string' || !token.trim()) {
-      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ message: "Token is required" });
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string; };
-      const username = decoded.username;
-      if (!username) {
-        return res.status(401).json({ message: "Invalid token: Username is missing." });
-      }
+      const claims = await verifyToken(token);
 
       // Fetch user by username
       const user = await prisma.users.findUnique({
-        where: { username },
+        where: { username: claims.username },
         select: { email: true, stripeCustomerId: true }
       });
 
@@ -213,7 +195,7 @@ export function setupMoneyApi(app: any) {
 
         // Store new Stripe customer ID in your database
         await prisma.users.update({
-          where: { username },
+          where: { username: claims.username },
           data: { stripeCustomerId: customerId }
         });
       }

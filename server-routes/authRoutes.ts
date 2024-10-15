@@ -1,4 +1,3 @@
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import * as argon2 from "argon2";
 import nodemailer from 'nodemailer';
@@ -47,7 +46,7 @@ export function setupAuthRoutes(app: any) {
                 return;
             }
 
-            const token = signToken({ username: user.username });
+            const token = await signToken({ username: user.username });
 
             // only update notification token if it is present in the request
             if (login.notificationToken) {
@@ -173,7 +172,7 @@ export function setupAuthRoutes(app: any) {
                 },
             });
 
-            const token = signToken({ username: register.username });
+            const token = await signToken({ username: register.username });
 
             res.status(200).json({ message: "User created", token });
         })
@@ -363,7 +362,7 @@ export function setupAuthRoutes(app: any) {
             // Generate a new token with the updated password
             // NOTE: the token does not change since it only
             // contains the username
-            const newToken = signToken({
+            const newToken = await signToken({
                 username: claims.username
             });
 
@@ -513,8 +512,8 @@ export function setupAuthRoutes(app: any) {
                 }
             });
 
-            // Generate a new token with the updated username and the current hashed password
-            const newToken = signToken({ username: newUsername });
+            // Generate a new token with the updated username
+            const newToken = await signToken({ username: newUsername });
 
             res.status(200).json({
                 message: "Username changed successfully",

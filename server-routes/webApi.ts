@@ -1,9 +1,9 @@
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { NextFunction, Request, Response } from "express";
 import * as argon2 from "argon2";
 import { z } from "zod";
 import { handleAsync } from "../utils/router";
+import { signToken, verifyToken } from "../utils/jwt";
 
 export function setupWebApi(app: any) {
     const LoginSchema = z.object({
@@ -16,14 +16,16 @@ export function setupWebApi(app: any) {
             const { username, password } = await LoginSchema.parseAsync(req.body);
 
             const user = await prisma.users.findFirst({
-                where: { username },
+                where: {
+                    username: {
+                        equals: username,
+                        mode: "insensitive"
+                    }
+                },
             });
 
             if (user && (await argon2.verify(user.password, password))) {
-                const token = jwt.sign(
-                    { username: user.username },
-                    process.env.JWT_SECRET || ""
-                );
+                const token = await signToken({ username: user.username })
         
                 // Set the token as an HTTP-only cookie
                 res.cookie('auth_token', token, {
@@ -41,19 +43,18 @@ export function setupWebApi(app: any) {
         })
     );
     // Middleware to verify JWT token
-    const verifyToken = (req: Request, res: Response, next: NextFunction) => {
+    const verifyTokenMiddleware = handleAsync(async (req: Request, res: Response, next: NextFunction) => {
         const token = req.cookies.auth_token;
         if (!token) {
             return res.status(403).json({ message: "A token is required for authentication" });
         }
-        try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-            (req as any).user = decoded;
-        } catch (err) {
-            return res.status(401).json({ message: "Invalid Token" });
-        }
+
+        const decoded = await verifyToken(token);
+        // NOTE: Add types directly to the Request object
+        (req as any).user = decoded;
+
         return next();
-    };
+    });
 
     // Logout endpoint
     app.post('/api/Weblogout', (req: Request, res: Response) => {
@@ -62,7 +63,7 @@ export function setupWebApi(app: any) {
     });
 
     // Example of a protected route
-    app.get('/api/Webprotected', verifyToken, (req: Request, res: Response) => {
+    app.get('/api/Webprotected', verifyTokenMiddleware, (req: Request, res: Response) => {
         res.status(200).json({ message: 'Access granted to protected route' });
     });
 

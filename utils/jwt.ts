@@ -8,7 +8,9 @@ const JwtClaimsSchema = z.object({
 export type JwtClaims = z.infer<typeof JwtClaimsSchema>
 
 export const jwt_secret = process.env.JWT_SECRET ?? ""
-export function signToken(claims: JwtClaims) {
+export async function signToken(claims: JwtClaims) {
+    await JwtClaimsSchema.parseAsync(claims)
+
     const token = jwt.sign(
         claims,
         jwt_secret,
@@ -19,12 +21,24 @@ export function signToken(claims: JwtClaims) {
 }
 
 export async function verifyToken(token: string): Promise<JwtClaims> {
-    let claims = jwt.verify(
-        token,
-        jwt_secret,
-        { algorithms: ["HS256"] }
-    ) as JwtClaims | string;
+    let claims: JwtClaims | string
 
+    try {
+        // decode & verify the jwt
+        claims = jwt.verify(
+            token,
+            jwt_secret,
+            { algorithms: ["HS256"] }
+        ) as JwtClaims | string;
+    } catch(err) {
+        if (err instanceof jwt.JsonWebTokenError) {
+            throw new APIError(401, "Invalid token");
+        }
+
+        throw err
+    }
+
+    // make sure claims are not invalid
     if (typeof claims === "string") {
         throw new APIError(401, "Invalid token");
     }
@@ -33,7 +47,8 @@ export async function verifyToken(token: string): Promise<JwtClaims> {
         // verify the jwt against the schema
         // since the signature has been verified above,
         // no token should fail this schema except if the
-        // backend has signed an invalid token
+        // backend has signed an invalid token / this is an
+        // outdated token
         claims = await JwtClaimsSchema.parseAsync(claims);
     } catch(err) {
         throw new APIError(401, "Invalid token");

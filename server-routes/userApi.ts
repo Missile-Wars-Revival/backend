@@ -1,10 +1,9 @@
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { Request, Response } from "express";
 import { getMutualFriends } from "./friendsApi";
-import { JwtPayload } from "jsonwebtoken";
 import * as argon2 from "argon2";
 import * as admin from 'firebase-admin';
+import { signToken, verifyToken } from "../utils/jwt";
 
 interface Statistics {
   badges: string[];
@@ -58,19 +57,16 @@ export function setupUserApi(app: any) {
   app.get("/api/user-profile", async (req: Request, res: Response) => {
     const { token, username } = req.query;
 
-    if (!token || !username) {
+    if (!token || !username || typeof token !== "string") {
       return res.status(400).json({ success: false, message: "Missing token or username" });
     }
 
     try {
-      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ success: false, message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       const [requestingUser, targetUser] = await Promise.all([
         prisma.users.findUnique({
-          where: { username: decoded.username },
+          where: { username: claims.username },
           include: { GameplayUser: true }
         }),
         prisma.users.findUnique({
@@ -121,18 +117,15 @@ export function setupUserApi(app: any) {
   app.get("/api/self-profile", async (req: Request, res: Response) => {
     const { token } = req.query;
 
-    if (!token) {
+    if (!token || typeof token !== "string") {
       return res.status(400).json({ success: false, message: "Missing token" });
     }
 
     try {
-      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ success: false, message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
       const user = await prisma.users.findUnique({
-        where: { username: decoded.username },
+        where: { username: claims.username },
         include: {
           GameplayUser: {
             include: {
@@ -208,13 +201,7 @@ export function setupUserApi(app: any) {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
-
-      console.log("Decoded token:", decoded);
-
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token: username not found" });
-      }
+      const claims = await verifyToken(token);
 
       if (typeof req.body.locActive !== 'boolean') {
         return res.status(400).json({ message: "locActive status must be provided and be a boolean." });
@@ -222,7 +209,7 @@ export function setupUserApi(app: any) {
 
       const updatedUser = await prisma.gameplayUser.update({
         where: {
-          username: decoded.username
+          username: claims.username
         },
         data: {
           locActive: req.body.locActive
@@ -245,9 +232,6 @@ export function setupUserApi(app: any) {
       });
     } catch (error) {
       console.error("Error updating locActive status:", error);
-      if (error instanceof jwt.JsonWebTokenError) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -260,13 +244,7 @@ export function setupUserApi(app: any) {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
-
-      console.log("Decoded token:", decoded);
-
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token: username not found" });
-      }
+      const claims = await verifyToken(token);
 
       if (typeof req.body.randomLocation !== 'boolean') {
         return res.status(400).json({ message: "randomLocation status must be provided and be a boolean." });
@@ -274,7 +252,7 @@ export function setupUserApi(app: any) {
 
       const updatedUser = await prisma.gameplayUser.update({
         where: {
-          username: decoded.username
+          username: claims.username
         },
         data: {
           randomLocation: req.body.randomLocation
@@ -297,30 +275,23 @@ export function setupUserApi(app: any) {
       });
     } catch (error) {
       console.error("Error updating randomLocation status:", error);
-      if (error instanceof jwt.JsonWebTokenError) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
       res.status(500).json({ message: "Internal server error" });
     }
   });
 
   app.get("/api/getrandomLocation", async (req: Request, res: Response) => {
     try {
-      const token = req.query.token as string;
+      const token = req.query.token;
 
-      if (!token) {
+      if (!token || typeof token !== "string") {
         return res.status(400).json({ message: "Token is required" });
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
-
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token: username not found" });
-      }
+      const claims = await verifyToken(token);
 
       const user = await prisma.gameplayUser.findUnique({
         where: {
-          username: decoded.username
+          username: claims.username
         },
         select: {
           username: true,
@@ -345,21 +316,17 @@ export function setupUserApi(app: any) {
 
   app.get("/api/getlocActive", async (req: Request, res: Response) => {
     try {
-      const token = req.query.token as string;
+      const token = req.query.token;
 
-      if (!token) {
+      if (!token || typeof token !== "string") {
         return res.status(400).json({ message: "Token is required" });
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
-
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token: username not found" });
-      }
+      const claims = await verifyToken(token);
 
       const user = await prisma.gameplayUser.findUnique({
         where: {
-          username: decoded.username
+          username: claims.username
         },
         select: {
           username: true,
@@ -393,16 +360,13 @@ export function setupUserApi(app: any) {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string, password: string };
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      const claims = await verifyToken(token);
 
-      if (username !== decoded.username) {
+      if (username !== claims.username) {
         return res.status(403).json({ message: "Not allowed to edit this user" });
       }
 
-      const user = await prisma.users.findUnique({ where: { username: decoded.username } });
+      const user = await prisma.users.findUnique({ where: { username: claims.username } });
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -637,13 +601,7 @@ export function setupUserApi(app: any) {
       });
 
       // Generate a new token with the updated username and password (if changed)
-      const newToken = jwt.sign(
-        {
-          username: updates.username || username,
-          password: updates.password ? userUpdates.password : user.password
-        },
-        process.env.JWT_SECRET || ""
-      );
+      const newToken = await signToken({ username: updates.username ?? username })
 
       res.status(200).json({
         message: "User updated successfully",
