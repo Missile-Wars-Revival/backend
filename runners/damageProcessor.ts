@@ -78,17 +78,35 @@ async function determineUsernamesToProcess(username: string, gameplayUserMap: Ma
   const currentUser = gameplayUserMap.get(username);
   if (!currentUser) return [];
 
-  // Get mutual friends for the current user
-  let mutualFriends;
+  // Fetch the current user's friends list
+  let userFriends: string[] = [];
   try {
-    mutualFriends = await getMutualFriends({ friends: [], username: username });
+    const user = await prisma.users.findUnique({
+      where: { username: username },
+      select: { friends: true }
+    });
+    userFriends = user?.friends || [];
+  } catch (error) {
+    console.error(`Error fetching friends for ${username}:`, error);
+  }
+
+  // Get mutual friends for the current user directly from the database
+  let mutualFriends: any[];
+  try {
+    mutualFriends = await prisma.users.findMany({
+      where: {
+        username: { in: userFriends },
+        friends: { has: username }
+      },
+      select: { username: true }
+    });
   } catch (error) {
     console.error(`Error getting mutual friends for ${username}:`, error);
     mutualFriends = [];
   }
   const mutualFriendsUsernames = mutualFriends.map(friend => friend.username);
 
-  // Always include mutual friends
+  // Always include mutual friends, regardless of friendsOnly setting
   const usersToProcess = new Set(mutualFriendsUsernames);
 
   // If the current user is not in friendsOnly mode, add all non-friendsOnly users
