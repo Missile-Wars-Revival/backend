@@ -599,6 +599,10 @@ export function setupEntityApi(app: any) {
 
     const claims = await verifyToken(token);
 
+    if (claims.username === sentby) {
+      return res.status(400).json({ message: "You cannot claim your own death rewards" })
+    }
+
     const killedUsername = claims.username;
 
     const sender = await prisma.gameplayUser.findUnique({
