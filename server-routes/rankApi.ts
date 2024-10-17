@@ -1,153 +1,148 @@
 import { Request, Response } from "express";
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
-import { JwtPayload } from "jsonwebtoken";
+import { verifyToken } from "../utils/jwt";
+import { z } from "zod";
+import { handleAsync } from "../utils/router";
 
 export function setupRankApi(app: any) {
-  app.post("/api/getRankPoints", async (req: Request, res: Response) => {
-    const { token } = req.body;
+  const GetRankPointsSchema = z.object({
+    token: z.string()
+  })
+  app.post("/api/getRankPoints", handleAsync(async (req: Request, res: Response) => {
+    const { token } = await GetRankPointsSchema.parseAsync(req.body);
   
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-  
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid token" });
-    }
+    const claims = await verifyToken(token);
   
     const user = await prisma.gameplayUser.findFirst({
       where: {
-        username: (decoded as JwtPayload).username as string,
+        username: claims.username
       },
     });
   
-    if (user) {
-      res.status(200).json({ rankPoints: user.rankPoints });
-    } else {
-      res.status(404).json({ message: "User not found" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
-  });
+
+    res.status(200).json({ rankPoints: user.rankPoints });
+  }));
   
-  app.post("/api/addRankPoints", async (req: Request, res: Response) => {
-    const { token, points } = req.body;
+  const AddRankPointsSchema = z.object({
+    token: z.string(),
+    points: z.number().int().positive()
+  })
+  app.post("/api/addRankPoints", handleAsync(async (req: Request, res: Response) => {
+    const { token, points } = await AddRankPointsSchema.parseAsync(req.body);
   
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-  
-      // Check if decoded is of type JwtPayload and has a username property
-      if (typeof decoded === 'object' && 'username' in decoded) {
-        const username = decoded.username;
-  
-        const user = await prisma.gameplayUser.findFirst({
-          where: {
-            username: username,
-          },
-        });
-  
-        if (user) {
-          await prisma.gameplayUser.update({
-            where: {
-              username: username,
-            },
-            data: {
-              rankPoints: user.rankPoints + points, // Correctly add points to the current rankPoints
-            },
-          });
-  
-          res.status(200).json({ message: "Rank points added" });
-        } else {
-          res.status(404).json({ message: "User not found" });
+    const claims = await verifyToken(token);
+
+    const user = await prisma.gameplayUser.findFirst({
+      where: {
+        username: claims.username,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    await prisma.gameplayUser.update({
+      where: {
+        username: claims.username,
+      },
+      data: {
+        rankPoints: {
+          increment: points
         }
-      } else {
-        // If decoded does not have a username property
-        res.status(401).json({ message: "Invalid token" });
-      }
-    } catch (error) {
-      res.status(500).json({ message: "Error verifying token" });
-    }
-  });
+      },
+    });
+
+    res.status(200).json({ message: "Rank points added" });
+  }));
   
-  app.post("/api/removeRankPoints", async (req: Request, res: Response) => {
-    const { token, points } = req.body;
+  const RemoveRankPointsSchema = z.object({
+    token: z.string(),
+    points: z.number().int().positive()
+  })
+  app.post("/api/removeRankPoints", handleAsync(async (req: Request, res: Response) => {
+    const { token, points } = await RemoveRankPointsSchema.parseAsync(req.body);
   
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-  
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid token" });
-    }
+    const claims = await verifyToken(token);
   
     const user = await prisma.gameplayUser.findFirst({
       where: {
-        username: (decoded as JwtPayload).username as string,
+        username: claims.username
       },
     });
   
-    if (user) {
-      await prisma.gameplayUser.update({
-        where: {
-          username: (decoded as JwtPayload).username as string,
-        },
-        data: {
-          rankPoints: user.rankPoints - points,
-        },
-      });
-  
-      res.status(200).json({ message: "Rank points removed" });
-    } else {
-      res.status(404).json({ message: "User not found" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
-  });
+
+    await prisma.gameplayUser.update({
+      where: {
+        username: claims.username
+      },
+      data: {
+        rankPoints: {
+          decrement: points
+        },
+      },
+    });
+
+    res.status(200).json({ message: "Rank points removed" });
+  }));
   
-  app.post("/api/getRank", async (req: Request, res: Response) => {
-    const { token } = req.body;
+  const GetRankSchema = z.object({
+    token: z.string()
+  })
+  app.post("/api/getRank", handleAsync(async (req: Request, res: Response) => {
+    const { token } = await GetRankSchema.parseAsync(req.body);
   
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-  
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid token" });
-    }
+    const claims = await verifyToken(token)
   
     const user = await prisma.gameplayUser.findFirst({
       where: {
-        username: (decoded as JwtPayload).username as string,
+        username: claims.username,
       },
     });
   
-    if (user) {
-      const rank = user.rank;
-  
-      res.status(200).json({ rank });
-    } else {
-      res.status(404).json({ message: "User not found" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
-  });
+
+    const rank = user.rank;
+
+    res.status(200).json({ rank });
+  }));
   
-  app.post("/api/setRank", async (req: Request, res: Response) => {
-    const { token, rank } = req.body;
+  const SetRankSchema = z.object({
+    token: z.string(),
+    rank: z.string()
+  })
+  app.post("/api/setRank", handleAsync(async (req: Request, res: Response) => {
+    const { token, rank } = await SetRankSchema.parseAsync(req.body);
   
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
-  
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid token" });
-    }
+    const claims = await verifyToken(token);
   
     const user = await prisma.gameplayUser.findFirst({
       where: {
-        username: (decoded as JwtPayload).username as string,
+        username: claims.username,
       },
     });
   
-    if (user) {
-      await prisma.gameplayUser.update({
-        where: {
-          username: (decoded as JwtPayload).username as string,
-        },
-        data: {
-          rank,
-        },
-      });
-  
-      res.status(200).json({ message: "Rank set" });
-    } else {
-      res.status(404).json({ message: "User not found" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
-  });
+    
+    await prisma.gameplayUser.update({
+      where: {
+        username: claims.username
+      },
+      data: {
+        rank,
+      },
+    });
+
+    res.status(200).json({ message: "Rank set" });
+  }));
 }
