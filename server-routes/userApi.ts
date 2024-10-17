@@ -9,6 +9,7 @@ import * as admin from 'firebase-admin';
 interface Statistics {
   badges: string[];
   numDeaths: number;
+  numKills: number;
   numLootPlaced: number;
   numLandminesPlaced: number;
   numMissilesPlaced: number;
@@ -95,6 +96,7 @@ export function setupUserApi(app: any) {
       const statistics: Statistics = {
         badges: targetUser.GameplayUser?.Statistics[0]?.badges || [],
         numDeaths: targetUser.GameplayUser?.Statistics[0]?.numDeaths || 0,
+        numKills: targetUser.GameplayUser?.Statistics[0]?.numKills || 0,
         numLootPlaced: targetUser.GameplayUser?.Statistics[0]?.numLootPlaced || 0,
         numLandminesPlaced: targetUser.GameplayUser?.Statistics[0]?.numLandminesPlaced || 0,
         numMissilesPlaced: targetUser.GameplayUser?.Statistics[0]?.numMissilesPlaced || 0,
@@ -155,6 +157,7 @@ export function setupUserApi(app: any) {
       const statistics: Statistics = {
         badges: latestStats.badges || [],
         numDeaths: latestStats.numDeaths || 0,
+        numKills: latestStats.numKills || 0,
         numLootPlaced: latestStats.numLootPlaced || 0,
         numLandminesPlaced: latestStats.numLandminesPlaced || 0,
         numMissilesPlaced: latestStats.numMissilesPlaced || 0,
