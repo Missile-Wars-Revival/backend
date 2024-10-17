@@ -50,7 +50,7 @@ export function setupWebApi(app: any) {
         }
 
         const decoded = await verifyToken(token);
-        // NOTE: Add types directly to the Request object
+        // TODO: Add types directly to the Request object
         (req as any).user = decoded;
 
         return next();
