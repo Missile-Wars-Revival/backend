@@ -66,6 +66,7 @@ model Statistics {
   userId             Int
   badges             String[]     @default([])
   numDeaths          Int          @default(0)
+  numKills           Int          @default(0)
   numLootPlaced      Int          @default(0)
   numLandminesPlaced Int          @default(0)
   numMissilesPlaced  Int          @default(0)
