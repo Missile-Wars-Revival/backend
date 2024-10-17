@@ -612,6 +612,10 @@ export function setupEntityApi(app: any) {
             return res.status(401).json({ success: false, message: "Invalid token" });
         }
 
+        if (decoded.username === sentby) {
+            return res.status(400).json({ success: false, message: "You cannot claim your own death rewards" });
+        }
+
         const killedUsername = decoded.username;
 
         const sender = await prisma.gameplayUser.findUnique({
