@@ -78,17 +78,35 @@ async function determineUsernamesToProcess(username: string, gameplayUserMap: Ma
   const currentUser = gameplayUserMap.get(username);
   if (!currentUser) return [];
 
-  // Get mutual friends for the current user
-  let mutualFriends;
+  // Fetch the current user's friends list
+  let userFriends: string[] = [];
   try {
-    mutualFriends = await getMutualFriends({ friends: [], username: username });
+    const user = await prisma.users.findUnique({
+      where: { username: username },
+      select: { friends: true }
+    });
+    userFriends = user?.friends || [];
+  } catch (error) {
+    console.error(`Error fetching friends for ${username}:`, error);
+  }
+
+  // Get mutual friends for the current user directly from the database
+  let mutualFriends: any[];
+  try {
+    mutualFriends = await prisma.users.findMany({
+      where: {
+        username: { in: userFriends },
+        friends: { has: username }
+      },
+      select: { username: true }
+    });
   } catch (error) {
     console.error(`Error getting mutual friends for ${username}:`, error);
     mutualFriends = [];
   }
   const mutualFriendsUsernames = mutualFriends.map(friend => friend.username);
 
-  // Always include mutual friends
+  // Always include mutual friends, regardless of friendsOnly setting
   const usersToProcess = new Set(mutualFriendsUsernames);
 
   // If the current user is not in friendsOnly mode, add all non-friendsOnly users
@@ -102,32 +120,6 @@ async function determineUsernamesToProcess(username: string, gameplayUserMap: Ma
 
   return Array.from(usersToProcess);
 }
-//only players in league and division
-// async function determineUsernamesToProcess(username: string, gameplayUserMap: Map<string, { friendsOnly: boolean, league?: { tier: string, division: number } }>) {
-//   const currentUser = gameplayUserMap.get(username);
-//   if (!currentUser) return [];
-
-//   if (currentUser.friendsOnly) {
-//     try {
-//       const mutualFriends = await getMutualFriends({ friends: [], username: username });
-//       return mutualFriends.map(friend => friend.username);
-//     } catch (error) {
-//       console.error(`Error getting mutual friends for ${username}:`, error);
-//       return [];
-//     }
-//   } else {
-//     // Process entities from users in the same league and division who are not in friendsOnly mode
-//     return Array.from(gameplayUserMap.entries())
-//       .filter(([_, user]) => 
-//         !user.friendsOnly && 
-//         user.league && 
-//         currentUser.league &&
-//         user.league.tier === currentUser.league.tier &&
-//         user.league.division === currentUser.league.division
-//       )
-//       .map(([username, _]) => username);
-//   }
-// }
 
 function isUserProtectedByShield(userCoords: { latitude: number, longitude: number }, shields: any[]): { id: number, placedBy: string } | false {
   for (const shield of shields) {
@@ -405,6 +397,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
               money: { increment: rewardAmount + moneyLoss },
               rankPoints: { increment: rankPointsReward },
             },
+            select: { id: true, money: true, rankPoints: true },
           });
 
           // console.log(`Attacker ${attackerUsername} updated. New balance: ${updatedAttacker.money}, New rank points: ${updatedAttacker.rankPoints}`);
@@ -429,6 +422,9 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
           // Update death statistic
           await updateDeathStatistic(user.id, prisma);
+
+          // Update kill statistic
+          await updateKillStatistic(updatedAttacker.id, prisma);
 
           // Set the last death time for the user
           lastDeathTime.set(user.username, Date.now());
@@ -484,6 +480,26 @@ async function updateDeathStatistic(userId: number, prisma: any) {
       data: {
         userId: userId,
         numDeaths: 1,
+      },
+    });
+  }
+}
+//update number of kills
+async function updateKillStatistic(userId: number, prisma: any) {
+  const existingKills = await prisma.statistics.findFirst({
+    where: { userId: userId },
+  });
+
+  if (existingKills) {
+    await prisma.statistics.update({
+      where: { id: existingKills.id },
+      data: { numKills: existingKills.numKills + 1 },
+    });
+  } else {
+    await prisma.statistics.create({
+      data: {
+        userId: userId,
+        numKills: 1,
       },
     });
   }
