@@ -11,6 +11,7 @@ import { emailSchema } from "../utils/schema";
 interface Statistics {
   badges: string[];
   numDeaths: number;
+  numKills: number;
   numLootPlaced: number;
   numLandminesPlaced: number;
   numMissilesPlaced: number;
@@ -89,17 +90,18 @@ export function setupUserApi(app: any) {
 
     const mutualFriends = await getMutualUsersFriends(requestingUser.username, targetUser.username);
 
-    const statistics: Statistics = {
-      badges: targetUser.GameplayUser?.Statistics[0]?.badges || [],
-      numDeaths: targetUser.GameplayUser?.Statistics[0]?.numDeaths || 0,
-      numLootPlaced: targetUser.GameplayUser?.Statistics[0]?.numLootPlaced || 0,
-      numLandminesPlaced: targetUser.GameplayUser?.Statistics[0]?.numLandminesPlaced || 0,
-      numMissilesPlaced: targetUser.GameplayUser?.Statistics[0]?.numMissilesPlaced || 0,
-      numLootPickups: targetUser.GameplayUser?.Statistics[0]?.numLootPickups || 0,
-      league: targetUser.GameplayUser?.league
-        ? `${targetUser.GameplayUser.league.tier} ${targetUser.GameplayUser.league.division}`
-        : "Unranked"
-    };
+      const statistics: Statistics = {
+        badges: targetUser.GameplayUser?.Statistics[0]?.badges || [],
+        numDeaths: targetUser.GameplayUser?.Statistics[0]?.numDeaths || 0,
+        numKills: targetUser.GameplayUser?.Statistics[0]?.numKills || 0,
+        numLootPlaced: targetUser.GameplayUser?.Statistics[0]?.numLootPlaced || 0,
+        numLandminesPlaced: targetUser.GameplayUser?.Statistics[0]?.numLandminesPlaced || 0,
+        numMissilesPlaced: targetUser.GameplayUser?.Statistics[0]?.numMissilesPlaced || 0,
+        numLootPickups: targetUser.GameplayUser?.Statistics[0]?.numLootPickups || 0,
+        league: targetUser.GameplayUser?.league
+          ? `${targetUser.GameplayUser.league.tier} ${targetUser.GameplayUser.league.division}`
+          : "Unranked"
+      };
 
     const userProfile: UserProfile = {
       username: targetUser.username,
@@ -140,17 +142,18 @@ export function setupUserApi(app: any) {
     // Get the most recent statistics or use default values
     const latestStats = user.GameplayUser.Statistics[0] || {};
 
-    const statistics: Statistics = {
-      badges: latestStats.badges || [],
-      numDeaths: latestStats.numDeaths || 0,
-      numLootPlaced: latestStats.numLootPlaced || 0,
-      numLandminesPlaced: latestStats.numLandminesPlaced || 0,
-      numMissilesPlaced: latestStats.numMissilesPlaced || 0,
-      numLootPickups: latestStats.numLootPickups || 0,
-      league: user.GameplayUser.league
-        ? `${user.GameplayUser.league.tier} ${user.GameplayUser.league.division}`
-        : "Unranked"
-    };
+      const statistics: Statistics = {
+        badges: latestStats.badges || [],
+        numDeaths: latestStats.numDeaths || 0,
+        numKills: latestStats.numKills || 0,
+        numLootPlaced: latestStats.numLootPlaced || 0,
+        numLandminesPlaced: latestStats.numLandminesPlaced || 0,
+        numMissilesPlaced: latestStats.numMissilesPlaced || 0,
+        numLootPickups: latestStats.numLootPickups || 0,
+        league: user.GameplayUser.league
+          ? `${user.GameplayUser.league.tier} ${user.GameplayUser.league.division}`
+          : "Unranked"
+      };
 
     const userProfile: SelfProfile = {
       username: user.username,
