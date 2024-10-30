@@ -515,7 +515,7 @@ export const checkAndCollectLoot = async () => {
 
             totalRankPointsGained += 50;
             totalHealthGained += 40;
-            totalCoinsGained += 200; 
+            totalCoinsGained += 3000; 
 
             try {
               await prisma.loot.delete({ where: { id: item.id } });
