@@ -324,12 +324,12 @@ const LANDMINE_ALERT_DISTANCE = 0.05; // 0.05 km = 50 meters
 
 const getLeagueAirspace = (league: string): number => {
   switch (league.toLowerCase()) {
-    case 'bronze': return 40;
-    case 'silver': return 60;
-    case 'gold': return 80;
-    case 'diamond': return 100;
-    case 'legend': return 120;
-    default: return 20; 
+    case 'bronze': return 60;
+    case 'silver': return 80;
+    case 'gold': return 120;
+    case 'diamond': return 140;
+    case 'legend': return 200;
+    default: return 40; 
   }
 };
 
