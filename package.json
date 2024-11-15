@@ -49,7 +49,6 @@
     "missile-wars-beta": "file:",
     "msgpack-lite": "^0.1.26",
     "nodemailer": "^6.9.15",
-    "stripe": "^16.2.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
     "uuid": "^10.0.0",

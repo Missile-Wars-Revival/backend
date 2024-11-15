@@ -30,7 +30,8 @@
 *.log
 *.log.*
 
-
+.env
+firebasecred.json
 
 # debug
 npm-debug.log*
