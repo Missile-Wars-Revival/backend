@@ -9,7 +9,8 @@
 /.fleet/
 /.idea/
 /dist/
-# testing
+
+.env
 
 # testing
 /coverage
