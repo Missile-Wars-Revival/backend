@@ -108,9 +108,9 @@ startDamageProcessing();
 startShieldBreakerProcessing();
 
 //Bots:
-//manageAIBots();
+// manageAIBots();
 
-// deleteAllBots();
+deleteAllBots();
 
 //Firebase Messages
 if (serviceAccount) {
