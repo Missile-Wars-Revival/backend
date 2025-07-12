@@ -9,7 +9,7 @@ import { JwtPayload } from "jsonwebtoken";
 import { AuthWithLocation, AuthWithLocationSchema } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, updateMissilePositions, addRandomLoot, checkPlayerProximity, deleteExpiredOther, checkAndCollectLoot } from "./runners/entitymanagment";
 import { startNotificationManager } from "./runners/notificationhelper";
-import { deleteAllBots, manageAIBots } from "./bots";
+// import { deleteAllBots, manageAIBots } from "./bots";
 import { setupNotificationApi } from "./server-routes/notificaitonApi";
 import { setupFriendsApi } from "./server-routes/friendsApi";
 import { setupMoneyApi } from "./server-routes/moneyApi";
@@ -110,7 +110,7 @@ startShieldBreakerProcessing();
 //Bots:
 // manageAIBots();
 
-deleteAllBots();
+// deleteAllBots();
 
 //Firebase Messages
 if (serviceAccount) {
