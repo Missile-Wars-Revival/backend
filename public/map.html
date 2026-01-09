@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Missile Wars</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB64HoB0gALiI2xTHSLW_iKEMdQs502n5U"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+        #container {
+            display: flex;
+            height: 100vh;
+        }
+        #sidebar {
+            width: 250px;
+            background-color: #242f3e;
+            color: #fff;
+            transition: margin-left 0.3s ease-out;
+            overflow-y: auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        #sidebar.closed {
+            margin-left: -250px;
+        }
+        #map-container {
+            flex-grow: 1;
+            position: relative;
+        }
+        #map {
+            height: 100%;
+        }
+        #toggle-sidebar {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background-color: #242f3e;
+            color: #fff;
+            border: none;
+            padding: 10px;
+            cursor: pointer;
+        }
+        #radar-ping {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 300%;
+            height: 300%;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            background: radial-gradient(circle, transparent 0%, rgba(0, 255, 0, 0.1) 100%);
+            opacity: 0;
+            pointer-events: none;
+        }
+        @keyframes ping {
+            0% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0);
+            }
+            50% {
+                opacity: 0.5;
+            }
+            100% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="navbar-logo">Missile Wars</div>
+            <ul class="navbar-links">
+                <li><a href="/">Home</a></li>
+                <li><a href="/map">Map</a></li>
+                <li><a href="/account">Sign In</a></li>
+            </ul>
+            <div class="hamburger">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </nav>
+    </header>
+    <div id="container">
+        <div id="sidebar">
+            <h3>Game Stats</h3>
+            <div id="stats"></div>
+        </div>
+        <div id="map-container">
+            <button id="toggle-sidebar">☰</button>
+            <div id="map"></div>
+            <div id="radar-ping"></div>
+        </div>
+    </div>
+    <script>
+        let map;
+        let markers = {
+            players: [],
+            missiles: [],
+            loot: [],
+            landmines: []
+        };
+
+        const darkMapStyle = [
+            {elementType: 'geometry', stylers: [{color: '#242f3e'}]},
+            {elementType: 'labels.text.stroke', stylers: [{color: '#242f3e'}]},
+            {elementType: 'labels.text.fill', stylers: [{color: '#746855'}]},
+            {
+                featureType: 'administrative.locality',
+                elementType: 'labels.text.fill',
+                stylers: [{color: '#d59563'}]
+            },
+            {
+                featureType: 'poi',
+                elementType: 'labels.text.fill',
+                stylers: [{color: '#d59563'}]
+            },
+            {
+                featureType: 'poi.park',
+                elementType: 'geometry',
+                stylers: [{color: '#263c3f'}]
+            },
+            {
+                featureType: 'poi.park',
+                elementType: 'labels.text.fill',
+                stylers: [{color: '#6b9a76'}]
+            },
+            {
+                featureType: 'road',
+                elementType: 'geometry',
+                stylers: [{color: '#38414e'}]
+            },
+            {
+                featureType: 'road',
+                elementType: 'geometry.stroke',
+                stylers: [{color: '#212a37'}]
+            },
+            {
+                featureType: 'road',
+                elementType: 'labels.text.fill',
+                stylers: [{color: '#9ca5b3'}]
+            },
+            {
+                featureType: 'road.highway',
+                elementType: 'geometry',
+                stylers: [{color: '#746855'}]
+            },
+            {
+                featureType: 'road.highway',
+                elementType: 'geometry.stroke',
+                stylers: [{color: '#1f2835'}]
+            },
+            {
+                featureType: 'road.highway',
+                elementType: 'labels.text.fill',
+                stylers: [{color: '#f3d19c'}]
+            },
+            {
+                featureType: 'transit',
+                elementType: 'geometry',
+                stylers: [{color: '#2f3948'}]
+            },
+            {
+                featureType: 'transit.station',
+                elementType: 'labels.text.fill',
+                stylers: [{color: '#d59563'}]
+            },
+            {
+                featureType: 'water',
+                elementType: 'geometry',
+                stylers: [{color: '#17263c'}]
+            },
+            {
+                featureType: 'water',
+                elementType: 'labels.text.fill',
+                stylers: [{color: '#515c6d'}]
+            },
+            {
+                featureType: 'water',
+                elementType: 'labels.text.stroke',
+                stylers: [{color: '#17263c'}]
+            }
+        ];
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: {lat: 0, lng: 0},
+                zoom: 2,
+                styles: darkMapStyle,
+                mapTypeControl: false,
+                streetViewControl: false,
+                gestureHandling: 'greedy' 
+            });
+
+            // Initial update
+            updateMap();
+
+            // Set interval for periodic updates
+            setInterval(updateMap, 5000); // Update every 5 seconds
+
+            // Add event listener for sidebar toggle
+            document.getElementById('toggle-sidebar').addEventListener('click', toggleSidebar);
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('closed');
+        }
+
+        function updateMap() {
+            fetch('/api/map-data')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Received data:', data);
+                    clearMarkers();
+
+                    if (data.active_players) {
+                        data.active_players.forEach(p => addMarker('players', p));
+                    } else {
+                        console.warn('No active_players in data');
+                    }
+                    if (data.active_missiles && data.active_missiles.length > 0) {
+                        console.log('Active missiles:', data.active_missiles);
+                        data.active_missiles.forEach((m, index) => {
+                            console.log(`Adding missile ${index}:`, m);
+                            addMarker('missiles', m);
+                        });
+                    } else {
+                        console.warn('No active_missiles in data');
+                    }
+                    if (data.loot_drops) {
+                        data.loot_drops.forEach(l => addMarker('loot', l, '#00ff00'));
+                    } else {
+                        console.warn('No loot_drops in data');
+                    }
+                    if (data.landmines) {
+                        data.landmines.forEach(l => addMarker('landmines', l, '#ff9900'));
+                    } else {
+                        console.warn('No landmines in data');
+                    }
+
+                    document.getElementById('stats').innerHTML = `
+                        <p>Total Players: ${data.total_players || 0}</p>
+                        <p>Active Players: ${data.active_players ? data.active_players.length : 0}</p>
+                        <p>Active Missiles: ${data.total_missiles || 0}</p>
+                        <p>Loot Drops: ${data.loot_drops ? data.loot_drops.length : 0}</p>
+                        <p>Landmines: ${data.landmines ? data.landmines.length : 0}</p>
+                    `;
+
+                    // Trigger the radar ping animation
+                    triggerRadarPing();
+                })
+                .catch(error => {
+                    console.error('Error fetching map data:', error);
+                });
+        }
+
+        function addMarker(type, position, color) {
+            console.log('Adding marker:', type, position);
+            let marker;
+
+            if (type === 'players') {
+                marker = new google.maps.Marker({
+                    position: {lat: parseFloat(position.latitude), lng: parseFloat(position.longitude)},
+                    map: map,
+                    icon: {
+                        url: '/player_marker.png',
+                        scaledSize: new google.maps.Size(32, 32),
+                        origin: new google.maps.Point(0, 0),
+                        anchor: new google.maps.Point(16, 16)
+                    },
+                    zIndex: 1
+                });
+            } else if (type === 'missiles') {
+                marker = new google.maps.Marker({
+                    position: {lat: parseFloat(position.latitude), lng: parseFloat(position.longitude)},
+                    map: map,
+                    label: {
+                        text: '🚀',
+                        fontSize: '24px',
+                        fontWeight: 'bold'
+                    },
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 0
+                    },
+                    zIndex: 1000
+                });
+            } else {
+                marker = new google.maps.Marker({
+                    position: {lat: parseFloat(position.latitude), lng: parseFloat(position.longitude)},
+                    map: map,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        fillColor: color,
+                        fillOpacity: 0.8,
+                        strokeWeight: 2,
+                        strokeColor: '#ffffff',
+                        scale: 8
+                    },
+                    zIndex: 1
+                });
+            }
+
+            markers[type].push(marker);
+            console.log(`Added ${type} marker at`, marker.getPosition().toString());
+        }
+
+        function calculateRotation(start, end) {
+            const dx = end.lng - start.lng;
+            const dy = end.lat - start.lat;
+            return Math.atan2(dy, dx) * 180 / Math.PI;
+        }
+
+        function clearMarkers() {
+            for (let type in markers) {
+                markers[type].forEach(marker => marker.setMap(null));
+                markers[type] = [];
+            }
+        }
+
+        function triggerRadarPing() {
+            const ping = document.getElementById('radar-ping');
+            ping.style.animation = 'none';
+            ping.offsetHeight; // Trigger reflow
+            ping.style.animation = 'ping 2s ease-out';
+        }
+
+        initMap();
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const hamburger = document.querySelector('.hamburger');
+            const navbarLinks = document.querySelector('.navbar-links');
+
+            hamburger.addEventListener('click', () => {
+                hamburger.classList.toggle('active');
+                navbarLinks.classList.toggle('active');
+            });
+        });
+    </script>
+</body>
+</html>

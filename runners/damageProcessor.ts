@@ -39,7 +39,7 @@ export const processDamage = async () => {
     ]);
 
     // Create a map for quick lookup of gameplay users
-    const gameplayUserMap = new Map(allGameplayUsers.map(u => [u.username, u]));
+    const gameplayUserMap: Map<string, { friendsOnly: boolean }> = new Map(allGameplayUsers.map((u: { username: string; friendsOnly: boolean }) => [u.username, { friendsOnly: u.friendsOnly }]));
 
     for (const user of activeUsers) {
       if (!user.Locations) continue;
@@ -50,7 +50,7 @@ export const processDamage = async () => {
       const usernamesToProcess = await determineUsernamesToProcess(user.username, gameplayUserMap);
 
       // Check missiles
-      for (const missile of activeMissiles.filter(m => usernamesToProcess.includes(m.sentBy))) {
+      for (const missile of activeMissiles.filter((m: { sentBy: any; }) => usernamesToProcess.includes(m.sentBy))) {
         const missileCoords = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
         const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), missileCoords.latitude.toString(), missileCoords.longitude.toString());
 
@@ -60,7 +60,7 @@ export const processDamage = async () => {
       }
 
       // Check landmines
-      for (const landmine of activeLandmines.filter(l => usernamesToProcess.includes(l.placedBy))) {
+      for (const landmine of activeLandmines.filter((l: { placedBy: any; }) => usernamesToProcess.includes(l.placedBy))) {
         const landmineCoords = { latitude: parseFloat(landmine.locLat), longitude: parseFloat(landmine.locLong) };
         const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), landmineCoords.latitude.toString(), landmineCoords.longitude.toString());
 
@@ -157,7 +157,7 @@ async function handleMissileDamage(user: any, missile: any) {
       
     } else {
       // For non-ShieldBreaker missiles, check if the user is protected by any shield
-      const isProtected = activeShields.some(shield => {
+      const isProtected = activeShields.some((shield: { locLat: string; locLong: string; radius: number; }) => {
         const shieldCoords = { latitude: parseFloat(shield.locLat), longitude: parseFloat(shield.locLong) };
         const distance = haversine(
           userCoords.latitude.toString(),
@@ -196,7 +196,7 @@ async function handleLandmineDamage(user: any, landmine: any) {
     setTimeout(async () => {
       // console.log(`Timer expired for landmine ${landmine.id}, preparing to apply damage`);
       try {
-        await prisma.$transaction(async (prisma) => {
+        await prisma.$transaction(async (prisma: { landmine: { findUnique: (arg0: { where: { id: any; }; }) => any; delete: (arg0: { where: { id: any; }; }) => any; }; }) => {
           // console.log(`Starting transaction for landmine ${landmine.id}`);
           const existingLandmine = await prisma.landmine.findUnique({
             where: { id: landmine.id }
@@ -361,7 +361,7 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
       // console.log(`Calculated rewards for ${damageSource}: ${rewardAmount} coins, ${rankPointsReward} rank points`);
 
       // Apply damage
-      await prisma.$transaction(async (prisma) => {
+      await prisma.$transaction(async (prisma: { gameplayUser: { update: (arg0: { where: { id: number; } | { id: number; } | { username: string; }; data: { health: { decrement: number; }; } | { isAlive: boolean; health: number; money: number; rankPoints: { decrement: number; }; } | { money: { increment: number; }; rankPoints: { increment: number; }; }; include?: { Locations: boolean; }; select?: { id: boolean; money: boolean; rankPoints: boolean; }; }) => any; }; notifications: { create: (arg0: { data: { userId: string; title: string; body: string; sentby: string; }; }) => any; }; }) => {
         // console.log(`Starting transaction for damage application to user ${user.username}`);
         const updatedUser = await prisma.gameplayUser.update({
           where: { id: user.id },

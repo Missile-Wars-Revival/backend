@@ -1,6 +1,5 @@
 import express from "express";
 import bodyParser from "body-parser";
-import { PrismaClient } from "@prisma/client";
 import swaggerUi from "swagger-ui-express";
 import swaggerJSDoc from "swagger-jsdoc";
 import expressWs from "express-ws";
@@ -9,7 +8,7 @@ import { JwtPayload } from "jsonwebtoken";
 import { AuthWithLocation, AuthWithLocationSchema } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, updateMissilePositions, addRandomLoot, checkPlayerProximity, deleteExpiredOther, checkAndCollectLoot } from "./runners/entitymanagment";
 import { startNotificationManager } from "./runners/notificationhelper";
-import { deleteAllBots, manageAIBots } from "./bots";
+// import { deleteAllBots, manageAIBots } from "./bots";
 import { setupNotificationApi } from "./server-routes/notificaitonApi";
 import { setupFriendsApi } from "./server-routes/friendsApi";
 import { setupMoneyApi } from "./server-routes/moneyApi";
@@ -33,6 +32,15 @@ export const prisma = new PrismaClient();
 
 const wsServer = expressWs(express());
 const app = wsServer.app;
+
+// Serve static files from public directory
+import path from 'path';
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Route to serve map.html
+app.get('/map', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'map.html'));
+});
 
 let serviceAccount;
 try {
@@ -110,7 +118,7 @@ startShieldBreakerProcessing();
 //Bots:
 // manageAIBots();
 
-deleteAllBots();
+// deleteAllBots();
 
 //Firebase Messages
 if (serviceAccount) {

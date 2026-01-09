@@ -174,10 +174,10 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       });
   
       // Filter out mutual friends
-      const nonMutualFriends = addedFriends.filter(friend => !friend.friends.includes(decoded.username));
+      const nonMutualFriends = addedFriends.filter((friend: { friends: string | any[]; }) => !friend.friends.includes(decoded.username));
   
       // Format the response to only include username and updatedAt
-      const formattedFriends = nonMutualFriends.map(({ username, updatedAt }) => ({ username, updatedAt }));
+      const formattedFriends = nonMutualFriends.map((friend: { username: string; updatedAt: Date }) => ({ username: friend.username, updatedAt: friend.updatedAt }));
   
       res.status(200).json(formattedFriends);
     } catch (error) {
@@ -240,7 +240,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       });
   
       // Filter results using precise distance calculation
-      const filteredNearbyUsers = nearbyUsers.filter(user => {
+      const filteredNearbyUsers = nearbyUsers.filter((user: { Locations: any; }) => {
         const userLoc = user.Locations;
         if (!userLoc) return false;
 

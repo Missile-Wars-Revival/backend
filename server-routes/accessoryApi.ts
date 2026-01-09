@@ -60,19 +60,19 @@ export function setupAccessoryApi(app: any) {
             const activePlayersCount = activePlayers.length;
 
             const mapData = {
-                active_players: activePlayers.map(p => ({
+                active_players: activePlayers.map((p: { Locations: { latitude: any; longitude: any; }; }) => ({
                     latitude: p.Locations?.latitude,
                     longitude: p.Locations?.longitude
-                })).filter(p => p.latitude && p.longitude),
-                active_missiles: activeMissiles.map(m => ({
+                })).filter((p: { latitude: any; longitude: any; }) => p.latitude && p.longitude),
+                active_missiles: activeMissiles.map((m: { currentLat: any; currentLong: any; }) => ({
                     latitude: m.currentLat,
                     longitude: m.currentLong
                 })),
-                loot_drops: lootDrops.map(l => ({
+                loot_drops: lootDrops.map((l: { locLat: any; locLong: any; }) => ({
                     latitude: l.locLat,
                     longitude: l.locLong
                 })),
-                landmines: landmines.map(l => ({
+                landmines: landmines.map((l: { locLat: any; locLong: any; }) => ({
                     latitude: l.locLat,
                     longitude: l.locLong
                 })),
