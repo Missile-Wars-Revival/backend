@@ -4,7 +4,7 @@ import * as jwt from "jsonwebtoken";
 import * as middleearth from "middle-earth";
 import { prisma } from "../server";
 import { getMutualFriends } from "./friendsApi";
-import { aiBots } from "../bots";
+// import { aiBots } from "../bots";
 import { Missile, Loot, Other, Landmine } from "middle-earth"; 
 import axios from 'axios';
 import { sendNotification } from "../runners/notificationhelper";
@@ -406,19 +406,20 @@ export function setupWebSocket(app: any) {
           // Remove any null entries
           const filteredLocations = locations.filter(Boolean);
 
-          // Add AI bots to the locations
-          const aiLocations = aiBots
-            .filter(bot => bot.isOnline)
-            .map(bot => ({
-              username: bot.username,
-              latitude: bot.latitude.toFixed(6),
-              longitude: bot.longitude.toFixed(6),
-              updatedAt: bot.lastUpdate,
-              transportStatus: 'walking' // Assuming AI bots always have 'walking' status
-            }));
+          // // Add AI bots to the locations
+          // const aiLocations = aiBots
+          //   .filter(bot => bot.isOnline)
+          //   .map(bot => ({
+          //     username: bot.username,
+          //     latitude: bot.latitude.toFixed(6),
+          //     longitude: bot.longitude.toFixed(6),
+          //     updatedAt: bot.lastUpdate,
+          //     transportStatus: 'walking' // Assuming AI bots always have 'walking' status
+          //   }));
 
           // Combine real player locations with AI bot locations
-          const allLocations = [...filteredLocations, ...aiLocations];
+          // const allLocations = [...filteredLocations, ...aiLocations];
+          const allLocations = [...filteredLocations];
 
           //bundle for sending
           let playerslocations = allLocations
