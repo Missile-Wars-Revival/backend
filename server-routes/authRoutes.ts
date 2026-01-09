@@ -392,7 +392,7 @@ export function setupAuthRoutes(app: any) {
             }
 
             // Perform the username update in a transaction
-            await prisma.$transaction(async (prisma) => {
+            await prisma.$transaction(async (prisma: { users: { update: (arg0: { where: { username: string; } | { id: any; }; data: { username: string; } | { friends: any; }; }) => any; findMany: (arg0: { where: { friends: { has: string; }; }; select: { id: boolean; friends: boolean; }; }) => any; }; }) => {
                 await prisma.users.update({
                     where: { username: decoded.username },
                     data: { username: newUsername }
@@ -416,7 +416,7 @@ export function setupAuthRoutes(app: any) {
                     await prisma.users.update({
                         where: { id: user.id },
                         data: {
-                            friends: user.friends.map(friend =>
+                            friends: user.friends.map((friend: string) =>
                                 friend === decoded.username ? newUsername : friend
                             )
                         }
@@ -576,7 +576,7 @@ export function setupAuthRoutes(app: any) {
             }
 
             // Delete related records first
-            await prisma.$transaction(async (prisma) => {
+            await prisma.$transaction(async (prisma: { notifications: { deleteMany: (arg0: { where: { userId: any; }; }) => any; }; friendRequests: { deleteMany: (arg0: { where: { username: any; } | { friend: any; }; }) => any; }; locations: { delete: (arg0: { where: { username: any; }; }) => Promise<any>; }; inventoryItem: { deleteMany: (arg0: { where: { GameplayUser: { username: any; }; }; }) => any; }; statistics: { deleteMany: (arg0: { where: { GameplayUser: { username: any; }; }; }) => any; }; gameplayUser: { delete: (arg0: { where: { username: any; }; }) => Promise<any>; }; users: { delete: (arg0: { where: { username: any; }; }) => any; }; }) => {
                 // Delete Notifications
                 await prisma.notifications.deleteMany({ where: { userId: username } });
 

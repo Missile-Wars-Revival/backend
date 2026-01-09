@@ -31,7 +31,7 @@ export function setupLeagueApi(app: any) {
 
       const uniqueLeagues = new Map();
 
-      leagues.forEach(league => {
+      leagues.forEach((league: { tier: any; division: any; _count: { players: number; }; }) => {
         const key = `${league.tier} ${league.division}`;
         if (!uniqueLeagues.has(key) || league._count.players > uniqueLeagues.get(key).playerCount) {
           uniqueLeagues.set(key, {
@@ -145,7 +145,7 @@ export function setupLeagueApi(app: any) {
         orderBy: { rankPoints: 'desc' }
       });
 
-      const formattedPlayers = players.map(player => ({
+      const formattedPlayers = players.map((player: { id: { toString: () => any; }; username: any; rankPoints: any; }) => ({
         id: player.id.toString(),
         username: player.username,
         points: player.rankPoints,
@@ -190,7 +190,7 @@ export function setupLeagueApi(app: any) {
         take: 100
       });
 
-      const formattedPlayers = top100Players.map((player, index) => ({
+      const formattedPlayers = top100Players.map((player: { id: { toString: () => any; }; username: any; rankPoints: any; league: { tier: any; division: any; }; }, index: number) => ({
         rank: index + 1,
         id: player.id.toString(),
         username: player.username,
@@ -254,18 +254,18 @@ export async function assignUserToLeague(userId: number) {
   });
 
   // Separate leagues with friends and without friends
-  const leaguesWithFriends = availableLeagues.filter(l => l.players.length > 0);
-  const leaguesWithoutFriends = availableLeagues.filter(l => l.players.length === 0);
+  const leaguesWithFriends = availableLeagues.filter((l: { players: string | any[]; }) => l.players.length > 0);
+  const leaguesWithoutFriends = availableLeagues.filter((l: { players: string | any[]; }) => l.players.length === 0);
 
   // Sort leagues with friends by number of mutual friends (ascending), then by available space (descending)
-  leaguesWithFriends.sort((a, b) => {
+  leaguesWithFriends.sort((a: { players: string | any[]; _count: { players: number; }; }, b: { players: string | any[]; _count: { players: number; }; }) => {
     const friendDiff = a.players.length - b.players.length;
     if (friendDiff !== 0) return friendDiff;
     return b._count.players - a._count.players;
   });
 
   // Sort leagues without friends by available space (descending)
-  leaguesWithoutFriends.sort((a, b) => b._count.players - a._count.players);
+  leaguesWithoutFriends.sort((a: { _count: { players: number; }; }, b: { _count: { players: number; }; }) => b._count.players - a._count.players);
 
   // Combine sorted leagues, prioritizing leagues with fewer friends
   const sortedLeagues = [...leaguesWithFriends, ...leaguesWithoutFriends];
@@ -298,7 +298,7 @@ export async function assignUserToLeague(userId: number) {
     });
   }
 
-  return await prisma.$transaction(async (tx) => {
+  return await prisma.$transaction(async (tx: { gameplayUser: { update: (arg0: { where: { id: number; }; data: { leagueId: any; }; }) => any; }; }) => {
     // Assign user to the league
     await tx.gameplayUser.update({
       where: { id: userId },

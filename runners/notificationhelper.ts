@@ -1,6 +1,18 @@
 import Expo from "expo-server-sdk";
 import { prisma } from "../server";
-import { NotificationPreferences } from "@prisma/client";
+
+// Local TypeScript interface matching Prisma model
+interface NotificationPreferences {
+  id: number;
+  userId: number;
+  incomingEntities: boolean;
+  entityDamage: boolean;
+  entitiesInAirspace: boolean;
+  eliminationReward: boolean;
+  lootDrops: boolean;
+  friendRequests: boolean;
+  leagues: boolean;
+}
 
 const expo = new Expo();
 
@@ -135,7 +147,7 @@ async function cleanupOldNotifications() {
         if (excessNotifications.length > 0) {
           const deleteResult = await prisma.notifications.deleteMany({
             where: {
-              id: { in: excessNotifications.map(n => n.id) }
+              id: { in: excessNotifications.map((n: { id: any; }) => n.id) }
             }
           });
           totalExcessDeleted += deleteResult.count;

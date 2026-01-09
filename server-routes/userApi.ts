@@ -49,7 +49,7 @@ export async function getMutualUsersFriends(username1: string, username2: string
   }
 
   const user1FriendSet = new Set(user1.friends);
-  const mutualFriends = user2.friends.filter(friend => user1FriendSet.has(friend));
+  const mutualFriends = user2.friends.filter((friend: unknown) => user1FriendSet.has(friend));
 
   return mutualFriends;
 }
@@ -410,7 +410,7 @@ export function setupUserApi(app: any) {
         // Perform user deletion
         try {
           // Delete related records first
-          await prisma.$transaction(async (prisma) => {
+          await prisma.$transaction(async (prisma: { notifications: { deleteMany: (arg0: { where: { userId: any; }; }) => any; }; friendRequests: { deleteMany: (arg0: { where: { username: any; } | { friend: any; }; }) => any; }; locations: { delete: (arg0: { where: { username: any; }; }) => Promise<any>; }; inventoryItem: { deleteMany: (arg0: { where: { GameplayUser: { username: any; }; }; }) => any; }; statistics: { deleteMany: (arg0: { where: { GameplayUser: { username: any; }; }; }) => any; }; gameplayUser: { delete: (arg0: { where: { username: any; }; }) => Promise<any>; }; users: { delete: (arg0: { where: { username: any; }; }) => any; }; }) => {
             // Delete Notifications
             await prisma.notifications.deleteMany({ where: { userId: username } });
 
@@ -541,7 +541,7 @@ export function setupUserApi(app: any) {
       }
 
       // Perform the updates in a transaction
-      await prisma.$transaction(async (prisma) => {
+      await prisma.$transaction(async (prisma: { users: { update: (arg0: { where: { username: any; }; data: any; }) => any; }; gameplayUser: { update: (arg0: { where: { username: any; }; data: any; }) => any; }; }) => {
         // Update the Users table
         const updatedUser = await prisma.users.update({
           where: { username: username },

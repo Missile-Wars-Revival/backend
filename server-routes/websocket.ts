@@ -147,10 +147,10 @@ export function setupWebSocket(app: any) {
       prisma.landmine.findMany(),
     ]);
 
-    cache.missiles = allMissiles.map(missile => middleearth.Missile.from_db(missile));
-    cache.loot = allLoot.map(loot => middleearth.Loot.from_db(loot));
-    cache.other = allOther.map(other => middleearth.Other.from_db(other));
-    cache.landmines = allLandmines.map(landmine => middleearth.Landmine.from_db(landmine));
+    cache.missiles = allMissiles.map((missile: any) => middleearth.Missile.from_db(missile));
+    cache.loot = allLoot.map((loot: any) => middleearth.Loot.from_db(loot));
+    cache.other = allOther.map((other: any) => middleearth.Other.from_db(other));
+    cache.landmines = allLandmines.map((landmine: any) => middleearth.Landmine.from_db(landmine));
 
     cache.lastUpdate = now;
   }
@@ -204,7 +204,7 @@ export function setupWebSocket(app: any) {
             select: { username: true }
           });
 
-          usernamesToFetchEntitiesFrom = nonFriendsOnlyUsers.map(u => u.username);
+          usernamesToFetchEntitiesFrom = nonFriendsOnlyUsers.map((u: { username: any; }) => u.username);
         }
 
         // Filter cached data based on usernamesToFetchEntitiesFrom
@@ -377,7 +377,7 @@ export function setupWebSocket(app: any) {
             return transportStatus;
           };
 
-          const locations = await Promise.all(allGameplayUsers.map(async (gpu) => {
+          const locations = await Promise.all(allGameplayUsers.map(async (gpu: { Locations: any; username: string; health: any; randomLocation: any; }) => {
             const currentLocation = gpu.Locations;
             if (!currentLocation) return null; // Skip this user if no location data
 

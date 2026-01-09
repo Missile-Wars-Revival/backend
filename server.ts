@@ -27,6 +27,7 @@ import * as admin from 'firebase-admin'
 import { setupMessageListener } from "./runners/messageListener";
 import { startShieldBreakerProcessing } from "./runners/shieldbreaker";
 import { setupWebApi } from "./server-routes/webApi";
+const { PrismaClient } = require('@prisma/client');
 
 export const prisma = new PrismaClient();
 

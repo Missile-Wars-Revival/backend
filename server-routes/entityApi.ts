@@ -495,7 +495,7 @@ export function setupEntityApi(app: any) {
       });
     
       // Create a map of shield properties
-      const shieldProperties = shieldTypes.reduce((acc, shield) => {
+      const shieldProperties = shieldTypes.reduce((acc: { [x: string]: { radius: any; duration: number; }; }, shield: { name: string | number; radius: any; duration: number; }) => {
         acc[shield.name] = {
           radius: shield.radius,
           duration: shield.duration * 60 * 1000
@@ -552,7 +552,7 @@ export function setupEntityApi(app: any) {
       }
 
       // Start a transaction
-      const result = await prisma.$transaction(async (prisma) => {
+      const result = await prisma.$transaction(async (prisma: { gameplayUser: { update: (arg0: { where: { username: any; }; data: { money: any; rankPoints: any; }; }) => any; }; statistics: { findFirst: (arg0: { where: { userId: any; }; }) => any; update: (arg0: { where: { id: any; }; data: { numLootPickups: any; }; }) => any; create: (arg0: { data: { userId: any; numLootPickups: number; }; }) => any; }; loot: { delete: (arg0: { where: { id: number; }; }) => any; }; }) => {
         // Update user
         await prisma.gameplayUser.update({
           where: {

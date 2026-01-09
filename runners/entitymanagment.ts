@@ -148,7 +148,7 @@ export const deleteExpiredMissiles = async () => {
     });
 
     // Create a map for quick lookup
-    const falloutTimeMap = new Map(missileTypes.map(mt => [mt.name, mt.fallout]));
+    const falloutTimeMap = new Map(missileTypes.map((mt: { name: any; fallout: any; }) => [mt.name, mt.fallout]));
 
     // Find and delete expired missiles
     const expiredMissiles = await prisma.missile.findMany({
@@ -156,8 +156,8 @@ export const deleteExpiredMissiles = async () => {
       select: { id: true, type: true, timeToImpact: true }
     });
 
-    const deletedMissiles = await Promise.all(expiredMissiles.map(async (missile) => {
-      const falloutTimeMinutes = falloutTimeMap.get(missile.type) || 1800; // Default to 30 minutes if not found
+    const deletedMissiles = await Promise.all(expiredMissiles.map(async (missile: { type: unknown; timeToImpact: { getTime: () => number; }; id: any; }) => {
+      const falloutTimeMinutes = Number(falloutTimeMap.get(missile.type)) || 30; // Default to 30 minutes if not found
       const expirationTime = new Date(missile.timeToImpact.getTime() + falloutTimeMinutes * 60 * 1000); // Convert minutes to milliseconds
 
       if (expirationTime < now) {
@@ -286,7 +286,7 @@ export const addRandomLoot = async () => {
   const nearbyLoot = await prisma.loot.findMany();
   const lootThreshold = 0.5; // distance in kilometers below which loot is considered "nearby"
 
-  const isLootNearby = nearbyLoot.some(loot => {
+  const isLootNearby = nearbyLoot.some((loot: { locLat: string; locLong: string }) => {
     const lootCoords = { latitude: parseFloat(loot.locLat), longitude: parseFloat(loot.locLong) };
     return haversineDistance(baseCoords, lootCoords) < lootThreshold;
   });
@@ -360,7 +360,7 @@ export const checkPlayerProximity = async () => {
           where: { OR: [{ friendsOnly: false }, { username: { in: await getMutualFriends(user.Users) } }] },
           select: { username: true }
         });
-        const relevantUsernames = nonFriendsOnlyUsers.map(u => u.username);
+        const relevantUsernames = nonFriendsOnlyUsers.map((u: { username: string }) => u.username);
         missiles = await prisma.missile.findMany({ where: { sentBy: { in: relevantUsernames } } });
         landmines = await prisma.landmine.findMany({ where: { placedBy: { in: relevantUsernames } } });
       }

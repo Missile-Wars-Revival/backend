@@ -28,7 +28,7 @@
     "typescript": "^5.4.5"
   },
   "dependencies": {
-    "@prisma/client": "^5.15.0",
+    "@prisma/client": "^5.22.0",
     "@turf/turf": "^7.1.0",
     "@types/msgpack-lite": "^0.1.11",
     "@types/ws": "^8.5.10",

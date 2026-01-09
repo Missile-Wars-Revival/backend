@@ -33,7 +33,7 @@ export const processShieldBreakers = async () => {
 
       console.log(`[ShieldBreaker] Found ${activeShields.length} active shields`);
 
-      const shieldsToBreak = activeShields.filter(shield => {
+      const shieldsToBreak = activeShields.filter((shield: { locLat: string; locLong: string; }) => {
         const shieldCoords = { latitude: parseFloat(shield.locLat), longitude: parseFloat(shield.locLong) };
         const distance = haversine(
           missileCoords.latitude.toString(),
@@ -80,7 +80,7 @@ export const processShieldBreakers = async () => {
         }
         
         // Notification for the shield placer
-        if (!usersWithinShield.some(user => user.username === shield.placedBy)) {
+        if (!usersWithinShield.some((user: { username: any; }) => user.username === shield.placedBy)) {
           await sendNotification(shield.placedBy, "Shield Destroyed!", `The shield you placed has been destroyed by a Shield Breaker missile from ${missile.sentBy}!`, missile.sentBy);
           totalUsersNotified++;
         }
