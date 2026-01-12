@@ -3,7 +3,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.startNotificationManager = exports.sendNotification = void 0;
+exports.sendNotification = sendNotification;
+exports.startNotificationManager = startNotificationManager;
 const expo_server_sdk_1 = __importDefault(require("expo-server-sdk"));
 const server_1 = require("../server");
 const expo = new expo_server_sdk_1.default();
@@ -62,7 +63,6 @@ async function sendNotification(username, title, body, sentby) {
         console.error('Error sending notification:', error);
     }
 }
-exports.sendNotification = sendNotification;
 // Function to check notification preferences based on title
 function checkNotificationPreference(title, preferences) {
     if (!preferences)
@@ -95,7 +95,6 @@ function startNotificationManager() {
     // Then run every 24 hours
     setInterval(cleanupOldNotifications, 24 * 60 * 60 * 1000);
 }
-exports.startNotificationManager = startNotificationManager;
 async function cleanupOldNotifications() {
     const oneMonthAgo = new Date();
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.setupAccessoryApi = void 0;
+exports.setupAccessoryApi = setupAccessoryApi;
 const server_1 = require("../server");
 function setupAccessoryApi(app) {
     //website & discord bot
@@ -136,4 +136,3 @@ function setupAccessoryApi(app) {
         }
     });
 }
-exports.setupAccessoryApi = setupAccessoryApi;

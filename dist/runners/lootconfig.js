@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getRandomLoot = exports.nothingProbability = exports.rarityProbability = exports.notSoGoodLootItems = exports.goodLootItems = void 0;
+exports.nothingProbability = exports.rarityProbability = exports.notSoGoodLootItems = exports.goodLootItems = void 0;
+exports.getRandomLoot = getRandomLoot;
 exports.goodLootItems = [
     { name: "ClusterBomb", category: "Missiles" },
     { name: "CorporateRaider", category: "Missiles" },
@@ -44,7 +45,6 @@ function getRandomLoot(rarity) {
         return exports.notSoGoodLootItems[notSoGoodIndex];
     }
 }
-exports.getRandomLoot = getRandomLoot;
 //Missile types
 //   Amplifier:
 //   Ballista:

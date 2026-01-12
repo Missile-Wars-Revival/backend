@@ -15,18 +15,33 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.setupAuthRoutes = exports.generateRandomCode = exports.deleteResetCode = exports.getResetCodeInfo = exports.storeResetCode = exports.validateSchema = void 0;
+exports.validateSchema = void 0;
+exports.storeResetCode = storeResetCode;
+exports.getResetCodeInfo = getResetCodeInfo;
+exports.deleteResetCode = deleteResetCode;
+exports.generateRandomCode = generateRandomCode;
+exports.setupAuthRoutes = setupAuthRoutes;
 const jwt = __importStar(require("jsonwebtoken"));
 const server_1 = require("../server");
 const argon2 = __importStar(require("argon2"));
@@ -65,7 +80,6 @@ async function storeResetCode(userId, code, expiry) {
         },
     });
 }
-exports.storeResetCode = storeResetCode;
 async function getResetCodeInfo(userId, code) {
     return await server_1.prisma.passwordResetCodes.findFirst({
         where: {
@@ -74,7 +88,6 @@ async function getResetCodeInfo(userId, code) {
         },
     });
 }
-exports.getResetCodeInfo = getResetCodeInfo;
 async function deleteResetCode(userId) {
     await server_1.prisma.passwordResetCodes.deleteMany({
         where: {
@@ -82,11 +95,9 @@ async function deleteResetCode(userId) {
         },
     });
 }
-exports.deleteResetCode = deleteResetCode;
 function generateRandomCode(length) {
     return Math.random().toString().slice(2, 2 + length);
 }
-exports.generateRandomCode = generateRandomCode;
 function setupAuthRoutes(app) {
     app.post("/api/login", (0, exports.validateSchema)(api_1.LoginSchema), async (req, res) => {
         const login = req.body;
@@ -569,4 +580,3 @@ function setupAuthRoutes(app) {
         }
     });
 }
-exports.setupAuthRoutes = setupAuthRoutes;

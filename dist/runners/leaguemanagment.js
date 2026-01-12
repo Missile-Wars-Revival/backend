@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.leagueRunner = void 0;
+exports.leagueRunner = leagueRunner;
 const client_1 = require("@prisma/client");
 const leagueApi_1 = require("../server-routes/leagueApi");
 const prisma = new client_1.PrismaClient();
@@ -23,4 +23,3 @@ async function leagueRunner() {
         console.error('Error in league runner:', error);
     }
 }
-exports.leagueRunner = leagueRunner;
