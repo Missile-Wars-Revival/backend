@@ -8,6 +8,8 @@
     "build": "npx tsc --project tsconfig.server.json && cp firebasecred.json dist/ && cp -r public dist/",
     "start": "node dist/server.js",
     "dev": "cross-env nodemon"
+    ,
+    "postinstall": "prisma generate"
   },
   "keywords": [],
   "author": "",

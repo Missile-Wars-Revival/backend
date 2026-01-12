@@ -72,8 +72,11 @@ const app = wsServer.app;
 const path_1 = __importDefault(require("path"));
 app.use(express_1.default.static(path_1.default.join(__dirname, 'public')));
 // Route to serve map.html
-app.get('/map', (req, res) => {
+app.get('/map', (_req, res) => {
     res.sendFile(path_1.default.join(__dirname, 'public', 'map.html'));
+});
+app.get('/healthz', (_req, res) => {
+    res.status(200).send('ok');
 });
 let serviceAccount;
 try {

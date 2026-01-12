@@ -1,4 +1,5 @@
 import express from "express";
+import type { Request, Response } from "express";
 import bodyParser from "body-parser";
 import swaggerUi from "swagger-ui-express";
 import swaggerJSDoc from "swagger-jsdoc";
@@ -39,8 +40,12 @@ import path from 'path';
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Route to serve map.html
-app.get('/map', (req, res) => {
+app.get('/map', (_req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, 'public', 'map.html'));
+});
+
+app.get('/healthz', (_req: Request, res: Response) => {
+  res.status(200).send('ok');
 });
 
 let serviceAccount;
@@ -148,7 +153,7 @@ setupLeagueApi(app);
 app.post(
   "/api/dispatch",
   validateSchema(AuthWithLocationSchema),
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     const location: AuthWithLocation = req.body;
 
     if (!location.token) {
