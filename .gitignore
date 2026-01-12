@@ -10,6 +10,7 @@
 /.idea/
 
 .env
+database-export.json
 
 # testing
 /coverage
