@@ -5,7 +5,7 @@
   "main": "server.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc --project tsconfig.server.json && cp firebasecred.json dist/ && cp -r public dist/",
+    "build": "npx tsc --project tsconfig.server.json && cp firebasecred.json dist/ && cp -r public dist/",
     "start": "npm run build && cross-env node dist/server.js",
     "dev": "cross-env nodemon"
   },
@@ -15,12 +15,12 @@
   "devDependencies": {
     "@types/body-parser": "^1.19.5",
     "@types/express": "^4.17.21",
-    "@types/express-ws": "^3.0.4",
+    "@types/express-ws": "^3.0.6",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/lodash": "^4.17.7",
-    "@types/nodemailer": "^6.4.15",
+    "@types/nodemailer": "^6.4.21",
     "@types/swagger-jsdoc": "^6.0.4",
-    "@types/swagger-ui-express": "^4.1.6",
+    "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^10.0.0",
     "concurrently": "^8.2.2",
     "nodemon": "^3.1.0",
@@ -47,10 +47,10 @@
     "middle-earth": "github:Missile-Wars-Revival/middle-earth",
     "missile-wars-beta": "file:",
     "msgpack-lite": "^0.1.26",
-    "typescript": "^5.4.5",
     "nodemailer": "^6.9.15",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
+    "typescript": "^5.4.5",
     "uuid": "^10.0.0",
     "zod": "^3.23.8"
   }
