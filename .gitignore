@@ -8,7 +8,6 @@
 .yarn/install-state.gz
 /.fleet/
 /.idea/
-/dist/
 
 .env
 
@@ -51,3 +50,7 @@ next-env.d.ts
 .flaskenv*
 !.env.project
 !.env.vault
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml

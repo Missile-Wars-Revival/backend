@@ -85,9 +85,9 @@ const options = {
 const swaggerSpec = swaggerJSDoc(options);
 
 // check if env is dev and serve swagger
-if (process.env.NODE_ENV === "development") {
-  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-}
+// if (process.env.NODE_ENV === "development") {
+//   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// }
 
 // this function manages entities on the map
 setInterval(addRandomLoot, 30000);
@@ -228,8 +228,7 @@ app.post(
 
 ////////////////////////
 
-let port = process.env.PORT;
-
+const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log("listening on port", port);
 });

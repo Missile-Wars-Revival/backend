@@ -3,12 +3,12 @@ generator client {
 }
 
 datasource db {
-  provider = "cockroachdb"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model FriendRequests {
-  id             Int           @id @default(sequence())
+  id             Int           @id @default(autoincrement())
   username       String        @default("")
   friend         String        @default("")
   gameplayUserId Int?
@@ -19,7 +19,7 @@ model FriendRequests {
 }
 
 model GameplayUser {
-  id             Int              @id @default(sequence())
+  id             Int              @id @default(autoincrement())
   username       String           @unique @default("")
   level          Int              @default(1)
   exp            Int              @default(0)
@@ -44,7 +44,7 @@ model GameplayUser {
 }
 
 model PasswordResetCodes {
-  id        Int      @id @default(sequence())
+  id        Int      @id @default(autoincrement())
   userId    Int
   code      String
   expiry    DateTime
@@ -75,7 +75,7 @@ model Statistics {
 }
 
 model Landmine {
-  id         Int      @id @default(sequence())
+  id         Int      @id @default(autoincrement())
   placedBy   String
   locLat     String   @default("")
   locLong    String   @default("")
@@ -108,7 +108,7 @@ model Locations {
 }
 
 model Loot {
-  id      Int      @id @default(sequence())
+  id      Int      @id @default(autoincrement())
   rarity  String
   Expires DateTime
   locLat  String   @default("")
@@ -116,7 +116,7 @@ model Loot {
 }
 
 model Other {
-  id         Int      @id @default(sequence())
+  id         Int      @id @default(autoincrement())
   type       String
   radius     Int
   Expires    DateTime
@@ -135,7 +135,7 @@ model OtherType {
 }
 
 model Messages {
-  id        Int    @id @default(sequence())
+  id        Int    @id @default(autoincrement())
   sender    String @default("")
   receiver  String @default("")
   content   String @default("")
@@ -145,7 +145,7 @@ model Messages {
 }
 
 model Missile {
-  id           Int      @id @default(sequence())
+  id           Int      @id @default(autoincrement())
   destLat      String   @default("")
   destLong     String   @default("")
   damage       Int      @default(1)
@@ -170,12 +170,12 @@ model MissileType {
 }
 
 model RefreshTokens {
-  id           Int    @id @default(sequence())
+  id           Int    @id @default(autoincrement())
   refreshToken String @default("")
 }
 
 model Sessions {
-  id            Int      @id @default(sequence())
+  id            Int      @id @default(autoincrement())
   lastIp        String   @default("")
   userId        Int
   lastLoginTime DateTime @default(now())
@@ -183,7 +183,7 @@ model Sessions {
 }
 
 model Users {
-  id                      Int                      @id @default(sequence())
+  id                      Int                      @id @default(autoincrement())
   email                   String                   @default("")
   password                String                   @default("")
   username                String                   @unique @default("")
@@ -214,7 +214,7 @@ model Notifications {
 }
 
 model NotificationPreferences {
-  id                 Int     @id @default(sequence())
+  id                 Int     @id @default(autoincrement())
   userId             Int     @unique
   incomingEntities   Boolean @default(true)
   entityDamage       Boolean @default(true)
