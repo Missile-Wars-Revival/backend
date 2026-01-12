@@ -44,7 +44,7 @@
     "geolib": "^3.3.4",
     "jsonwebtoken": "^9.0.2",
     "lodash": "^4.17.21",
-    "middle-earth": "github:Missile-Wars-Revival/middle-earth",
+    "middle-earth": "https://github.com/Missile-Wars-Revival/middle-earth.git",
     "missile-wars-beta": "file:",
     "msgpack-lite": "^0.1.26",
     "nodemailer": "^6.9.15",
