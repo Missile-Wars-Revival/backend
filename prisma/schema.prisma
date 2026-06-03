@@ -185,7 +185,8 @@ model Sessions {
 model Users {
   id                      Int                      @id @default(autoincrement())
   email                   String                   @default("")
-  password                String                   @default("")
+  password                String?
+  firebaseUID             String?                  @unique
   username                String                   @unique @default("")
   role                    String                   @default("user")
   avatar                  String                   @default("")

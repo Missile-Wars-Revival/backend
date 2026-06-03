@@ -2,7 +2,6 @@ import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import * as argon2 from "argon2";
 import nodemailer from 'nodemailer';
-import { Login, LoginSchema, Register, RegisterSchema } from "../interfaces/api";
 import { NextFunction, Request, Response } from "express";
 import { z, ZodError } from "zod";
 import * as admin from 'firebase-admin';
@@ -62,121 +61,186 @@ export function generateRandomCode(length: number): string {
     return Math.random().toString().slice(2, 2 + length);
 }
 
+function generateUsername(displayName: string): string {
+    const base = displayName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'player';
+    const suffix = Math.random().toString(36).slice(2, 6);
+    return `${base}${suffix}`;
+}
+
 export function setupAuthRoutes(app: any) {
-    app.post("/api/login", validateSchema(LoginSchema), async (req: Request, res: Response) => {
-        const login: Login = req.body;
+    // Returns the email for a given username (used by client to look up email before Firebase sign-in)
+    app.post("/api/lookup", async (req: Request, res: Response) => {
+        const { username } = req.body;
+        if (!username) return res.status(400).json({ message: "Username required" });
+        const user = await prisma.users.findFirst({ where: { username } });
+        if (!user) return res.status(404).json({ message: "User not found" });
+        return res.status(200).json({ email: user.email });
+    });
 
-        const user = await prisma.users.findFirst({
-            where: {
-                username: login.username,
-            },
-        });
+    // OAuth login — verifies Firebase ID token, finds or creates user
+    app.post("/api/oauth-login", async (req: Request, res: Response) => {
+        const { idToken, displayName, notificationToken } = req.body;
+        if (!idToken) return res.status(400).json({ message: "idToken required" });
 
-        if (user && (await argon2.verify(user.password, login.password))) {
-            const token = jwt.sign(
-                { username: user.username },
-                process.env.JWT_SECRET || ""
-            );
+        try {
+            const decoded = await admin.auth().verifyIdToken(idToken);
+            const { uid, email } = decoded;
 
-            await prisma.users.update({
-                where: {
-                    username: login.username,
-                },
-                data: {
-                    notificationToken: login.notificationToken,
-                },
+            let user = await prisma.users.findFirst({ where: { firebaseUID: uid } });
+            if (!user && email) {
+                user = await prisma.users.findFirst({ where: { email } });
+            }
+
+            if (user) {
+                if (!user.firebaseUID) {
+                    await prisma.users.update({ where: { id: user.id }, data: { firebaseUID: uid } });
+                }
+                if (notificationToken) {
+                    await prisma.users.update({ where: { id: user.id }, data: { notificationToken } });
+                }
+                const token = jwt.sign({ username: user.username }, process.env.JWT_SECRET || "");
+                return res.status(200).json({ message: "Login successful", token, username: user.username });
+            }
+
+            // New OAuth user — auto-generate a unique username
+            let username = generateUsername(displayName || '');
+            while (await prisma.users.findFirst({ where: { username } })) {
+                username = generateUsername(displayName || '');
+            }
+
+            await prisma.users.create({
+                data: { username, email: email || '', firebaseUID: uid, notificationToken: notificationToken || '' },
+            });
+            await prisma.gameplayUser.create({
+                data: { username, createdAt: new Date().toISOString() },
             });
 
-            res.status(200).json({ message: "Login successful", token });
-        } else {
-            res.status(401).json({ message: "Invalid username or password" });
+            const token = jwt.sign({ username }, process.env.JWT_SECRET || "");
+            return res.status(200).json({ message: "User created", token, username });
+        } catch (error) {
+            console.error("OAuth login error:", error);
+            return res.status(401).json({ message: "Invalid or expired Firebase token" });
         }
     });
 
-    app.post("/api/register", validateSchema(RegisterSchema), async (req: Request, res: Response) => {
-        const register: Register = req.body;
+    app.post("/api/login", async (req: Request, res: Response) => {
+        const { idToken, username, password, notificationToken } = req.body;
 
-        try {
-            const existingUser = await prisma.users.findFirst({
-                where: {
-                    username: register.username,
-                },
-            });
-
-            if (existingUser) {
-                return res.status(409).json({ message: "User already exists" });
-            }
-
-            if (register.password.length < 8) {
-                return res
-                    .status(400)
-                    .json({ message: "Password must be at least 8 characters long" });
-            }
-
-            if (register.username.length < 3) {
-                return res
-                    .status(400)
-                    .json({ message: "Username must be at least 3 characters long" });
-            }
-
-            if (!register.username.match(/^[a-zA-Z0-9]+$/)) {
-                return res
-                    .status(400)
-                    .json({ message: "Username must only contain letters and numbers" });
-            }
-
-            if (
-                !register.password.match(
-                    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/
-                )
-            ) {
-                return res.status(400).json({
-                    message:
-                        "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&#)",
+        if (idToken) {
+            // Firebase auth path
+            try {
+                const decoded = await admin.auth().verifyIdToken(idToken);
+                const user = await prisma.users.findFirst({
+                    where: { OR: [{ email: decoded.email ?? '' }, { firebaseUID: decoded.uid }] },
                 });
+                if (!user) return res.status(404).json({ message: "User not found" });
+                if (!user.firebaseUID) {
+                    await prisma.users.update({ where: { id: user.id }, data: { firebaseUID: decoded.uid } });
+                }
+                if (notificationToken) {
+                    await prisma.users.update({ where: { id: user.id }, data: { notificationToken } });
+                }
+                const token = jwt.sign({ username: user.username }, process.env.JWT_SECRET || "");
+                return res.status(200).json({ message: "Login successful", token });
+            } catch {
+                return res.status(401).json({ message: "Invalid Firebase token" });
+            }
+        }
+
+        // Legacy username/password path
+        if (!username || !password) {
+            return res.status(400).json({ message: "Username and password required" });
+        }
+        const user = await prisma.users.findFirst({ where: { username } });
+        if (user && user.password && (await argon2.verify(user.password, password))) {
+            const token = jwt.sign({ username: user.username }, process.env.JWT_SECRET || "");
+            if (notificationToken) {
+                await prisma.users.update({ where: { username }, data: { notificationToken } });
+            }
+            return res.status(200).json({ message: "Login successful", token });
+        }
+        return res.status(401).json({ message: "Invalid username or password" });
+    });
+
+    app.post("/api/register", async (req: Request, res: Response) => {
+        const { idToken, username, email, password, notificationToken } = req.body;
+
+        if (idToken) {
+            // Firebase auth path
+            try {
+                const decoded = await admin.auth().verifyIdToken(idToken);
+                const firebaseEmail = decoded.email || email || '';
+
+                if (!username || username.length < 3) {
+                    return res.status(400).json({ message: "Username must be at least 3 characters long" });
+                }
+                if (!username.match(/^[a-zA-Z0-9]+$/)) {
+                    return res.status(400).json({ message: "Username must only contain letters and numbers" });
+                }
+
+                const [existingByUsername, existingByEmail] = await Promise.all([
+                    prisma.users.findFirst({ where: { username } }),
+                    firebaseEmail ? prisma.users.findFirst({ where: { email: firebaseEmail } }) : null,
+                ]);
+
+                if (existingByUsername) return res.status(409).json({ message: "Username already exists" });
+                if (existingByEmail) return res.status(409).json({ message: "Email already registered" });
+
+                await prisma.users.create({
+                    data: {
+                        username,
+                        email: firebaseEmail,
+                        firebaseUID: decoded.uid,
+                        notificationToken: notificationToken || '',
+                    },
+                });
+                await prisma.gameplayUser.create({
+                    data: { username, createdAt: new Date().toISOString() },
+                });
+
+                const token = jwt.sign({ username }, process.env.JWT_SECRET || "");
+                return res.status(200).json({ message: "User created", token });
+            } catch (error: any) {
+                if (error?.code === 'P2002') return res.status(409).json({ message: "Username already exists" });
+                console.error("Firebase register error:", error);
+                return res.status(500).json({ message: "An error occurred during registration" });
+            }
+        }
+
+        // Legacy path
+        try {
+            if (!username || !email || !password) {
+                return res.status(400).json({ message: "Username, email and password required" });
             }
 
-            if (!register.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-                return res.status(400).json({ message: "Invalid email address" });
-            }
+            const existingUser = await prisma.users.findFirst({ where: { username } });
+            if (existingUser) return res.status(409).json({ message: "User already exists" });
 
-            if (
-                (existingUser as unknown as { email: string })?.email === register.email
-            ) {
-                return res.status(400).json({ message: "Email already exists" });
+            if (password.length < 8) return res.status(400).json({ message: "Password must be at least 8 characters long" });
+            if (username.length < 3) return res.status(400).json({ message: "Username must be at least 3 characters long" });
+            if (!username.match(/^[a-zA-Z0-9]+$/)) return res.status(400).json({ message: "Username must only contain letters and numbers" });
+            if (!password.match(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/)) {
+                return res.status(400).json({ message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&#)" });
             }
+            if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) return res.status(400).json({ message: "Invalid email address" });
 
-            const hashedPassword = await argon2.hash(register.password);
+            const hashedPassword = await argon2.hash(password);
 
             await prisma.users.create({
-                data: {
-                    username: register.username,
-                    password: hashedPassword,
-                    email: register.email,
-                    notificationToken: register.notificationToken,
-                },
+                data: { username, password: hashedPassword, email, notificationToken: notificationToken || '' },
             });
-
             await prisma.gameplayUser.create({
-                data: {
-                    username: register.username,
-                    createdAt: new Date().toISOString(),
-                },
+                data: { username, createdAt: new Date().toISOString() },
             });
 
-            const token = jwt.sign(
-                { username: register.username },
-                process.env.JWT_SECRET || ""
-            );
-
-            res.status(200).json({ message: "User created", token });
+            const token = jwt.sign({ username }, process.env.JWT_SECRET || "");
+            return res.status(200).json({ message: "User created", token });
         } catch (error) {
-            if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002' &&
-                'meta' in error && typeof error.meta === 'object' && error.meta !== null && 'target' in error.meta) {
+            if (typeof error === 'object' && error !== null && 'code' in error && (error as any).code === 'P2002') {
                 return res.status(409).json({ message: "Username already exists" });
             }
             console.error("Registration error:", error);
-            res.status(500).json({ message: "An error occurred during registration" });
+            return res.status(500).json({ message: "An error occurred during registration" });
         }
     });
 
@@ -254,22 +318,14 @@ export function setupAuthRoutes(app: any) {
                 });
             }
 
-            const hashedPassword = await argon2.hash(newPassword);
-
             try {
                 const firebaseUser = await admin.auth().getUserByEmail(user.email);
-                await admin.auth().updateUser(firebaseUser.uid, {
-                    password: newPassword
-                });
+                await admin.auth().updateUser(firebaseUser.uid, { password: newPassword });
             } catch (firebaseError) {
                 console.error("Error updating password in Firebase:", firebaseError);
             }
 
-            await prisma.users.update({
-                where: { id: user.id },
-                data: { password: hashedPassword },
-            });
-
+            await prisma.users.update({ where: { id: user.id }, data: { password: null } });
             await deleteResetCode(user.id);
 
             res.status(200).json({ message: "Password reset successful" });
@@ -317,21 +373,14 @@ export function setupAuthRoutes(app: any) {
                 });
             }
 
-            const hashedNewPassword = await argon2.hash(newPassword);
-
             try {
                 const firebaseUser = await admin.auth().getUserByEmail(user.email);
-                await admin.auth().updateUser(firebaseUser.uid, {
-                    password: newPassword
-                });
+                await admin.auth().updateUser(firebaseUser.uid, { password: newPassword });
             } catch (firebaseError) {
                 console.error("Error updating password in Firebase:", firebaseError);
             }
 
-            await prisma.users.update({
-                where: { username: decoded.username },
-                data: { password: hashedNewPassword },
-            });
+            await prisma.users.update({ where: { username: decoded.username }, data: { password: null } });
 
             // Generate a new token with the updated password
             const newToken = jwt.sign(
