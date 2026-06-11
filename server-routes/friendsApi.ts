@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import { verifyToken } from "../util/auth";
 import { prisma } from "../server";
-import { sendNotification } from "../runners/notificationhelper";
+import { sendPushNotification } from "../runners/NotificationService";
 import * as geolib from 'geolib';
-import { resolveProfileImageUrls } from "./profileImages";
+import { resolveProfileImageUrl, resolveProfileImageUrls } from "./profileImages";
 
 const visibleUsername = (username: unknown) =>
   typeof username === "string" ? username.replace(/[\s\u200B-\u200D\uFEFF]/g, "") : "";
@@ -417,11 +417,35 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         data: { friends: { push: friend } },
       });
   
-      // Send appropriate notification
+      // Send appropriate notification, with iOS communication metadata so the
+      // sender's avatar shows on the push. The stored titles must stay exactly
+      // "Friend Accepted" / "Friend Request" — they double as the pending-
+      // request inbox (see notificationhelper cleanup).
+      const senderAvatarUrl = await resolveProfileImageUrl(user.username);
+      const communicationData = {
+        fromUserId: user.username,
+        communication: true,
+        senderName: user.username,
+        ...(senderAvatarUrl ? { senderAvatarUrl } : {}),
+        communicationThreadId: `friend-${user.username}`,
+      };
+
       if (isMutualFriend) {
-        await sendNotification(friend, "Friend Accepted", `${user.username} has added you back!`, user.username);
+        await sendPushNotification({
+          userId: friend,
+          title: "Friend Accepted",
+          body: `${user.username} has added you back!`,
+          type: "friend_request",
+          data: { type: "friend_accepted", ...communicationData },
+        });
       } else {
-        await sendNotification(friend, "Friend Request", `${user.username} has added you as a friend!`, user.username);
+        await sendPushNotification({
+          userId: friend,
+          title: "Friend Request",
+          body: `${user.username} has added you as a friend!`,
+          type: "friend_request",
+          data: { type: "friend_request", ...communicationData },
+        });
       }
   
       console.log("Friend added");
