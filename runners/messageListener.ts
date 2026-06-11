@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
-import { sendNotification } from './notificationhelper';
+import { sendPushNotification } from './NotificationService';
+import { resolveProfileImageUrl } from '../server-routes/profileImages';
 
 export function setupMessageListener() {
   if (!admin.apps.length) {
@@ -14,8 +15,6 @@ export function setupMessageListener() {
     const conversation = snapshot.val();
     const lastMessage = conversation.lastMessage;
 
-    console.log('Last message:', JSON.stringify(lastMessage, null, 2));
-
     if (lastMessage && !lastMessage.isRead && !lastMessage.isNotified) {
       const senderUsername = lastMessage.senderId;
       const recipientUsername = conversation.participantsArray.find(
@@ -27,30 +26,29 @@ export function setupMessageListener() {
         return;
       }
 
-      console.log('Sender username:', senderUsername);
-      console.log('Recipient username:', recipientUsername);
-
-      let notificationTitle = 'New Message';
-      let notificationBody = '';
-
       if (lastMessage.text) {
-        notificationBody = `${senderUsername || 'Someone'}: ${lastMessage.text}`;
-      }
+        const senderAvatarUrl = senderUsername
+          ? await resolveProfileImageUrl(senderUsername)
+          : null;
 
-      if (notificationBody) {
-        console.log('Sending notification:', {
-          recipientUsername,
-          notificationTitle,
-          notificationBody,
-          senderUsername
+        await sendPushNotification({
+          userId: recipientUsername,
+          title: 'New Message',
+          body: `${senderUsername || 'Someone'}: ${lastMessage.text}`,
+          type: 'message',
+          data: {
+            type: 'message',
+            conversationId: snapshot.key,
+            fromUserId: senderUsername || '',
+
+            // iOS communication notification: sender name + avatar, grouped
+            // per conversation thread.
+            communication: true,
+            senderName: senderUsername || 'Someone',
+            ...(senderAvatarUrl ? { senderAvatarUrl } : {}),
+            communicationThreadId: `chat-${snapshot.key}`,
+          },
         });
-
-        await sendNotification(
-          recipientUsername,
-          notificationTitle,
-          notificationBody,
-          senderUsername || ''
-        );
 
         // Mark the message as notified
         await db.ref(`conversations/${snapshot.key}/lastMessage`).update({ isNotified: true });

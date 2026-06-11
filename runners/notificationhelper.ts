@@ -1,113 +1,47 @@
-import Expo from "expo-server-sdk";
 import { prisma } from "../server";
+import { NotificationType, sendPushNotification } from "./NotificationService";
 
-// Local TypeScript interface matching Prisma model
-interface NotificationPreferences {
-  id: number;
-  userId: number;
-  incomingEntities: boolean;
-  entityDamage: boolean;
-  entitiesInAirspace: boolean;
-  eliminationReward: boolean;
-  lootDrops: boolean;
-  friendRequests: boolean;
-  leagues: boolean;
+// Maps legacy notification titles to canonical types so preference filtering
+// in NotificationService keeps working for callers of sendNotification().
+// Unmapped titles become "system", which is never filtered out.
+const TITLE_TYPE_MAP: { [title: string]: NotificationType } = {
+    "Missile Alert!": "incoming_entity",
+    "Incoming Missile!": "incoming_entity",
+    "Missile Impact Alert!": "incoming_entity",
+    "Missile Damage!": "entity_damage",
+    "Damage!": "entity_damage",
+    "Damaged!": "entity_damage",
+    "Loot Nearby!": "loot_drop",
+    "Loot Collected!": "loot_drop",
+    "Shield Destroyed": "entity_damage",
+    "Shield Destroyed!": "entity_damage",
+    "Airspace Alert!": "airspace_alert",
+    "Grace Period Activated": "entity_damage",
+    "Eliminated!": "entity_damage",
+    "League Promotion!": "league",
+    "League Change": "league",
+    "Landmine Nearby!": "airspace_alert",
+    "Landmine Damage!": "entity_damage",
+    "Friend Request": "friend_request",
+    "Friend Accepted": "friend_request",
+    "New Message": "message",
+    "Test Notification": "test",
+};
+
+export function notificationTypeForTitle(title: string): NotificationType {
+    return TITLE_TYPE_MAP[title] ?? "system";
 }
 
-const expo = new Expo();
-
+// Legacy wrapper around sendPushNotification — most game loops still send
+// title/body pairs. New code should call sendPushNotification directly.
 export async function sendNotification(username: string, title: string, body: string, sentby: string) {
-    const user = await prisma.users.findUnique({
-      where: { username },
-      include: { notificationPreferences: true },
-    });
-  
-    if (!user) {
-      console.log(`No user found for username: ${username}`);
-      return;
-    }
-
-    // Check user notification preferences based on title
-    const shouldSendNotification = checkNotificationPreference(title, user.notificationPreferences);
-    if (!shouldSendNotification) {
-      console.log(`Notification not sent for ${username} due to preferences.`);
-      return;
-    }
-
-    // Create the notification in the database regardless of the Expo token
-    const notification = await prisma.notifications.create({
-      data: {
+    await sendPushNotification({
         userId: username,
         title,
         body,
-        sentby,
-        // The id, timestamp, and isRead fields will be automatically handled by Prisma
-      }
+        type: notificationTypeForTitle(title),
+        data: { fromUserId: sentby },
     });
-    console.log('Notification created:', notification);
-
-    if (!user.notificationToken) {
-      console.log(`No notification token for username: ${username}`);
-      return;
-    }
-
-    if (!Expo.isExpoPushToken(user.notificationToken)) {
-      console.error(`Push token ${user.notificationToken} is not a valid Expo push token`);
-      await prisma.users.update({
-        where: { username },
-        data: { notificationToken: "" },
-      });
-      return;
-    }
-  
-    const message = {
-      to: user.notificationToken,
-      sound: 'default',
-      title,
-      body,
-      data: { withSome: 'data' },
-    };
-  
-    try {
-      const result = await expo.sendPushNotificationsAsync([{
-        to: message.to,
-        sound: "default",
-        title: message.title,
-        body: message.body,
-        data: message.data,
-      }]);
-      console.log('Expo push result:', result);
-    } catch (error) {
-      console.error('Error sending notification:', error);
-    }
-}
-
-// Function to check notification preferences based on title
-function checkNotificationPreference(title: string, preferences: NotificationPreferences | null): boolean {
-    if (!preferences) return true; // No preferences set
-
-    const preferenceMap: { [key: string]: keyof NotificationPreferences } = {
-        "Missile Alert!": "incomingEntities",
-        "Incoming Missile!": "incomingEntities",
-        "Missile Damage!": "entityDamage",
-        "Damage!": "entityDamage",
-        "Loot Nearby!": "lootDrops",
-        "Loot Collected!": "lootDrops",
-        "Shield Destroyed": "entityDamage",
-        "Airspace Alert!": "entitiesInAirspace",
-        "Grace Period Activated": "entityDamage",
-        "Eliminated!": "entityDamage",
-        "League Promotion!": "leagues",
-        "League Change": "leagues",
-        "Landmine Nearby!": "entitiesInAirspace",
-        "Landmine Damage!": "entityDamage",
-        "Friend Request": "friendRequests",
-        "Friend Accepted": "friendRequests",
-    };
-
-    const preferenceKey = preferenceMap[title];
-    // Ensure the returned value is a boolean
-    return preferenceKey ? !!preferences[preferenceKey] : true;
 }
 
 export function startNotificationManager() {
