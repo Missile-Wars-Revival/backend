@@ -53,6 +53,10 @@ export async function sendNotification(username: string, title: string, body: st
 
     if (!Expo.isExpoPushToken(user.notificationToken)) {
       console.error(`Push token ${user.notificationToken} is not a valid Expo push token`);
+      await prisma.users.update({
+        where: { username },
+        data: { notificationToken: "" },
+      });
       return;
     }
   
