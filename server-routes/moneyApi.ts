@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import * as jwt from "jsonwebtoken";
+import { verifyToken } from "../util/auth";
 import { prisma } from "../server";
 import { JwtPayload } from "jsonwebtoken";
 
@@ -9,7 +9,7 @@ export function setupMoneyApi(app: any) {
     const { token, amount } = req.body;
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
 
       // Ensure decoded is an object and has the username property
       if (typeof decoded === 'object' && 'username' in decoded) {
@@ -47,7 +47,7 @@ export function setupMoneyApi(app: any) {
   app.post("/api/removeMoney", async (req: Request, res: Response) => {
     const { token, amount } = req.body;
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    const decoded = verifyToken(token);
 
     if (!decoded) {
       return res.status(401).json({ message: "Invalid token" });
@@ -78,7 +78,7 @@ export function setupMoneyApi(app: any) {
   app.get("/api/getMoney", async (req: Request, res: Response) => {
     const { token } = req.query;
 
-    const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
+    const decoded = verifyToken(token as string);
 
     if (!decoded) {
       return res.status(401).json({ message: "Invalid token" });
@@ -101,7 +101,7 @@ export function setupMoneyApi(app: any) {
 
     try {
       // Verify the token and ensure it's treated as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
 
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });

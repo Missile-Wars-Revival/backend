@@ -1,11 +1,10 @@
+// Load .env before anything else — route modules read env vars at import time.
+import "dotenv/config";
 import express from "express";
 import type { Request, Response } from "express";
 import bodyParser from "body-parser";
-import swaggerUi from "swagger-ui-express";
-import swaggerJSDoc from "swagger-jsdoc";
 import expressWs from "express-ws";
-import * as jwt from "jsonwebtoken";
-import { JwtPayload } from "jsonwebtoken";
+import { getJwtSecret, verifyToken } from "./util/auth";
 import { AuthWithLocation, AuthWithLocationSchema } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, updateMissilePositions, addRandomLoot, checkPlayerProximity, deleteExpiredOther, checkAndCollectLoot } from "./runners/entitymanagment";
 import { startNotificationManager } from "./runners/notificationhelper";
@@ -30,10 +29,23 @@ import { startShieldBreakerProcessing } from "./runners/shieldbreaker";
 import { setupWebApi } from "./server-routes/webApi";
 const { PrismaClient } = require('@prisma/client');
 
+// Refuse to boot without a JWT secret — otherwise every token would be
+// signed and verified with an empty string and anyone could forge one.
+try {
+  getJwtSecret();
+} catch (error) {
+  console.error((error as Error).message);
+  process.exit(1);
+}
+
 export const prisma = new PrismaClient();
 
 const wsServer = expressWs(express());
 const app = wsServer.app;
+
+// Behind the Elastic Beanstalk load balancer — trust the first proxy hop so
+// req.ip (used by rate limiting) reflects the real client address.
+app.set('trust proxy', 1);
 
 // Serve static files from public directory
 import path from 'path';
@@ -68,31 +80,6 @@ if (serviceAccount) {
 }
 
 app.use(bodyParser.json());
-
-// Swagger definition
-const swaggerDefinition = {
-  info: {
-    title: "Missile Wars Backend",
-    version: "1.0.0",
-    description: "Endpoints to interact with the Missile Wars game backend",
-  },
-  host: "localhost:3000", // Your host
-  basePath: "/", // Base path for your API
-};
-
-// Options for the swagger docs
-const options = {
-  swaggerDefinition,
-  apis: ["./routes/*.ts"], // Path to the API routes folder
-};
-
-// Initialize swagger-jsdoc
-const swaggerSpec = swaggerJSDoc(options);
-
-// check if env is dev and serve swagger
-// if (process.env.NODE_ENV === "development") {
-//   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-// }
 
 // this function manages entities on the map
 setInterval(addRandomLoot, 30000);
@@ -160,23 +147,24 @@ app.post(
       return res.status(401).json({ message: "Missing token" });
     }
 
-    const decoded = jwt.verify(location.token, process.env.JWT_SECRET || "");
-
-    if (!decoded) {
+    let username: string;
+    try {
+      username = verifyToken(location.token).username;
+    } catch {
       return res.status(401).json({ message: "Invalid token" });
     }
 
     // Check if the user exists
     const user = await prisma.gameplayUser.findFirst({
       where: {
-        username: (decoded as JwtPayload).username as string,
+        username,
       },
     });
 
     if (user) {
       const lastLocation = await prisma.locations.findFirst({
         where: {
-          username: (decoded as JwtPayload).username as string,
+          username,
         },
         orderBy: {
           updatedAt: "desc",
@@ -210,7 +198,7 @@ app.post(
         try {
           await prisma.locations.create({
             data: {
-              username: (decoded as JwtPayload).username as string,
+              username,
               latitude: location.latitude,
               longitude: location.longitude,
               updatedAt: now,

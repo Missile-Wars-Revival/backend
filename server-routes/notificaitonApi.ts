@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import * as jwt from "jsonwebtoken";
+import { verifyToken } from "../util/auth";
 import { prisma } from "../server";
 import { Prisma } from '@prisma/client';
 
@@ -10,7 +10,7 @@ export function setupNotificationApi(app: any) {
   
     try {
       // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+      const decoded = verifyToken(token) as { username: string };
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -32,7 +32,7 @@ export function setupNotificationApi(app: any) {
     const token = req.query.token as string;
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+      const decoded = verifyToken(token) as { username: string };
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -53,7 +53,7 @@ export function setupNotificationApi(app: any) {
     const { token, notificationId } = req.body;
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+      const decoded = verifyToken(token) as { username: string };
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -80,7 +80,7 @@ export function setupNotificationApi(app: any) {
     const { token, notificationId } = req.body;
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+      const decoded = verifyToken(token) as { username: string };
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -108,7 +108,7 @@ export function setupNotificationApi(app: any) {
     const { token } = req.body;
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+      const decoded = verifyToken(token) as { username: string };
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -131,7 +131,7 @@ export function setupNotificationApi(app: any) {
     const token = req.query.token as string;
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+      const decoded = verifyToken(token) as { username: string };
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -166,7 +166,7 @@ export function setupNotificationApi(app: any) {
     const { token, preferences } = req.body;
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string };
+      const decoded = verifyToken(token) as { username: string };
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }

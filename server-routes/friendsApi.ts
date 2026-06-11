@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import * as jwt from "jsonwebtoken";
+import { verifyToken } from "../util/auth";
 import { prisma } from "../server";
 import { sendNotification } from "../runners/notificationhelper";
 import * as geolib from 'geolib';
@@ -33,7 +33,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
   
     try {
       // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
   
       // Ensure the token contains a username
       if (typeof decoded === 'string' || !decoded.username) {
@@ -87,7 +87,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
   
     try {
       // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -151,7 +151,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
   
     try {
       // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -217,7 +217,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
     }
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token. Token must contain a username." });
       }
@@ -293,7 +293,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
     }
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
   
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
@@ -343,7 +343,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
     }
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string; };
+      const decoded = verifyToken(token) as { username: string; };
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token: Username is missing." });
       }
@@ -402,7 +402,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
     }
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string; };
+      const decoded = verifyToken(token) as { username: string; };
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token: Username is missing." });
       }

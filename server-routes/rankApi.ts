@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import * as jwt from "jsonwebtoken";
+import { verifyToken } from "../util/auth";
 import { prisma } from "../server";
 import { JwtPayload } from "jsonwebtoken";
 
@@ -7,7 +7,7 @@ export function setupRankApi(app: any) {
   app.post("/api/getRankPoints", async (req: Request, res: Response) => {
     const { token } = req.body;
   
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    const decoded = verifyToken(token);
   
     if (!decoded) {
       return res.status(401).json({ message: "Invalid token" });
@@ -30,7 +30,7 @@ export function setupRankApi(app: any) {
     const { token, points } = req.body;
   
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
   
       // Check if decoded is of type JwtPayload and has a username property
       if (typeof decoded === 'object' && 'username' in decoded) {
@@ -68,7 +68,7 @@ export function setupRankApi(app: any) {
   app.post("/api/removeRankPoints", async (req: Request, res: Response) => {
     const { token, points } = req.body;
   
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    const decoded = verifyToken(token);
   
     if (!decoded) {
       return res.status(401).json({ message: "Invalid token" });
@@ -99,7 +99,7 @@ export function setupRankApi(app: any) {
   app.post("/api/getRank", async (req: Request, res: Response) => {
     const { token } = req.body;
   
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    const decoded = verifyToken(token);
   
     if (!decoded) {
       return res.status(401).json({ message: "Invalid token" });
@@ -123,7 +123,7 @@ export function setupRankApi(app: any) {
   app.post("/api/setRank", async (req: Request, res: Response) => {
     const { token, rank } = req.body;
   
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+    const decoded = verifyToken(token);
   
     if (!decoded) {
       return res.status(401).json({ message: "Invalid token" });

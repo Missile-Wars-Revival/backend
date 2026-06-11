@@ -1,24 +1,30 @@
-import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { NextFunction, Request, Response } from "express";
 import * as argon2 from "argon2";
 import { LoginSchema } from "../interfaces/api";
 import { validateSchema } from "./authRoutes";
+import { signToken, verifyToken } from "../util/auth";
+import rateLimit from "express-rate-limit";
+
+const webLoginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 export function setupWebApi(app: any) {
-    app.post('/api/Weblogin', validateSchema(LoginSchema), async (req: Request, res: Response) => {
+    app.post('/api/Weblogin', webLoginLimiter, validateSchema(LoginSchema), async (req: Request, res: Response) => {
         const { username, password } = req.body;
 
         const user = await prisma.users.findFirst({
             where: { username },
         });
 
-        if (user && (await argon2.verify(user.password, password))) {
-            const token = jwt.sign(
-                { username: user.username },
-                process.env.JWT_SECRET || ""
-            );
-    
+        // user.password is null for accounts migrated to Firebase auth
+        if (user && user.password && (await argon2.verify(user.password, password))) {
+            const token = signToken(user.username);
+
             // Set the token as an HTTP-only cookie
             res.cookie('auth_token', token, {
                 httpOnly: true,
@@ -27,7 +33,7 @@ export function setupWebApi(app: any) {
                 sameSite: 'strict',
                 maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
             });
-    
+
             // Also send the token in the response body
             res.status(200).json({ message: 'Login successful', token: token });
         } else {
@@ -35,13 +41,13 @@ export function setupWebApi(app: any) {
         }
     });
     // Middleware to verify JWT token
-    const verifyToken = (req: Request, res: Response, next: NextFunction) => {
-        const token = req.cookies.auth_token;
+    const requireWebAuth = (req: Request, res: Response, next: NextFunction) => {
+        const token = req.cookies?.auth_token;
         if (!token) {
             return res.status(403).json({ message: "A token is required for authentication" });
         }
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const decoded = verifyToken(token);
             (req as any).user = decoded;
         } catch (err) {
             return res.status(401).json({ message: "Invalid Token" });
@@ -56,7 +62,7 @@ export function setupWebApi(app: any) {
     });
 
     // Example of a protected route
-    app.get('/api/Webprotected', verifyToken, (req: Request, res: Response) => {
+    app.get('/api/Webprotected', requireWebAuth, (req: Request, res: Response) => {
         res.status(200).json({ message: 'Access granted to protected route' });
     });
 

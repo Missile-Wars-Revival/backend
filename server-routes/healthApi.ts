@@ -1,4 +1,4 @@
-import * as jwt from "jsonwebtoken";
+import { verifyToken } from "../util/auth";
 import { prisma } from "../server";
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
@@ -15,7 +15,7 @@ export function setupHealthApi(app: any) {
 
         try {
             // Verify the token
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const decoded = verifyToken(token);
 
             // Ensure the token contains a username
             if (typeof decoded === 'string' || !decoded.username) {
@@ -57,7 +57,7 @@ export function setupHealthApi(app: any) {
     app.post("/api/getisAlive", async (req: Request, res: Response) => {
         const { token } = req.body;
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+        const decoded = verifyToken(token);
 
         if (!decoded) {
             return res.status(401).json({ message: "Invalid token" });
@@ -80,7 +80,7 @@ export function setupHealthApi(app: any) {
     app.post("/api/getHealth", async (req: Request, res: Response) => {
         const { token } = req.body;
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+        const decoded = verifyToken(token);
 
         if (!decoded) {
             return res.status(401).json({ message: "Invalid token" });
@@ -103,7 +103,7 @@ export function setupHealthApi(app: any) {
         const { token, amount } = req.body;
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const decoded = verifyToken(token);
 
             // Check if decoded is of type JwtPayload and has a username property
             if (typeof decoded === 'object' && 'username' in decoded) {
@@ -145,7 +145,7 @@ export function setupHealthApi(app: any) {
         const { token, amount } = req.body;
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const decoded = verifyToken(token);
 
             if (typeof decoded === 'object' && 'username' in decoded) {
                 const username = decoded.username;
@@ -182,7 +182,7 @@ export function setupHealthApi(app: any) {
         const { token, newHealth } = req.body;
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const decoded = verifyToken(token);
 
             if (typeof decoded === 'object' && 'username' in decoded) {
                 const username = decoded.username;

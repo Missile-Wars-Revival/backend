@@ -1,4 +1,4 @@
-import * as jwt from "jsonwebtoken";
+import { verifyToken } from "../util/auth";
 import { prisma } from "../server";
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
@@ -12,7 +12,7 @@ export function setupEntityApi(app: any) {
     const { token, destLat, destLong, type } = req.body;
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -115,7 +115,7 @@ export function setupEntityApi(app: any) {
 
     try {
       // Verify the token and ensure it's decoded as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -213,7 +213,7 @@ export function setupEntityApi(app: any) {
 
     try {
       // Verify the token and ensure it's decoded as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
 
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
@@ -309,7 +309,7 @@ export function setupEntityApi(app: any) {
 
     try {
       // Verify the token and ensure it's decoded as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
 
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
@@ -364,7 +364,7 @@ export function setupEntityApi(app: any) {
 
     try {
       // Verify the token and ensure it's decoded as an object
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
 
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
@@ -460,7 +460,7 @@ export function setupEntityApi(app: any) {
 
     try {
       // Verify the token and decode it
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
+      const decoded = verifyToken(token) as JwtPayload;
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -535,7 +535,7 @@ export function setupEntityApi(app: any) {
   app.post("/api/lootpickup", async (req: Request, res: Response) => {
     const { token, lootid, amount } = req.body;
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token);
 
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
@@ -607,7 +607,7 @@ export function setupEntityApi(app: any) {
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+        const decoded = verifyToken(token);
         if (typeof decoded === 'string' || !decoded.username) {
             return res.status(401).json({ success: false, message: "Invalid token" });
         }

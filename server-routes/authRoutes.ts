@@ -1,10 +1,28 @@
-import * as jwt from "jsonwebtoken";
+import { signToken, verifyToken } from "../util/auth";
 import { prisma } from "../server";
 import * as argon2 from "argon2";
 import nodemailer from 'nodemailer';
 import { NextFunction, Request, Response } from "express";
 import { z, ZodError } from "zod";
 import * as admin from 'firebase-admin';
+import { randomInt } from "crypto";
+import rateLimit from "express-rate-limit";
+
+// Per-IP limits on credential-related endpoints (requires `trust proxy` to be
+// set in server.ts so the client IP survives the Elastic Beanstalk LB).
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+const resetLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 const transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
@@ -58,7 +76,12 @@ export async function deleteResetCode(userId: number) {
 }
 
 export function generateRandomCode(length: number): string {
-    return Math.random().toString().slice(2, 2 + length);
+    // crypto.randomInt — reset codes must not be predictable
+    let code = "";
+    for (let i = 0; i < length; i++) {
+        code += randomInt(0, 10).toString();
+    }
+    return code;
 }
 
 function generateUsername(displayName: string): string {
@@ -68,8 +91,9 @@ function generateUsername(displayName: string): string {
 }
 
 export function setupAuthRoutes(app: any) {
-    // Returns the email for a given username (used by client to look up email before Firebase sign-in)
-    app.post("/api/lookup", async (req: Request, res: Response) => {
+    // Returns the email for a given username (used by client to look up email
+    // before Firebase sign-in). Inherently enumerable — rate-limited hard.
+    app.post("/api/lookup", authLimiter, async (req: Request, res: Response) => {
         const { username } = req.body;
         if (!username) return res.status(400).json({ message: "Username required" });
         const user = await prisma.users.findFirst({ where: { username } });
@@ -77,8 +101,27 @@ export function setupAuthRoutes(app: any) {
         return res.status(200).json({ email: user.email });
     });
 
+    // Exchanges a still-valid token for a fresh one (sliding 30-day expiry).
+    // Clients should call this on app start so active players never expire.
+    app.post("/api/refresh", authLimiter, async (req: Request, res: Response) => {
+        const { token } = req.body;
+        if (typeof token !== 'string' || !token.trim()) {
+            return res.status(400).json({ message: "Token is required and must be a non-empty string." });
+        }
+        try {
+            const decoded = verifyToken(token);
+            const user = await prisma.users.findUnique({ where: { username: decoded.username } });
+            if (!user) {
+                return res.status(404).json({ message: "User not found" });
+            }
+            return res.status(200).json({ message: "Token refreshed", token: signToken(user.username) });
+        } catch {
+            return res.status(401).json({ message: "Invalid or expired token" });
+        }
+    });
+
     // OAuth login — verifies Firebase ID token, finds or creates user
-    app.post("/api/oauth-login", async (req: Request, res: Response) => {
+    app.post("/api/oauth-login", authLimiter, async (req: Request, res: Response) => {
         const { idToken, displayName, notificationToken } = req.body;
         if (!idToken) return res.status(400).json({ message: "idToken required" });
 
@@ -98,7 +141,7 @@ export function setupAuthRoutes(app: any) {
                 if (notificationToken) {
                     await prisma.users.update({ where: { id: user.id }, data: { notificationToken } });
                 }
-                const token = jwt.sign({ username: user.username }, process.env.JWT_SECRET || "");
+                const token = signToken(user.username);
                 return res.status(200).json({ message: "Login successful", token, username: user.username });
             }
 
@@ -115,7 +158,7 @@ export function setupAuthRoutes(app: any) {
                 data: { username, createdAt: new Date().toISOString() },
             });
 
-            const token = jwt.sign({ username }, process.env.JWT_SECRET || "");
+            const token = signToken(username);
             return res.status(200).json({ message: "User created", token, username });
         } catch (error) {
             console.error("OAuth login error:", error);
@@ -123,7 +166,7 @@ export function setupAuthRoutes(app: any) {
         }
     });
 
-    app.post("/api/login", async (req: Request, res: Response) => {
+    app.post("/api/login", authLimiter, async (req: Request, res: Response) => {
         const { idToken, username, password, notificationToken } = req.body;
 
         if (idToken) {
@@ -140,7 +183,7 @@ export function setupAuthRoutes(app: any) {
                 if (notificationToken) {
                     await prisma.users.update({ where: { id: user.id }, data: { notificationToken } });
                 }
-                const token = jwt.sign({ username: user.username }, process.env.JWT_SECRET || "");
+                const token = signToken(user.username);
                 return res.status(200).json({ message: "Login successful", token });
             } catch {
                 return res.status(401).json({ message: "Invalid Firebase token" });
@@ -153,7 +196,7 @@ export function setupAuthRoutes(app: any) {
         }
         const user = await prisma.users.findFirst({ where: { username } });
         if (user && user.password && (await argon2.verify(user.password, password))) {
-            const token = jwt.sign({ username: user.username }, process.env.JWT_SECRET || "");
+            const token = signToken(user.username);
             if (notificationToken) {
                 await prisma.users.update({ where: { username }, data: { notificationToken } });
             }
@@ -162,7 +205,7 @@ export function setupAuthRoutes(app: any) {
         return res.status(401).json({ message: "Invalid username or password" });
     });
 
-    app.post("/api/register", async (req: Request, res: Response) => {
+    app.post("/api/register", authLimiter, async (req: Request, res: Response) => {
         const { idToken, username, email, password, notificationToken } = req.body;
 
         if (idToken) {
@@ -198,7 +241,7 @@ export function setupAuthRoutes(app: any) {
                     data: { username, createdAt: new Date().toISOString() },
                 });
 
-                const token = jwt.sign({ username }, process.env.JWT_SECRET || "");
+                const token = signToken(username);
                 return res.status(200).json({ message: "User created", token });
             } catch (error: any) {
                 if (error?.code === 'P2002') return res.status(409).json({ message: "Username already exists" });
@@ -233,7 +276,7 @@ export function setupAuthRoutes(app: any) {
                 data: { username, createdAt: new Date().toISOString() },
             });
 
-            const token = jwt.sign({ username }, process.env.JWT_SECRET || "");
+            const token = signToken(username);
             return res.status(200).json({ message: "User created", token });
         } catch (error) {
             if (typeof error === 'object' && error !== null && 'code' in error && (error as any).code === 'P2002') {
@@ -244,7 +287,7 @@ export function setupAuthRoutes(app: any) {
         }
     });
 
-    app.post("/api/requestPasswordReset", async (req: Request, res: Response) => {
+    app.post("/api/requestPasswordReset", resetLimiter, async (req: Request, res: Response) => {
         const { email } = req.body;
 
         try {
@@ -298,7 +341,7 @@ export function setupAuthRoutes(app: any) {
         }
     });
 
-    app.post("/api/resetPassword", async (req: Request, res: Response) => {
+    app.post("/api/resetPassword", resetLimiter, async (req: Request, res: Response) => {
         const { email, code, newPassword } = req.body;
 
         try {
@@ -335,16 +378,28 @@ export function setupAuthRoutes(app: any) {
         }
     });
 
-    app.post("/api/requestUsernameReminder", async (req: Request, res: Response) => {
+    app.post("/api/requestUsernameReminder", resetLimiter, async (req: Request, res: Response) => {
         const { email } = req.body;
+
+        // Always answer the same way so this endpoint can't be used to probe
+        // which emails have accounts; the username goes to the inbox instead.
+        const genericResponse = { message: "If an account exists for that email, a reminder has been sent." };
 
         try {
             const user = await prisma.users.findFirst({ where: { email } });
             if (!user) {
-                return res.status(404).json({ message: "User not found" });
+                return res.status(200).json(genericResponse);
             }
 
-            res.status(200).json({ message: `${user.username}` });
+            await transporter.sendMail({
+                from: process.env.EMAIL_FROM,
+                to: user.email,
+                subject: "Your Missile Wars username",
+                text: `Your username is: ${user.username}`,
+                html: `<p>Your username is: <strong>${user.username}</strong></p>`,
+            });
+
+            res.status(200).json(genericResponse);
         } catch (error) {
             console.error("Username reminder request failed:", error);
             res.status(500).json({ message: "Failed to process username reminder request" });
@@ -358,7 +413,7 @@ export function setupAuthRoutes(app: any) {
         }
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string, password: string };
+            const decoded = verifyToken(token) as { username: string, password: string };
             if (typeof decoded === 'string' || !decoded.username) {
                 return res.status(401).json({ message: "Invalid token" });
             }
@@ -383,10 +438,7 @@ export function setupAuthRoutes(app: any) {
             await prisma.users.update({ where: { username: decoded.username }, data: { password: null } });
 
             // Generate a new token with the updated password
-            const newToken = jwt.sign(
-                { username: decoded.username },
-                process.env.JWT_SECRET || ""
-            );
+            const newToken = signToken(decoded.username);
 
             res.status(200).json({
                 message: "Password changed successfully",
@@ -410,7 +462,7 @@ export function setupAuthRoutes(app: any) {
         }
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string, password: string };
+            const decoded = verifyToken(token) as { username: string, password: string };
             if (typeof decoded === 'string' || !decoded.username) {
                 return res.status(401).json({ message: "Invalid token" });
             }
@@ -542,11 +594,8 @@ export function setupAuthRoutes(app: any) {
                 }
             });
 
-            // Generate a new token with the updated username and the current hashed password
-            const newToken = jwt.sign(
-                { username: newUsername },
-                process.env.JWT_SECRET || ""
-            );
+            // Generate a new token with the updated username
+            const newToken = signToken(newUsername);
 
             res.status(200).json({
                 message: "Username changed successfully",
@@ -566,7 +615,7 @@ export function setupAuthRoutes(app: any) {
         }
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "");
+            const decoded = verifyToken(token);
             if (typeof decoded === 'string' || !decoded.username) {
                 return res.status(401).json({ message: "Invalid token" });
             }
@@ -586,9 +635,9 @@ export function setupAuthRoutes(app: any) {
             }
 
             try {
-                const firebaseUser = await admin.auth().getUserByEmail(user.email);
-                await admin.auth().deleteUser(firebaseUser.uid);
-
+                const uid = user.firebaseUID
+                    ?? (await admin.auth().getUserByEmail(user.email)).uid;
+                await admin.auth().updateUser(uid, { email: newEmail });
             } catch (firebaseError) {
                 console.error("Error updating email in Firebase:", firebaseError);
                 return res.status(500).json({ message: "Failed to update email in Firebase" });
@@ -614,7 +663,7 @@ export function setupAuthRoutes(app: any) {
         }
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string, password: string };
+            const decoded = verifyToken(token) as { username: string, password: string };
             if (typeof decoded === 'string' || !decoded.username) {
                 return res.status(401).json({ message: "Invalid token" });
             }

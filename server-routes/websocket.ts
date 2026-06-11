@@ -1,6 +1,6 @@
 import { Request } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
-import * as jwt from "jsonwebtoken";
+import { verifyToken } from "../util/auth";
 import * as middleearth from "middle-earth";
 import { prisma } from "../server";
 import { getMutualFriends } from "./friendsApi";
@@ -52,8 +52,18 @@ function authenticate(
   ws: import("ws"),
   req: Request<ParamsDictionary, any, any, any, Record<string, any>>
 ): Promise<AuthResult> {
-  // Use query parameters for token instead of sec-websocket-protocol
-  const authToken = req.url ? new URL(req.url, 'http://localhost').searchParams.get('token') : undefined;
+  // Prefer the Authorization header (or Sec-WebSocket-Protocol) so the JWT
+  // stays out of URLs, which get recorded in server/proxy access logs. The
+  // ?token= query param is kept as a fallback for older clients.
+  let authToken: string | null | undefined;
+  const authHeader = req.headers['authorization'];
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    authToken = authHeader.slice('Bearer '.length);
+  } else if (typeof req.headers['sec-websocket-protocol'] === 'string') {
+    authToken = req.headers['sec-websocket-protocol'] as string;
+  } else {
+    authToken = req.url ? new URL(req.url, 'http://localhost').searchParams.get('token') : undefined;
+  }
 
   if (!authToken) {
     console.log("Authentication failed. Token is missing.");
@@ -62,7 +72,7 @@ function authenticate(
 
   return new Promise(async (resolve) => {
     try {
-      const decoded = jwt.verify(authToken, process.env.JWT_SECRET || "") as { username: string; };
+      const decoded = verifyToken(authToken) as { username: string; };
 
       if (!decoded.username) {
         console.log("Invalid token: Username is missing.");

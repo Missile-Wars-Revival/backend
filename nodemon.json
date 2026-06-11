@@ -1,9 +1,9 @@
 {
     "watch": [
         "server.ts",
-        "routes/*.ts",
         "bots.ts",
-        "server-routes/*.ts"
+        "server-routes/*.ts",
+        "util/*.ts"
     ],
     "ignore": ["*.log", "data/*", "generated/*", "node_modules", "bot-models", "*.test.js", "fixtures/*", "public/*"],
     "exec": "ts-node --project tsconfig.server.json server.ts",

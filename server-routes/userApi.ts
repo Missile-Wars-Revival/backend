@@ -1,4 +1,5 @@
 import * as jwt from "jsonwebtoken";
+import { signToken, verifyToken } from "../util/auth";
 import { prisma } from "../server";
 import { Request, Response } from "express";
 import { getMutualFriends } from "./friendsApi";
@@ -72,7 +73,7 @@ export function setupUserApi(app: any) {
     }
 
     try {
-      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token as string);
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ success: false, message: "Invalid token" });
       }
@@ -145,7 +146,7 @@ export function setupUserApi(app: any) {
     }
 
     try {
-      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || "");
+      const decoded = verifyToken(token as string);
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ success: false, message: "Invalid token" });
       }
@@ -237,7 +238,7 @@ export function setupUserApi(app: any) {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
+      const decoded = verifyToken(token) as JwtPayload;
 
       console.log("Decoded token:", decoded);
 
@@ -289,7 +290,7 @@ export function setupUserApi(app: any) {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
+      const decoded = verifyToken(token) as JwtPayload;
 
       console.log("Decoded token:", decoded);
 
@@ -341,7 +342,7 @@ export function setupUserApi(app: any) {
         return res.status(400).json({ message: "Token is required" });
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
+      const decoded = verifyToken(token) as JwtPayload;
 
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token: username not found" });
@@ -380,7 +381,7 @@ export function setupUserApi(app: any) {
         return res.status(400).json({ message: "Token is required" });
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as JwtPayload;
+      const decoded = verifyToken(token) as JwtPayload;
 
       if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token: username not found" });
@@ -422,7 +423,7 @@ export function setupUserApi(app: any) {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "") as { username: string, password: string };
+      const decoded = verifyToken(token) as { username: string, password: string };
       if (typeof decoded === 'string' || !decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
@@ -661,14 +662,9 @@ export function setupUserApi(app: any) {
         }
       });
 
-      // Generate a new token with the updated username and password (if changed)
-      const newToken = jwt.sign(
-        {
-          username: updates.username || username,
-          password: updates.password ? userUpdates.password : user.password
-        },
-        process.env.JWT_SECRET || ""
-      );
+      // Generate a new token with the updated username. Never put the
+      // password (even hashed) in the JWT — the payload is readable base64.
+      const newToken = signToken(updates.username || username);
 
       res.status(200).json({
         message: "User updated successfully",
