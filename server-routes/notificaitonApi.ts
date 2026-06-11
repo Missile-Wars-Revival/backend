@@ -2,8 +2,92 @@ import { Request, Response } from "express";
 import { verifyToken } from "../util/auth";
 import { prisma } from "../server";
 import { Prisma } from '@prisma/client';
+import Expo from "expo-server-sdk";
+
+const expo = new Expo();
 
 export function setupNotificationApi(app: any) {
+
+  app.patch("/api/updateNotificationToken", async (req: Request, res: Response) => {
+    const { token, notificationToken } = req.body;
+
+    try {
+      const decoded = verifyToken(token) as { username: string };
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      if (typeof notificationToken !== "string" || !Expo.isExpoPushToken(notificationToken)) {
+        return res.status(400).json({ message: "Invalid Expo push token" });
+      }
+
+      await prisma.users.update({
+        where: { username: decoded.username },
+        data: { notificationToken },
+      });
+
+      res.status(200).json({ message: "Notification token updated successfully" });
+    } catch (error) {
+      console.error("Error updating notification token:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/notificationTokenStatus", async (req: Request, res: Response) => {
+    const token = req.query.token as string;
+
+    try {
+      const decoded = verifyToken(token) as { username: string };
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      const user = await prisma.users.findUnique({
+        where: { username: decoded.username },
+        select: { notificationToken: true },
+      });
+
+      res.status(200).json({
+        registered: !!user?.notificationToken && Expo.isExpoPushToken(user.notificationToken),
+      });
+    } catch (error) {
+      console.error("Error checking notification token status:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/testNotification", async (req: Request, res: Response) => {
+    const { token } = req.body;
+
+    try {
+      const decoded = verifyToken(token) as { username: string };
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      const user = await prisma.users.findUnique({
+        where: { username: decoded.username },
+        select: { notificationToken: true },
+      });
+
+      if (!user?.notificationToken || !Expo.isExpoPushToken(user.notificationToken)) {
+        return res.status(400).json({ message: "No valid notification token registered" });
+      }
+
+      await expo.sendPushNotificationsAsync([{
+        to: user.notificationToken,
+        sound: "default",
+        title: "Missile Wars",
+        body: "Test notification delivered.",
+        data: { type: "test" },
+      }]);
+
+      res.status(200).json({ message: "Test notification sent" });
+    } catch (error) {
+      console.error("Error sending test notification:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
 
   app.delete("/api/deleteNotificationToken", async (req: Request, res: Response) => {
     const { token } = req.body;
