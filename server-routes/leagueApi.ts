@@ -2,6 +2,7 @@ import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { Request, Response } from "express";
 import { sendNotification } from "../runners/notificationhelper";
+import { resolveProfileImageUrls } from "./profileImages";
 
 const MAX_PLAYERS_PER_LEAGUE = 50;
 const SOFT_LIMIT_BUFFER = 5;
@@ -145,11 +146,15 @@ export function setupLeagueApi(app: any) {
         orderBy: { rankPoints: 'desc' }
       });
 
+      const leagueImageUrls = await resolveProfileImageUrls(
+        players.map((player: { username: string }) => player.username)
+      );
       const formattedPlayers = players.map((player: { id: { toString: () => any; }; username: any; rankPoints: any; }) => ({
         id: player.id.toString(),
         username: player.username,
         points: player.rankPoints,
-        isCurrentUser: player.username === decoded.username
+        isCurrentUser: player.username === decoded.username,
+        profileImageUrl: leagueImageUrls[player.username] ?? null
       }));
 
       //console.log('Full league players response:', JSON.stringify(formattedPlayers, null, 2));
@@ -190,13 +195,17 @@ export function setupLeagueApi(app: any) {
         take: 100
       });
 
+      const top100ImageUrls = await resolveProfileImageUrls(
+        top100Players.map((player: { username: string }) => player.username)
+      );
       const formattedPlayers = top100Players.map((player: { id: { toString: () => any; }; username: any; rankPoints: any; league: { tier: any; division: any; }; }, index: number) => ({
         rank: index + 1,
         id: player.id.toString(),
         username: player.username,
         points: player.rankPoints,
         league: player.league ? `${player.league.tier} ${player.league.division}` : null,
-        isCurrentUser: player.username === decoded.username
+        isCurrentUser: player.username === decoded.username,
+        profileImageUrl: top100ImageUrls[player.username] ?? null
       }));
 
       return res.json({ success: true, players: formattedPlayers });

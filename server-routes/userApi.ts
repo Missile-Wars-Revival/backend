@@ -5,6 +5,7 @@ import { getMutualFriends } from "./friendsApi";
 import { JwtPayload } from "jsonwebtoken";
 import * as argon2 from "argon2";
 import * as admin from 'firebase-admin';
+import { resolveProfileImageUrl, resolveProfileImageUrls } from "./profileImages";
 
 interface Statistics {
   badges: string[];
@@ -17,10 +18,16 @@ interface Statistics {
   league: string;
 }
 
+interface MutualFriend {
+  username: string;
+  profileImageUrl: string | null;
+}
+
 interface UserProfile {
   username: string;
   rankpoints: number;
-  mutualFriends: string[];
+  profileImageUrl: string | null;
+  mutualFriends: MutualFriend[];
   statistics: Statistics;
 }
 
@@ -28,7 +35,8 @@ interface SelfProfile {
   username: string;
   email: string;
   rankpoints: number;
-  mutualFriends: string[];
+  profileImageUrl: string | null;
+  mutualFriends: MutualFriend[];
   statistics: Statistics;
 }
 
@@ -91,7 +99,15 @@ export function setupUserApi(app: any) {
         return res.status(404).json({ success: false, message: "User not found" });
       }
 
-      const mutualFriends = await getMutualUsersFriends(requestingUser.username, targetUser.username);
+      const mutualFriendUsernames = await getMutualUsersFriends(requestingUser.username, targetUser.username);
+      const [targetImageUrl, mutualImageUrls] = await Promise.all([
+        resolveProfileImageUrl(targetUser.username),
+        resolveProfileImageUrls(mutualFriendUsernames),
+      ]);
+      const mutualFriends: MutualFriend[] = mutualFriendUsernames.map((u: string) => ({
+        username: u,
+        profileImageUrl: mutualImageUrls[u] ?? null,
+      }));
 
       const statistics: Statistics = {
         badges: targetUser.GameplayUser?.Statistics[0]?.badges || [],
@@ -109,6 +125,7 @@ export function setupUserApi(app: any) {
       const userProfile: UserProfile = {
         username: targetUser.username,
         rankpoints: targetUser.GameplayUser?.rankPoints || 0,
+        profileImageUrl: targetImageUrl,
         mutualFriends: mutualFriends,
         statistics: statistics,
       };
@@ -149,7 +166,15 @@ export function setupUserApi(app: any) {
         return res.status(404).json({ success: false, message: "User or GameplayUser not found" });
       }
 
-      const mutualFriends = await getMutualFriends(user);
+      const mutualFriendUsernames = await getMutualFriends(user);
+      const [selfImageUrl, mutualImageUrls] = await Promise.all([
+        resolveProfileImageUrl(user.username),
+        resolveProfileImageUrls(mutualFriendUsernames),
+      ]);
+      const mutualFriends: MutualFriend[] = mutualFriendUsernames.map((u: string) => ({
+        username: u,
+        profileImageUrl: mutualImageUrls[u] ?? null,
+      }));
 
       // Get the most recent statistics or use default values
       const latestStats = user.GameplayUser.Statistics[0] || {};
@@ -171,6 +196,7 @@ export function setupUserApi(app: any) {
         username: user.username,
         email: user.email,
         rankpoints: user.GameplayUser?.rankPoints || 0,
+        profileImageUrl: selfImageUrl,
         mutualFriends: mutualFriends,
         statistics: statistics,
       };

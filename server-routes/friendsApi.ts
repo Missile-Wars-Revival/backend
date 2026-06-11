@@ -3,6 +3,7 @@ import * as jwt from "jsonwebtoken";
 import { prisma } from "../server";
 import { sendNotification } from "../runners/notificationhelper";
 import * as geolib from 'geolib';
+import { resolveProfileImageUrls } from "./profileImages";
 
 export async function getMutualFriends(currentUser: { friends: any; username: string; }) {
     const mutualFriends = [];
@@ -124,8 +125,17 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
           updatedAt: true,
         },
       });
-  
-      res.status(200).json(users);
+
+      const imageUrls = await resolveProfileImageUrls(
+        users.map((u: { username: string }) => u.username)
+      );
+      const usersWithImages = users.map((u: { username: string; updatedAt: Date }) => ({
+        username: u.username,
+        updatedAt: u.updatedAt,
+        profileImageUrl: imageUrls[u.username] ?? null,
+      }));
+
+      res.status(200).json(usersWithImages);
     } catch (error) {
       console.error("Error fetching user data:", error);
       res.status(500).json({ message: "Internal server error" });
@@ -177,8 +187,15 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       const nonMutualFriends = addedFriends.filter((friend: { friends: string | any[]; }) => !friend.friends.includes(decoded.username));
   
       // Format the response to only include username and updatedAt
-      const formattedFriends = nonMutualFriends.map((friend: { username: string; updatedAt: Date }) => ({ username: friend.username, updatedAt: friend.updatedAt }));
-  
+      const friendImageUrls = await resolveProfileImageUrls(
+        nonMutualFriends.map((friend: { username: string }) => friend.username)
+      );
+      const formattedFriends = nonMutualFriends.map((friend: { username: string; updatedAt: Date }) => ({
+        username: friend.username,
+        updatedAt: friend.updatedAt,
+        profileImageUrl: friendImageUrls[friend.username] ?? null,
+      }));
+
       res.status(200).json(formattedFriends);
     } catch (error) {
       console.error("Error fetching added friends:", error);

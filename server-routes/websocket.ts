@@ -4,6 +4,7 @@ import * as jwt from "jsonwebtoken";
 import * as middleearth from "middle-earth";
 import { prisma } from "../server";
 import { getMutualFriends } from "./friendsApi";
+import { resolveProfileImageUrls } from "./profileImages";
 // import { aiBots } from "../bots";
 import { Missile, Loot, Other, Landmine } from "middle-earth"; 
 import axios from 'axios';
@@ -274,7 +275,7 @@ export function setupWebSocket(app: any) {
           }
 
           //friends data
-          const friendsData = await prisma.users.findMany({
+          const friendsRows = await prisma.users.findMany({
             where: {
               username: {
                 in: currentUser.friends,
@@ -287,6 +288,15 @@ export function setupWebSocket(app: any) {
               username: true,
             },
           });
+
+          // Resolve profile image URLs server-side so the client doesn't have to.
+          const friendsImageUrls = await resolveProfileImageUrls(
+            friendsRows.map((f: { username: string }) => f.username)
+          );
+          const friendsData = friendsRows.map((f: { username: string }) => ({
+            username: f.username,
+            profileImageUrl: friendsImageUrls[f.username] ?? null,
+          }));
 
           const mutualFriendsUsernames = await getMutualFriends(currentUser);
 
@@ -377,6 +387,10 @@ export function setupWebSocket(app: any) {
             return transportStatus;
           };
 
+          const locationImageUrls = await resolveProfileImageUrls(
+            allGameplayUsers.map((gpu: { username: string }) => gpu.username)
+          );
+
           const locations = await Promise.all(allGameplayUsers.map(async (gpu: { Locations: any; username: string; health: any; randomLocation: any; }) => {
             const currentLocation = gpu.Locations;
             if (!currentLocation) return null; // Skip this user if no location data
@@ -399,7 +413,8 @@ export function setupWebSocket(app: any) {
               updatedAt: currentLocation.updatedAt,
               health: gpu.health,
               randomlocation: gpu.randomLocation,
-              transportStatus
+              transportStatus,
+              profileImageUrl: locationImageUrls[gpu.username] ?? null
             };
           }));
 
