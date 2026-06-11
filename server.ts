@@ -79,7 +79,8 @@ if (serviceAccount) {
   console.warn("Firebase initialization skipped due to missing credentials");
 }
 
-app.use(bodyParser.json());
+// 20mb so /api/uploadProfileImage can receive base64 images (default is 100kb).
+app.use(bodyParser.json({ limit: "20mb" }));
 
 // this function manages entities on the map
 setInterval(addRandomLoot, 30000);

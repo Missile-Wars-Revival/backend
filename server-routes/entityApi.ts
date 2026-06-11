@@ -281,7 +281,11 @@ export function setupEntityApi(app: any) {
         return res.status(error.status).json({ message: error.message });
       }
 
-      if (!["Shield", "UltraShield"].includes(type)) {
+      // Any OtherType row is placeable except items consumed instantly on the
+      // client (never map entities). Validating against the table means new
+      // "Other" store items work without a code change here.
+      const NON_PLACEABLE_OTHER_TYPES = ["LandmineSweep"];
+      if (typeof type !== "string" || NON_PLACEABLE_OTHER_TYPES.includes(type)) {
         return res.status(400).json({ message: "Invalid shield type" });
       }
 

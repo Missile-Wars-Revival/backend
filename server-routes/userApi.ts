@@ -6,6 +6,8 @@ import { getMutualFriends } from "./friendsApi";
 import { JwtPayload } from "jsonwebtoken";
 import * as argon2 from "argon2";
 import * as admin from 'firebase-admin';
+import sharp from "sharp";
+import { randomUUID } from "crypto";
 import { resolveProfileImageUrl, resolveProfileImageUrls } from "./profileImages";
 
 interface Statistics {
@@ -64,6 +66,65 @@ export async function getMutualUsersFriends(username1: string, username2: string
 }
 
 export function setupUserApi(app: any) {
+  // Accepts a base64 image, normalizes it with sharp (EXIF rotation applied,
+  // 512px square, JPEG) so HEIC and other odd picker formats render on every
+  // platform, then stores it in Firebase Storage under the same stable
+  // tokenized URL scheme resolveProfileImageUrl expects.
+  app.post("/api/uploadProfileImage", async (req: Request, res: Response) => {
+    const { token, imageBase64 } = req.body;
+
+    if (typeof token !== "string" || !token.trim()) {
+      return res.status(400).json({ message: "Token is required." });
+    }
+    if (typeof imageBase64 !== "string" || !imageBase64.trim()) {
+      return res.status(400).json({ message: "imageBase64 is required." });
+    }
+
+    try {
+      const decoded = verifyToken(token) as { username?: string };
+      if (typeof decoded === "string" || !decoded.username) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      const input = Buffer.from(imageBase64, "base64");
+      if (input.length === 0) {
+        return res.status(400).json({ message: "Invalid image data" });
+      }
+      if (input.length > 15 * 1024 * 1024) {
+        return res.status(413).json({ message: "Image too large (max 15MB)" });
+      }
+
+      let processed: Buffer;
+      try {
+        processed = await sharp(input)
+          .rotate()
+          .resize(512, 512, { fit: "cover" })
+          .jpeg({ quality: 85 })
+          .toBuffer();
+      } catch (conversionError) {
+        console.error("Profile image conversion failed:", conversionError);
+        return res.status(415).json({ message: "Unsupported image format" });
+      }
+
+      const bucket = admin.storage().bucket();
+      const path = `profileImages/${decoded.username}`;
+      const downloadToken = randomUUID();
+      await bucket.file(path).save(processed, {
+        contentType: "image/jpeg",
+        metadata: {
+          metadata: { firebaseStorageDownloadTokens: downloadToken },
+        },
+      });
+
+      const encoded = encodeURIComponent(path);
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encoded}?alt=media&token=${downloadToken}`;
+      res.status(200).json({ message: "Profile image updated", url });
+    } catch (error) {
+      console.error("Profile image upload failed:", error);
+      res.status(500).json({ message: "Profile image upload failed" });
+    }
+  });
+
 
   app.get("/api/user-profile", async (req: Request, res: Response) => {
     const { token, username } = req.query;
