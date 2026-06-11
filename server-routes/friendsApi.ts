@@ -5,6 +5,9 @@ import { sendNotification } from "../runners/notificationhelper";
 import * as geolib from 'geolib';
 import { resolveProfileImageUrls } from "./profileImages";
 
+const visibleUsername = (username: unknown) =>
+  typeof username === "string" ? username.replace(/[\s\u200B-\u200D\uFEFF]/g, "") : "";
+
 export async function getMutualFriends(currentUser: { friends: any; username: string; }) {
     const mutualFriends = [];
   
@@ -75,7 +78,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
   });
   
   app.get("/api/searchplayers", async (req: Request, res: Response) => {
-    const { token, searchTerm } = req.query;
+    const { token, searchTerm, debugSearch } = req.query;
   
     if (typeof token !== 'string' || !token.trim()) {
       return res.status(400).json({ message: "Token is required and must be a non-empty string." });
@@ -92,6 +95,11 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(401).json({ message: "Invalid token" });
       }
   
+      const normalizedSearchTerm = searchTerm.trim();
+      if (!normalizedSearchTerm) {
+        return res.status(200).json([]);
+      }
+
       // Fetch the current user to get their friends list
       const currentUser = await prisma.users.findUnique({
         where: { username: decoded.username },
@@ -102,20 +110,30 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(404).json({ message: "User not found" });
       }
   
+      const excludedUsernames = new Set(
+        [decoded.username, ...currentUser.friends]
+          .filter((username): username is string => typeof username === "string")
+          .map((username) => visibleUsername(username).toLowerCase())
+          .filter(Boolean)
+      );
+      const friendsToExclude = currentUser.friends.filter(
+        (username: string) => visibleUsername(username).length > 0
+      );
+
       // Fetch users whose usernames contain the search term
       const users = await prisma.users.findMany({
         where: {
           AND: [
             {
               username: {
-                contains: searchTerm,
+                contains: normalizedSearchTerm,
                 mode: 'insensitive' // This makes the search case-insensitive
               }
             },
             {
               username: {
                 not: decoded.username, // Exclude the current user
-                notIn: currentUser.friends // Exclude friends
+                notIn: friendsToExclude // Exclude friends
               }
             },
             // Exclude blank/ghost accounts: rows with an empty username or
@@ -131,10 +149,25 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         },
       });
 
+      const searchableUsers = users.filter((user: { username: string }) => {
+        const username = visibleUsername(user.username);
+        return username.length > 0 && !excludedUsernames.has(username.toLowerCase());
+      });
+
+      if (debugSearch === "true") {
+        console.info("[searchplayers]", {
+          currentUser: decoded.username,
+          searchTerm: normalizedSearchTerm,
+          friendsExcluded: friendsToExclude.length,
+          dbRows: users.map((u: { username: string }) => u.username),
+          returnedRows: searchableUsers.map((u: { username: string }) => u.username),
+        });
+      }
+
       const imageUrls = await resolveProfileImageUrls(
-        users.map((u: { username: string }) => u.username)
+        searchableUsers.map((u: { username: string }) => u.username)
       );
-      const usersWithImages = users.map((u: { username: string; updatedAt: Date }) => ({
+      const usersWithImages = searchableUsers.map((u: { username: string; updatedAt: Date }) => ({
         username: u.username,
         updatedAt: u.updatedAt,
         profileImageUrl: imageUrls[u.username] ?? null,
