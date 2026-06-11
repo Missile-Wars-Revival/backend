@@ -117,7 +117,12 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
                 not: decoded.username, // Exclude the current user
                 notIn: currentUser.friends // Exclude friends
               }
-            }
+            },
+            // Exclude blank/ghost accounts: rows with an empty username or
+            // without a GameplayUser (never finished registration / partially
+            // deleted) aren't real players and rendered as empty results.
+            { username: { not: "" } },
+            { GameplayUser: { isNot: null } }
           ]
         },
         select: {

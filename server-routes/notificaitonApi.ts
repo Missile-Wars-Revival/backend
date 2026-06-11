@@ -104,6 +104,30 @@ export function setupNotificationApi(app: any) {
     }
   });
 
+  app.patch("/api/markAllNotificationsAsRead", async (req: Request, res: Response) => {
+    const { token } = req.body;
+
+    try {
+      const decoded = verifyToken(token) as { username: string };
+      if (!decoded.username) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      const updatedNotifications = await prisma.notifications.updateMany({
+        where: {
+          userId: decoded.username,
+          isRead: false
+        },
+        data: { isRead: true }
+      });
+
+      res.status(200).json({ message: `${updatedNotifications.count} notifications marked as read` });
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.delete("/api/deleteMessageNotifications", async (req: Request, res: Response) => {
     const { token } = req.body;
   

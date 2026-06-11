@@ -382,10 +382,13 @@ export const checkPlayerProximity = async () => {
 
       // Check proximity to landmines
       for (const landmine of landmines) {
+        // Never warn players about their own landmines.
+        if (landmine.placedBy === user.username) continue;
+
         const landmineCoords = { latitude: parseFloat(landmine.locLat), longitude: parseFloat(landmine.locLong) };
         const distance = haversineDistance(userCoords, landmineCoords); // Already in km
         const entityId = `landmine-${landmine.id}-${user.id}`;
-        
+
         if (!notifiedEntities.has(entityId) && distance <= LANDMINE_ALERT_DISTANCE) {
           await sendNotification(user.username, "Landmine Nearby!", `Caution: You're within 50 meters of a ${landmine.type} landmine!`, "Server");
           notifiedEntities.add(entityId);

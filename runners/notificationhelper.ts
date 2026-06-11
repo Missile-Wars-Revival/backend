@@ -118,16 +118,24 @@ export function startNotificationManager() {
     setInterval(cleanupOldNotifications, 24 * 60 * 60 * 1000);
 }
   
+// Friend-request notifications double as the pending-request inbox (accepting
+// or declining deletes them), so any that remain are still pending and must
+// survive cleanup.
+const PENDING_FRIEND_REQUEST_TITLE = "Friend Request";
+
 async function cleanupOldNotifications() {
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     try {
-      // Delete notifications older than one month
+      // Delete notifications older than 30 days, keeping pending friend requests
       const oldNotificationsResult = await prisma.notifications.deleteMany({
         where: {
           timestamp: {
-            lt: oneMonthAgo
+            lt: thirtyDaysAgo
+          },
+          title: {
+            not: PENDING_FRIEND_REQUEST_TITLE
           }
         }
       });
@@ -140,9 +148,13 @@ async function cleanupOldNotifications() {
       let totalExcessDeleted = 0;
 
       // For each user, keep only the 50 most recent notifications
+      // (pending friend requests are exempt from the cap too)
       for (const user of users) {
         const excessNotifications = await prisma.notifications.findMany({
-          where: { userId: user.username },
+          where: {
+            userId: user.username,
+            title: { not: PENDING_FRIEND_REQUEST_TITLE }
+          },
           orderBy: { timestamp: 'desc' },
           skip: 50,
           select: { id: true }
