@@ -1,13 +1,15 @@
 import { Request, Response } from "express";
+import Expo from "expo-server-sdk";
 import { verifyToken } from "../util/auth";
 import { prisma } from "../server";
 import { Prisma } from '@prisma/client';
-import Expo from "expo-server-sdk";
-
-const expo = new Expo();
+import { sendNotification } from "../runners/notificationhelper";
 
 export function setupNotificationApi(app: any) {
 
+  // Registers/refreshes the caller's Expo push token. Login also sets this,
+  // but the client may only obtain the token after sign-in (permission granted
+  // later), so it must be updatable from an authenticated session.
   app.patch("/api/updateNotificationToken", async (req: Request, res: Response) => {
     const { token, notificationToken } = req.body;
 
@@ -23,7 +25,7 @@ export function setupNotificationApi(app: any) {
 
       await prisma.users.update({
         where: { username: decoded.username },
-        data: { notificationToken },
+        data: { notificationToken }
       });
 
       res.status(200).json({ message: "Notification token updated successfully" });
@@ -44,18 +46,24 @@ export function setupNotificationApi(app: any) {
 
       const user = await prisma.users.findUnique({
         where: { username: decoded.username },
-        select: { notificationToken: true },
+        select: { notificationToken: true }
       });
 
-      res.status(200).json({
-        registered: !!user?.notificationToken && Expo.isExpoPushToken(user.notificationToken),
-      });
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const registered = !!user.notificationToken && Expo.isExpoPushToken(user.notificationToken);
+      res.status(200).json({ registered });
     } catch (error) {
-      console.error("Error checking notification token status:", error);
+      console.error("Error fetching notification token status:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
 
+  // Sends a push notification to the caller so they can verify their token
+  // end-to-end. "Test Notification" is not in the preference map, so it is
+  // never filtered out by notification preferences.
   app.post("/api/testNotification", async (req: Request, res: Response) => {
     const { token } = req.body;
 
@@ -67,20 +75,23 @@ export function setupNotificationApi(app: any) {
 
       const user = await prisma.users.findUnique({
         where: { username: decoded.username },
-        select: { notificationToken: true },
+        select: { notificationToken: true }
       });
 
-      if (!user?.notificationToken || !Expo.isExpoPushToken(user.notificationToken)) {
-        return res.status(400).json({ message: "No valid notification token registered" });
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
       }
 
-      await expo.sendPushNotificationsAsync([{
-        to: user.notificationToken,
-        sound: "default",
-        title: "Missile Wars",
-        body: "Test notification delivered.",
-        data: { type: "test" },
-      }]);
+      if (!user.notificationToken || !Expo.isExpoPushToken(user.notificationToken)) {
+        return res.status(409).json({ message: "No valid notification token registered" });
+      }
+
+      await sendNotification(
+        decoded.username,
+        "Test Notification",
+        "Push notifications are working! 🚀",
+        "Server"
+      );
 
       res.status(200).json({ message: "Test notification sent" });
     } catch (error) {
