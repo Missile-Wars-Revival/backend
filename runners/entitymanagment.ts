@@ -173,65 +173,27 @@ export const deleteExpiredMissiles = async () => {
   }
 };
 
-export const deleteExpiredLandmines = async () => {
+// Landmines, loot and "other" entities all expire the same way: a stored
+// Expires timestamp in the past means the row can go.
+const deleteExpiredEntities = async (model: 'landmine' | 'loot' | 'other') => {
   try {
-    // Current time
-    const now = new Date();
-
-    // Find and delete missiles where status is 'Hit' and fallout time has elapsed
-    const result = await prisma.landmine.deleteMany({
+    const result = await prisma[model].deleteMany({
       where: {
         Expires: {
-          lt: new Date(now.getTime()) // Landmines that impacted more than 5 seconds ago
+          lt: new Date()
         }
       }
     });
 
-    console.log(`${result.count} landmines deleted.`);
+    console.log(`${result.count} ${model} deleted.`);
   } catch (error) {
-    console.error('Failed to delete expired landmines:', error);
+    console.error(`Failed to delete expired ${model}:`, error);
   }
 };
 
-export const deleteExpiredLoot = async () => {
-  try {
-    // Current time
-    const now = new Date();
-
-    // Find and delete missiles where status is 'Hit' and fallout time has elapsed
-    const result = await prisma.loot.deleteMany({
-      where: {
-        Expires: {
-          lt: new Date(now.getTime()) // Loot that expired 
-        }
-      }
-    });
-
-    console.log(`${result.count} loot deleted.`);
-  } catch (error) {
-    console.error('Failed to delete expired loot:', error);
-  }
-};
-
-export const deleteExpiredOther = async () => {
-  try {
-    // Current time
-    const now = new Date();
-
-    // Find and delete other
-    const result = await prisma.other.deleteMany({
-      where: {
-        Expires: {
-          lt: new Date(now.getTime()) // other that expired
-        }
-      }
-    });
-
-    console.log(`${result.count} other deleted.`);
-  } catch (error) {
-    console.error('Failed to delete expired other:', error);
-  }
-};
+export const deleteExpiredLandmines = () => deleteExpiredEntities('landmine');
+export const deleteExpiredLoot = () => deleteExpiredEntities('loot');
+export const deleteExpiredOther = () => deleteExpiredEntities('other');
 
 const haversineDistance = (coords1: { latitude: any; longitude: any; }, coords2: { latitude: any; longitude: any; }, isMiles = false) => {
   function toRad(x: number) {
