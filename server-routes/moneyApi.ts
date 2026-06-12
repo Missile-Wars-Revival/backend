@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { verifyToken } from "../util/auth";
+import { ensureGameplayUserForToken } from "../util/provisionUser";
 import { prisma } from "../server";
-import { JwtPayload } from "jsonwebtoken";
 
 export function setupMoneyApi(app: any) {
 
@@ -15,11 +15,7 @@ export function setupMoneyApi(app: any) {
       if (typeof decoded === 'object' && 'username' in decoded) {
         const username = decoded.username;
 
-        const user = await prisma.gameplayUser.findFirst({
-          where: {
-            username: username,
-          },
-        });
+        const user = await ensureGameplayUserForToken(decoded);
 
         if (user) {
           // Perform the update if the user is found
@@ -53,16 +49,12 @@ export function setupMoneyApi(app: any) {
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    const user = await prisma.gameplayUser.findFirst({
-      where: {
-        username: (decoded as JwtPayload).username as string,
-      },
-    });
+    const user = await ensureGameplayUserForToken(decoded);
 
     if (user) {
       await prisma.gameplayUser.update({
         where: {
-          username: (decoded as JwtPayload).username as string,
+          username: decoded.username,
         },
         data: {
           money: user.money - amount,
@@ -84,11 +76,7 @@ export function setupMoneyApi(app: any) {
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    const user = await prisma.gameplayUser.findFirst({
-      where: {
-        username: (decoded as JwtPayload).username as string,
-      },
-    });
+    const user = await ensureGameplayUserForToken(decoded);
 
     if (user) {
       res.status(200).json({ money: user.money });
@@ -107,12 +95,8 @@ export function setupMoneyApi(app: any) {
         return res.status(401).json({ message: "Invalid token" });
       }
 
-      // Retrieve the user from the database
-      const user = await prisma.gameplayUser.findFirst({
-        where: {
-          username: decoded.username,
-        },
-      });
+      // Retrieve the user, provisioning the player on this shard if needed
+      const user = await ensureGameplayUserForToken(decoded);
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });

@@ -36,18 +36,9 @@ const LocationsSchema: z.ZodSchema = z.lazy(() =>
   })
 );
 
-const FriendRequestsSchema: z.ZodSchema = z.lazy(() =>
-  z.object({
-    id: z.number(),
-    username: z.string(),
-    friend: z.string(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-    deletedAt: z.string(),
-    GameplayUser: GameplayUserSchema.nullable(),
-    gameplayUserId: z.number().nullable(),
-  })
-);
+// FriendRequests moved to Firebase central in Phase 5 of
+// DISTRIBUTED_HOSTING_PLAN.md (/friendRequests/$uid/$fromUid) — the Postgres
+// model and its schema are gone.
 
 const BattleSessionsSchema: z.ZodSchema = z.lazy(() =>
   z.object({
@@ -79,7 +70,6 @@ const GameplayUserSchema: z.ZodSchema = z.lazy(() =>
     createdAt: z.string(),
     updatedAt: z.string(),
     deletedAt: z.string(),
-    friendRequests: z.array(FriendRequestsSchema),
     currentSession: z.array(BattleSessionsSchema),
     defending: z.array(BattleSessionsSchema),
     attacking: z.array(BattleSessionsSchema),
@@ -139,7 +129,6 @@ const LootSchema = z.object({
 type Sessions = z.infer<typeof SessionsSchema>;
 type Users = z.infer<typeof UsersSchema>;
 type Locations = z.infer<typeof LocationsSchema>;
-type FriendRequests = z.infer<typeof FriendRequestsSchema>;
 type BattleSessions = z.infer<typeof BattleSessionsSchema>;
 type GameplayUser = z.infer<typeof GameplayUserSchema>;
 type Messages = z.infer<typeof MessagesSchema>;
@@ -152,7 +141,6 @@ export {
   SessionsSchema,
   UsersSchema,
   LocationsSchema,
-  FriendRequestsSchema,
   BattleSessionsSchema,
   GameplayUserSchema,
   MessagesSchema,
@@ -165,7 +153,6 @@ export type {
   Sessions,
   Users,
   Locations,
-  FriendRequests,
   BattleSessions,
   GameplayUser,
   Messages,

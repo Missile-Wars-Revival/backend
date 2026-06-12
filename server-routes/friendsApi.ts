@@ -1,9 +1,17 @@
 import { Request, Response } from "express";
 import { verifyToken } from "../util/auth";
+import { ensureLocalUserForToken } from "../util/provisionUser";
 import { prisma } from "../server";
-import { sendPushNotification } from "../runners/NotificationService";
 import * as geolib from 'geolib';
-import { resolveProfileImageUrl, resolveProfileImageUrls } from "./profileImages";
+import { resolveProfileImageUrls } from "./profileImages";
+
+// Phase 6 social cutover: the friend graph lives in Firebase central
+// (/friends/<uid>/<friendUid> uid edges, written by the client under the
+// security rules). The shard's Users.friends column is a client-DECLARED
+// gameplay cache, written only by the websocket `friendsDeclare` handler.
+// The old /api/friends, /api/addFriend, /api/removeFriend and
+// /api/searchfriendsadded routes are gone. What remains here is gameplay:
+// friendsOnly visibility preference, player search, and proximity.
 
 const visibleUsername = (username: unknown) =>
   typeof username === "string" ? username.replace(/[\s\u200B-\u200D\uFEFF]/g, "") : "";
@@ -48,6 +56,11 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(400).json({ message: "friendsOnly status must be provided and be a boolean." });
       }
   
+      const localUser = await ensureLocalUserForToken(decoded);
+      if (!localUser || !localUser.GameplayUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
       // Update the friendsOnly status in the GameplayUser table
       const updatedUser = await prisma.gameplayUser.update({
         where: {
@@ -57,11 +70,6 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
           friendsOnly: req.body.friendsOnly
         }
       });
-  
-      // If no user is found or updated, send a 404 error
-      if (!updatedUser) {
-        return res.status(404).json({ message: "User not found" });
-      }
   
       // Return the updated user info
       res.status(200).json({
@@ -100,11 +108,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(200).json([]);
       }
 
-      // Fetch the current user to get their friends list
-      const currentUser = await prisma.users.findUnique({
-        where: { username: decoded.username },
-        select: { friends: true }
-      });
+      const currentUser = await ensureLocalUserForToken(decoded);
   
       if (!currentUser) {
         return res.status(404).json({ message: "User not found" });
@@ -180,67 +184,6 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
     }
   });
   
-  app.get("/api/searchfriendsadded", async (req: Request, res: Response) => {
-    const { token, searchTerm } = req.query;
-  
-    if (typeof token !== 'string' || !token.trim()) {
-      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
-    }
-  
-    try {
-      // Verify the token
-      const decoded = verifyToken(token);
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
-  
-      // Fetch the current user to get their friends list
-      const currentUser = await prisma.users.findUnique({
-        where: { username: decoded.username },
-        select: { friends: true }
-      });
-  
-      if (!currentUser) {
-        return res.status(404).json({ message: "User not found" });
-      }
-  
-      // Fetch all users that the current user has added as friends
-      const addedFriends = await prisma.users.findMany({
-        where: {
-          username: {
-            in: currentUser.friends,
-            ...(searchTerm && typeof searchTerm === 'string'
-              ? { contains: searchTerm, mode: 'insensitive' }
-              : {})
-          }
-        },
-        select: {
-          username: true,
-          friends: true,
-          updatedAt: true,
-        },
-      });
-  
-      // Filter out mutual friends
-      const nonMutualFriends = addedFriends.filter((friend: { friends: string | any[]; }) => !friend.friends.includes(decoded.username));
-  
-      // Format the response to only include username and updatedAt
-      const friendImageUrls = await resolveProfileImageUrls(
-        nonMutualFriends.map((friend: { username: string }) => friend.username)
-      );
-      const formattedFriends = nonMutualFriends.map((friend: { username: string; updatedAt: Date }) => ({
-        username: friend.username,
-        updatedAt: friend.updatedAt,
-        profileImageUrl: friendImageUrls[friend.username] ?? null,
-      }));
-
-      res.status(200).json(formattedFriends);
-    } catch (error) {
-      console.error("Error fetching added friends:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-  
   app.get("/api/nearby", async (req: Request, res: Response) => {
     const token = req.query.token as string;
     const latitude = parseFloat(req.query.latitude as string);
@@ -260,13 +203,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(401).json({ message: "Invalid token. Token must contain a username." });
       }
   
-      // Fetch the main user object to get access to the friends list
-      const mainUser = await prisma.users.findUnique({
-        where: {
-          username: decoded.username,
-        },
-        select: { friends: true }
-      });
+      const mainUser = await ensureLocalUserForToken(decoded);
   
       if (!mainUser) {
         return res.status(404).json({ message: "User not found" });
@@ -317,190 +254,6 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       } else {
         res.status(404).json({ message: "No nearby users found" });
       }
-    } catch (error) {
-      console.error("Error processing request:", error);
-      return res.status(500).json({ message: "Internal server error" });
-    }
-  });
-  //pending removal
-  app.get("/api/friends", async (req: Request, res: Response) => {
-    const token = req.query.token;
-  
-    if (typeof token !== 'string' || !token.trim()) {
-      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
-    }
-  
-    try {
-      const decoded = verifyToken(token);
-  
-      if (typeof decoded === 'string' || !decoded.username) {
-        return res.status(401).json({ message: "Invalid token" });
-      }
-  
-      const user = await prisma.users.findUnique({
-        where: {
-          username: decoded.username,
-        },
-        select: {
-          friends: true // Just retrieve the friends array
-        }
-      });
-  
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-  
-      if (user.friends.length > 0) {
-        // Fetch full profiles of friends who also have this user in their friends list
-        const friendsProfiles = await prisma.users.findMany({
-          where: {
-            username: {
-              in: user.friends,
-            },
-            friends: {
-              has: decoded.username // Check if these users also have the current user in their friends list (mutal friends)
-            }
-          },
-        });
-  
-        res.status(200).json({ friends: friendsProfiles });
-      } else {
-        res.status(200).json({ friends: [] });
-      }
-    } catch (error) {
-      console.error("Error verifying token or fetching friends:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-  
-  app.post("/api/addFriend", async (req: Request, res: Response) => {
-    const { token, friend } = req.body;
-  
-    if (typeof token !== 'string' || !token.trim()) {
-      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
-    }
-  
-    try {
-      const decoded = verifyToken(token) as { username: string; };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token: Username is missing." });
-      }
-  
-      const user = await prisma.users.findFirst({
-        where: { username: decoded.username },
-      });
-  
-      if (!user) {
-        console.log("User not found");
-        return res.status(404).json({ message: "User not found" });
-      }
-  
-      const friendUser = await prisma.users.findFirst({
-        where: { username: friend },
-      });
-  
-      if (!friendUser) {
-        return res.status(404).json({ message: "Friend not found" });
-      }
-  
-      if (user.friends.includes(friend)) {
-        console.log("Friend already added");
-        return res.status(409).json({ message: "Friend already added" });
-      }
-  
-      // Check if the friend has already added the user
-      const isMutualFriend = friendUser.friends.includes(user.username);
-  
-      // Add friend
-      await prisma.users.update({
-        where: { username: user.username },
-        data: { friends: { push: friend } },
-      });
-  
-      // Send appropriate notification, with iOS communication metadata so the
-      // sender's avatar shows on the push. The stored titles must stay exactly
-      // "Friend Accepted" / "Friend Request" — they double as the pending-
-      // request inbox (see notificationhelper cleanup).
-      const senderAvatarUrl = await resolveProfileImageUrl(user.username);
-      const communicationData = {
-        fromUserId: user.username,
-        communication: true,
-        senderName: user.username,
-        ...(senderAvatarUrl ? { senderAvatarUrl } : {}),
-        communicationThreadId: `friend-${user.username}`,
-      };
-
-      if (isMutualFriend) {
-        await sendPushNotification({
-          userId: friend,
-          title: "Friend Accepted",
-          body: `${user.username} has added you back!`,
-          type: "friend_request",
-          data: { type: "friend_accepted", ...communicationData },
-        });
-      } else {
-        await sendPushNotification({
-          userId: friend,
-          title: "Friend Request",
-          body: `${user.username} has added you as a friend!`,
-          type: "friend_request",
-          data: { type: "friend_request", ...communicationData },
-        });
-      }
-  
-      console.log("Friend added");
-      res.status(200).json({ message: "Friend added successfully" });
-    } catch (error) {
-      console.error("Error processing request:", error);
-      return res.status(500).json({ message: "Internal server error" });
-    }
-  });
-  
-  app.delete("/api/removeFriend", async (req: Request, res: Response) => {
-    const { token, friend } = req.body;
-  
-    if (typeof token !== 'string' || !token.trim()) {
-      return res.status(400).json({ message: "Token is required and must be a non-empty string." });
-    }
-  
-    try {
-      const decoded = verifyToken(token) as { username: string; };
-      if (!decoded.username) {
-        return res.status(401).json({ message: "Invalid token: Username is missing." });
-      }
-  
-      const user = await prisma.users.findFirst({
-        where: {
-          username: decoded.username,
-        },
-      });
-  
-      if (!user) {
-        console.log("user not found")
-        return res.status(404).json({ message: "User not found" });
-      }
-  
-      const friendUser = await prisma.users.findFirst({
-        where: {
-          username: friend,
-        },
-      });
-  
-      if (!friendUser) {
-        return res.status(404).json({ message: "Friend not found" });
-      }
-  
-      await prisma.users.update({
-        where: {
-          username: user.username,
-        },
-        data: {
-          friends: {
-            set: user.friends.filter((f: any) => f !== friend),
-          },
-        },
-      });
-      res.status(200).json({ message: "Friend removed successfully" }); // Corrected response message
     } catch (error) {
       console.error("Error processing request:", error);
       return res.status(500).json({ message: "Internal server error" });

@@ -1,4 +1,5 @@
 import { verifyToken } from "../util/auth";
+import { ensureGameplayUserForToken } from "../util/provisionUser";
 import { prisma } from "../server";
 import { Request, Response } from "express";
 import { sendNotification } from "../runners/notificationhelper";
@@ -86,6 +87,16 @@ export function setupLeagueApi(app: any) {
       });
 
       if (!user) {
+        // Newly registered accounts may not have touched this shard yet —
+        // provision them instead of failing the league screen.
+        await ensureGameplayUserForToken(decoded);
+        user = await prisma.gameplayUser.findUnique({
+          where: { username: decoded.username },
+          include: { league: true }
+        });
+      }
+
+      if (!user) {
         return res.status(404).json({ success: false, message: "User not found" });
       }
 
@@ -132,8 +143,30 @@ export function setupLeagueApi(app: any) {
         include: { league: true }
       });
 
-      if (!user || !user.league) {
-        return res.status(404).json({ success: false, message: "User or league not found" });
+      if (!user) {
+        await ensureGameplayUserForToken(decoded);
+        user = await prisma.gameplayUser.findUnique({
+          where: { username: decoded.username },
+          include: { league: true }
+        });
+      }
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      if (!user.league) {
+        // Try a lazy assignment (mirrors /api/leagues/current) so whichever
+        // league call lands first still populates the screen; unrankable
+        // players just see an empty list rather than an error.
+        await assignUserToLeague(user.id);
+        user = await prisma.gameplayUser.findUnique({
+          where: { username: decoded.username },
+          include: { league: true }
+        });
+        if (!user || !user.league) {
+          return res.json({ success: true, players: [] });
+        }
       }
 
       const players = await prisma.gameplayUser.findMany({

@@ -7,17 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model FriendRequests {
-  id             Int           @id @default(autoincrement())
-  username       String        @default("")
-  friend         String        @default("")
-  gameplayUserId Int?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @default(now())
-  deletedAt      DateTime      @default(now())
-  GameplayUser   GameplayUser? @relation(fields: [gameplayUserId], references: [id])
-}
-
 model GameplayUser {
   id             Int              @id @default(autoincrement())
   username       String           @unique @default("")
@@ -35,7 +24,6 @@ model GameplayUser {
   leagueId       String?
   locActive      Boolean          @default(true)
   randomLocation Boolean          @default(false)
-  FriendRequests FriendRequests[]
   league         League?          @relation(fields: [leagueId], references: [id])
   Users          Users            @relation(fields: [username], references: [username])
   InventoryItem  InventoryItem[]
@@ -191,11 +179,9 @@ model Users {
   role                    String                   @default("user")
   avatar                  String                   @default("")
   friends                 String[]                 @default([])
-  notificationToken       String                   @default("")
   createdAt               DateTime                 @default(now())
   deletedAt               DateTime                 @default(now())
   updatedAt               DateTime                 @default(now())
-  stripeCustomerId        String?                  @unique
   GameplayUser            GameplayUser?
   notificationPreferences NotificationPreferences?
   Notifications           Notifications[]

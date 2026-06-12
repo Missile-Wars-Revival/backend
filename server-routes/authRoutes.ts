@@ -1,4 +1,7 @@
-import { signToken, verifyToken } from "../util/auth";
+import { issueToken, verifyToken } from "../util/auth";
+import { createPlayer, ensureLocalUserForToken } from "../util/provisionUser";
+import { syncProfileUsername } from "../util/socialStore";
+import { verifyFirebaseIdToken } from "../util/firebaseIdToken";
 import { prisma } from "../server";
 import * as argon2 from "argon2";
 import nodemailer from 'nodemailer';
@@ -7,7 +10,6 @@ import { z, ZodError } from "zod";
 import * as admin from 'firebase-admin';
 import { randomInt } from "crypto";
 import rateLimit from "express-rate-limit";
-import Expo from "expo-server-sdk";
 
 // Per-IP limits on credential-related endpoints (requires `trust proxy` to be
 // set in server.ts so the client IP survives the Elastic Beanstalk LB).
@@ -91,11 +93,9 @@ function generateUsername(displayName: string): string {
     return `${base}${suffix}`;
 }
 
-function normalizePushToken(notificationToken: unknown): string | undefined {
-    return typeof notificationToken === 'string' && Expo.isExpoPushToken(notificationToken)
-        ? notificationToken
-        : undefined;
-}
+// Push tokens are no longer accepted here (Phase 6): the client registers its
+// Expo token directly in Firebase central (/notificationTokens/<uid>). Any
+// notificationToken field old clients still send is simply ignored.
 
 export function setupAuthRoutes(app: any) {
     // Returns the email for a given username (used by client to look up email
@@ -117,11 +117,11 @@ export function setupAuthRoutes(app: any) {
         }
         try {
             const decoded = verifyToken(token);
-            const user = await prisma.users.findUnique({ where: { username: decoded.username } });
+            const user = await ensureLocalUserForToken(decoded);
             if (!user) {
                 return res.status(404).json({ message: "User not found" });
             }
-            return res.status(200).json({ message: "Token refreshed", token: signToken(user.username) });
+            return res.status(200).json({ message: "Token refreshed", token: await issueToken(user.username, user.firebaseUID) });
         } catch {
             return res.status(401).json({ message: "Invalid or expired token" });
         }
@@ -129,12 +129,13 @@ export function setupAuthRoutes(app: any) {
 
     // OAuth login — verifies Firebase ID token, finds or creates user
     app.post("/api/oauth-login", authLimiter, async (req: Request, res: Response) => {
-        const { idToken, displayName, notificationToken } = req.body;
-        const pushToken = normalizePushToken(notificationToken);
+        const { idToken, displayName } = req.body;
         if (!idToken) return res.status(400).json({ message: "idToken required" });
 
         try {
-            const decoded = await admin.auth().verifyIdToken(idToken);
+            // Local admin SDK when firebasecred.json exists, coordinator
+            // verification otherwise (community shards).
+            const decoded = await verifyFirebaseIdToken(idToken);
             const { uid, email } = decoded;
 
             let user = await prisma.users.findFirst({ where: { firebaseUID: uid } });
@@ -146,10 +147,7 @@ export function setupAuthRoutes(app: any) {
                 if (!user.firebaseUID) {
                     await prisma.users.update({ where: { id: user.id }, data: { firebaseUID: uid } });
                 }
-                if (pushToken) {
-                    await prisma.users.update({ where: { id: user.id }, data: { notificationToken: pushToken } });
-                }
-                const token = signToken(user.username);
+                const token = await issueToken(user.username, user.firebaseUID ?? uid);
                 return res.status(200).json({ message: "Login successful", token, username: user.username });
             }
 
@@ -159,14 +157,9 @@ export function setupAuthRoutes(app: any) {
                 username = generateUsername(displayName || '');
             }
 
-            await prisma.users.create({
-                data: { username, email: email || '', firebaseUID: uid, notificationToken: pushToken ?? '' },
-            });
-            await prisma.gameplayUser.create({
-                data: { username, createdAt: new Date().toISOString() },
-            });
+            await createPlayer({ username, email: email || '', firebaseUID: uid });
 
-            const token = signToken(username);
+            const token = await issueToken(username, uid);
             return res.status(200).json({ message: "User created", token, username });
         } catch (error) {
             console.error("OAuth login error:", error);
@@ -175,13 +168,12 @@ export function setupAuthRoutes(app: any) {
     });
 
     app.post("/api/login", authLimiter, async (req: Request, res: Response) => {
-        const { idToken, username, password, notificationToken } = req.body;
-        const pushToken = normalizePushToken(notificationToken);
+        const { idToken, username, password } = req.body;
 
         if (idToken) {
             // Firebase auth path
             try {
-                const decoded = await admin.auth().verifyIdToken(idToken);
+                const decoded = await verifyFirebaseIdToken(idToken);
                 const user = await prisma.users.findFirst({
                     where: { OR: [{ email: decoded.email ?? '' }, { firebaseUID: decoded.uid }] },
                 });
@@ -189,10 +181,7 @@ export function setupAuthRoutes(app: any) {
                 if (!user.firebaseUID) {
                     await prisma.users.update({ where: { id: user.id }, data: { firebaseUID: decoded.uid } });
                 }
-                if (pushToken) {
-                    await prisma.users.update({ where: { id: user.id }, data: { notificationToken: pushToken } });
-                }
-                const token = signToken(user.username);
+                const token = await issueToken(user.username, user.firebaseUID ?? decoded.uid);
                 return res.status(200).json({ message: "Login successful", token });
             } catch {
                 return res.status(401).json({ message: "Invalid Firebase token" });
@@ -205,23 +194,19 @@ export function setupAuthRoutes(app: any) {
         }
         const user = await prisma.users.findFirst({ where: { username } });
         if (user && user.password && (await argon2.verify(user.password, password))) {
-            const token = signToken(user.username);
-            if (pushToken) {
-                await prisma.users.update({ where: { username }, data: { notificationToken: pushToken } });
-            }
+            const token = await issueToken(user.username, user.firebaseUID);
             return res.status(200).json({ message: "Login successful", token });
         }
         return res.status(401).json({ message: "Invalid username or password" });
     });
 
     app.post("/api/register", authLimiter, async (req: Request, res: Response) => {
-        const { idToken, username, email, password, notificationToken } = req.body;
-        const pushToken = normalizePushToken(notificationToken);
+        const { idToken, username, email, password } = req.body;
 
         if (idToken) {
             // Firebase auth path
             try {
-                const decoded = await admin.auth().verifyIdToken(idToken);
+                const decoded = await verifyFirebaseIdToken(idToken);
                 const firebaseEmail = decoded.email || email || '';
 
                 if (!username || username.length < 3) {
@@ -239,19 +224,9 @@ export function setupAuthRoutes(app: any) {
                 if (existingByUsername) return res.status(409).json({ message: "Username already exists" });
                 if (existingByEmail) return res.status(409).json({ message: "Email already registered" });
 
-                await prisma.users.create({
-                    data: {
-                        username,
-                        email: firebaseEmail,
-                        firebaseUID: decoded.uid,
-                        notificationToken: pushToken ?? '',
-                    },
-                });
-                await prisma.gameplayUser.create({
-                    data: { username, createdAt: new Date().toISOString() },
-                });
+                await createPlayer({ username, email: firebaseEmail, firebaseUID: decoded.uid });
 
-                const token = signToken(username);
+                const token = await issueToken(username, decoded.uid);
                 return res.status(200).json({ message: "User created", token });
             } catch (error: any) {
                 if (error?.code === 'P2002') return res.status(409).json({ message: "Username already exists" });
@@ -279,14 +254,9 @@ export function setupAuthRoutes(app: any) {
 
             const hashedPassword = await argon2.hash(password);
 
-            await prisma.users.create({
-                data: { username, password: hashedPassword, email, notificationToken: pushToken ?? '' },
-            });
-            await prisma.gameplayUser.create({
-                data: { username, createdAt: new Date().toISOString() },
-            });
+            await createPlayer({ username, password: hashedPassword, email });
 
-            const token = signToken(username);
+            const token = await issueToken(username);
             return res.status(200).json({ message: "User created", token });
         } catch (error) {
             if (typeof error === 'object' && error !== null && 'code' in error && (error as any).code === 'P2002') {
@@ -448,7 +418,7 @@ export function setupAuthRoutes(app: any) {
             await prisma.users.update({ where: { username: decoded.username }, data: { password: null } });
 
             // Generate a new token with the updated password
-            const newToken = signToken(decoded.username);
+            const newToken = await issueToken(decoded.username, user.firebaseUID);
 
             res.status(200).json({
                 message: "Password changed successfully",
@@ -604,8 +574,15 @@ export function setupAuthRoutes(app: any) {
                 }
             });
 
-            // Generate a new token with the updated username
-            const newToken = signToken(newUsername);
+            // Keep the central profile (what cross-shard friends see) on the
+            // new name; non-fatal, the coordinator re-bootstraps it on mint.
+            await syncProfileUsername(user.firebaseUID, newUsername);
+
+            // Generate a new token with the updated username. With
+            // coordinator-minted tokens identity is the stable firebaseUID,
+            // so the rename doesn't invalidate other devices' tokens... but
+            // their username claim goes stale; those sessions must refresh.
+            const newToken = await issueToken(newUsername, user.firebaseUID);
 
             res.status(200).json({
                 message: "Username changed successfully",
@@ -687,10 +664,6 @@ export function setupAuthRoutes(app: any) {
             await prisma.$transaction(async (prisma: { notifications: { deleteMany: (arg0: { where: { userId: any; }; }) => any; }; friendRequests: { deleteMany: (arg0: { where: { username: any; } | { friend: any; }; }) => any; }; locations: { delete: (arg0: { where: { username: any; }; }) => Promise<any>; }; inventoryItem: { deleteMany: (arg0: { where: { GameplayUser: { username: any; }; }; }) => any; }; statistics: { deleteMany: (arg0: { where: { GameplayUser: { username: any; }; }; }) => any; }; gameplayUser: { delete: (arg0: { where: { username: any; }; }) => Promise<any>; }; users: { delete: (arg0: { where: { username: any; }; }) => any; }; }) => {
                 // Delete Notifications
                 await prisma.notifications.deleteMany({ where: { userId: username } });
-
-                // Delete FriendRequests
-                await prisma.friendRequests.deleteMany({ where: { username: username } });
-                await prisma.friendRequests.deleteMany({ where: { friend: username } });
 
                 // Delete Locations
                 await prisma.locations.delete({ where: { username: username } }).catch(() => { });

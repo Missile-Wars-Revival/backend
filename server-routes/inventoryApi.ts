@@ -1,7 +1,28 @@
 import { Request, Response } from "express";
 import { verifyToken } from "../util/auth";
+import { ensureGameplayUserForToken } from "../util/provisionUser";
 import { prisma } from "../server";
-import { JwtPayload } from "jsonwebtoken";
+
+// Resolves the inventory category for an item: another player's copy first
+// (matches whatever convention is already live on this shard), then the
+// weapon type tables so brand-new shards/items still work.
+async function resolveItemCategory(itemName: string): Promise<string | null> {
+    const existing = await prisma.inventoryItem.findFirst({
+        where: { name: itemName },
+        select: { category: true },
+    });
+    if (existing) return existing.category;
+
+    const [missile, landmine, other] = await Promise.all([
+        prisma.missileType.findUnique({ where: { name: itemName } }),
+        prisma.landmineType.findUnique({ where: { name: itemName } }),
+        prisma.otherType.findUnique({ where: { name: itemName } }),
+    ]);
+    if (missile) return "Missiles";
+    if (landmine) return "Landmines";
+    if (other) return "Other";
+    return null;
+}
 
 export function setupInventoryApi(app: any) {
     app.post("/api/addItem", async (req: Request, res: Response) => {
@@ -15,12 +36,14 @@ export function setupInventoryApi(app: any) {
                 return res.status(401).json({ message: "Invalid token" });
             }
 
-            // Retrieve the user from the database
-            const user = await prisma.gameplayUser.findFirst({
-                where: {
-                    username: decoded.username,
-                },
-            });
+            // Validate up front — passing undefined through to the Prisma
+            // create produces an opaque "invalid invocation" 500.
+            if (typeof itemName !== 'string' || !itemName.trim() || typeof category !== 'string' || !category.trim()) {
+                return res.status(400).json({ message: "itemName and category are required" });
+            }
+
+            // Retrieve the user, provisioning the player on this shard if needed
+            const user = await ensureGameplayUserForToken(decoded);
 
             if (!user) {
                 return res.status(404).json({ message: "User not found" });
@@ -96,11 +119,7 @@ export function setupInventoryApi(app: any) {
                 return res.status(400).send('Missing required fields');
             }
 
-            const user = await prisma.gameplayUser.findFirst({
-                where: {
-                    username: decoded.username,
-                },
-            });
+            const user = await ensureGameplayUserForToken(decoded);
 
             if (!user) {
                 return res.status(404).json({ message: "User not found" });
@@ -142,15 +161,11 @@ export function setupInventoryApi(app: any) {
                 return res.status(401).json({ message: "Invalid token" });
             }
 
-            if (!itemName || !quantity) {
+            if (typeof itemName !== 'string' || !itemName.trim() || typeof quantity !== 'number' || quantity <= 0) {
                 return res.status(400).send('Missing required fields');
             }
 
-            const user = await prisma.gameplayUser.findFirst({
-                where: {
-                    username: decoded.username,
-                },
-            });
+            const user = await ensureGameplayUserForToken(decoded);
 
             if (!user) {
                 return res.status(404).json({ message: "User not found" });
@@ -170,32 +185,29 @@ export function setupInventoryApi(app: any) {
                     where: { id: existingItem.id },
                     data: { quantity: existingItem.quantity + quantity },
                 });
-            } if (!existingItem) {
-                // If item does not exist, create a new entry
-
-                const itemCategory = await prisma.inventoryItem.findFirst({
-                    where: { name: itemName },
-                });
-
-                if (!itemCategory) {
-                    return res.status(404).json({ message: "Item category not found" });
-                }
-
-                await prisma.inventoryItem.create({
-                    data: {
-                        name: itemName,
-                        quantity: quantity,
-                        category: itemCategory.category,
-                        userId: user.id,
-                    },
-                });
-                
-            } else {
-                return res.status(404).json({ message: "Item not found in inventory" });
+                return res.status(200).json({ message: "Item added successfully" });
             }
+
+            // If item does not exist, create a new entry
+            const category = await resolveItemCategory(itemName);
+
+            if (!category) {
+                return res.status(404).json({ message: "Item category not found" });
+            }
+
+            await prisma.inventoryItem.create({
+                data: {
+                    name: itemName,
+                    quantity: quantity,
+                    category: category,
+                    userId: user.id,
+                },
+            });
+
+            return res.status(200).json({ message: "Item added successfully" });
         } catch (error) {
-            console.error("Deduct item failed: ", error);
-            return res.status(500).json({ message: "Deduct item failed" });
+            console.error("Add item failed: ", error);
+            return res.status(500).json({ message: "Add item failed" });
         }
     });
 

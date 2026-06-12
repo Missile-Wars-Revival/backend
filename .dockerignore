@@ -1,0 +1,15 @@
+# Secrets must never be baked into the image.
+.env
+.env.*
+firebasecred.json
+*.pem
+*.crt
+
+node_modules
+dist
+.git
+.elasticbeanstalk
+coverage
+*.log
+*.tsbuildinfo
+database-export.json

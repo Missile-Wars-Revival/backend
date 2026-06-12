@@ -3,7 +3,7 @@ import { NextFunction, Request, Response } from "express";
 import * as argon2 from "argon2";
 import { LoginSchema } from "../interfaces/api";
 import { validateSchema } from "./authRoutes";
-import { signToken, verifyToken } from "../util/auth";
+import { issueToken, verifyToken } from "../util/auth";
 import rateLimit from "express-rate-limit";
 
 const webLoginLimiter = rateLimit({
@@ -23,7 +23,7 @@ export function setupWebApi(app: any) {
 
         // user.password is null for accounts migrated to Firebase auth
         if (user && user.password && (await argon2.verify(user.password, password))) {
-            const token = signToken(user.username);
+            const token = await issueToken(user.username, user.firebaseUID);
 
             // Set the token as an HTTP-only cookie
             res.cookie('auth_token', token, {

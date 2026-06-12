@@ -33,37 +33,150 @@ Copyright (c) 2024 longtimeno-c. All rights reserved.
 ## 🛠️ Setup
 
 ### 1. Environment Configuration
-Create an `.env` file in the root directory:
+Create an `.env` file in the root directory. The server boots in one of two
+modes (it refuses to start if neither is configured):
+
 ```env
 # Server Configuration
 NODE_ENV="development"
-JWT_SECRET="your-secure-secret-here"  # REQUIRED — the server refuses to start without it. Generate a secure random string.
 VERBOSE_MODE="ON"
 PORT=3000
 
-# Database
+# Database (always local to this shard — never shared between hosts)
 DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
 
-# Email Configuration
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_SECURE=false
-EMAIL_USER="your-email@domain.com"
-EMAIL_PASS="your-app-specific-password"
-EMAIL_FROM="noreply@yourdomain.com"
+# --- Mode A: distributed (registered community shard) ---
+# Written automatically by ./docker/host.sh | .\docker\host.ps1 registration.
+# Tokens are minted and verified by the coordinator (RS256, 12h, refreshable);
+# Firebase ID-token login and push delivery also go through the coordinator.
+COORDINATOR_URL="https://backend-coordinator.vercel.app"
+SHARD_API_KEY="mw_shard_..."   # issued at registration, revocable
+SHARD_ID="..."                 # enables the JWT audience check
 
-# WebSocket Configuration (Middle Earth)
-WS_PORT=3001
-WS_HEARTBEAT_INTERVAL=30000
+# --- Mode B: solo / local hosting (no coordinator) ---
+# JWT_SECRET="your-secure-secret-here"   # local HS256 tokens, 30-day expiry
+
+# Email (OPTIONAL — password-reset emails; owner deployment only)
+# EMAIL_HOST=smtp.gmail.com
+# EMAIL_PORT=587
+# EMAIL_SECURE=false
+# EMAIL_USER="your-email@domain.com"
+# EMAIL_PASS="your-app-specific-password"
+# EMAIL_FROM="noreply@yourdomain.com"
 ```
 
-Auth tokens issued by the server expire after 30 days. Clients can exchange a still-valid token for a fresh one via `POST /api/refresh`.
+Clients exchange a still-valid token for a fresh one via `POST /api/refresh`
+in both modes.
 
-### 2. Firebase Setup
+### 2. Firebase Setup (owner deployment ONLY)
+Community shards must **not** have Firebase credentials — they verify logins
+and deliver pushes through the coordinator. Only the project owner's central
+deployment does this:
+
 1. Create a Firebase project at [Firebase Console](https://console.firebase.google.com)
 2. Download your Firebase service account credentials
 3. Rename the credentials file to `firebasecred.json` and place it in the project root
-4. This enables real-time push notifications for android devices, profile picture storage and secure firebase authenticaiton / account management.
+4. This enables the global chat message listener, Firebase Storage profile
+   pictures, and Firebase account management (password/email changes).
+
+## 🐳 Self-hosting with Docker (recommended for community shards)
+
+Stand up a full shard — backend + its own local Postgres — with one command.
+Your shard generates its own secrets locally, so no database credential or
+signing key is ever shared between hosts (see
+[DISTRIBUTED_HOSTING_PLAN.md](DISTRIBUTED_HOSTING_PLAN.md)).
+
+Requirements: Docker Engine with the compose plugin (any Linux VM works, e.g. a
+DigitalOcean droplet; on Windows use WSL, Docker Desktop, or PowerShell).
+
+```bash
+git clone https://github.com/Missile-Wars-Revival/backend.git
+cd backend
+
+./docker/host.sh        # Linux/macOS — one-click launcher
+# .\docker\host.ps1     # Windows PowerShell
+```
+
+The launcher checks Docker is installed (with install links if not), generates
+your local `.env` on first run, registers your shard with the official
+coordinator at `https://backend-coordinator.vercel.app/shards/register`
+(writing `COORDINATOR_URL`, `SHARD_API_KEY`, and `SHARD_ID` into
+`.env` — the API key is shown once and is revocable), starts the stack, and
+runs a reachability check so you know port forwarding works.
+
+The registration request looks like this:
+
+```bash
+curl -X POST "https://backend-coordinator.vercel.app/shards/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Official Main",
+    "region": "eu-west",
+    "publicHttpUrl": "https://YOUR-BACKEND-DOMAIN",
+    "publicWsUrl": "wss://YOUR-BACKEND-DOMAIN",
+    "ownerContact": "you@example.com"
+  }'
+```
+
+You normally do **not** need to run that curl command yourself. The Docker
+launcher asks you for those values and sends the request for you.
+
+What the prompts mean:
+
+- `Server name`: the friendly name players see in the server list. Example:
+  `Official Main`, `London Shard`, or `Alice's Server`. Names are unique. If
+  someone already registered that name, the launcher asks you to pick another.
+- `Region`: a short location label so players can pick something nearby.
+  Examples: `eu-west`, `us-east`, `us-west`, `australia`.
+- `Public HTTP URL`: the normal internet address for this backend. This must be
+  reachable by a phone that is **not** on your computer. Do not enter
+  `localhost`, `127.0.0.1`, `db`, `backend`, or a Docker container name. Those
+  only work inside your machine.
+- `Public WebSocket URL`: usually the same address with `ws://` instead of
+  `http://`, or `wss://` instead of `https://`. If your HTTP URL is
+  `https://play.example.com`, the WebSocket URL is normally
+  `wss://play.example.com`.
+- `Owner contact email`: required. Use an email address you actually read, like
+  `you@example.com`. Admins use this if your server is down, misconfigured, or
+  needs verification help.
+
+The launcher tries to help with `publicHttpUrl` by asking the internet what IP
+address your server appears to have. If your shard listens on port `8080`, it
+will suggest something like `http://203.0.113.10:8080`. That guess is only a
+guess. If you use a domain, HTTPS proxy, different public port, tunnel, or cloud
+load balancer, type the real public URL instead. The correct answer is the one a
+player's phone can open from mobile data.
+
+What the stack runs:
+
+- `db` — Postgres 16 with a named volume (`db-data`); password generated by
+  `setup.sh`, unique to your machine.
+- `migrate` — one-shot `prisma db push` against your local DB, then exits.
+- `backend` — the game server on port `8080` (change `PORT` in `.env`).
+
+Check it's alive: `curl http://localhost:8080/healthz` → `ok`.
+
+Useful commands:
+
+```bash
+docker compose logs -f backend   # tail server logs
+docker compose down              # stop (DB data persists in the volume)
+docker compose down -v           # stop AND wipe the database
+docker compose up -d --build     # rebuild after pulling updates
+```
+
+Notes for hosts:
+
+- `firebasecred.json` is **not** part of a community shard — Firebase ID-token
+  login is verified via the coordinator (`/auth/verify-id-token`) and push
+  notifications are delivered through the coordinator's rate-limited
+  `/relay/push`, so you never hold players' push tokens. Only the project
+  owner's deployment mounts it.
+- Registered shards heartbeat to the coordinator every 30s (player count +
+  version) so players can discover your server. The Docker host launcher now
+  registers public shards with the official coordinator before starting them.
+- Email settings in `.env` are optional and only used for password-reset
+  emails on the owner's deployment.
 
 ## 🚀 Running the Server
 
@@ -79,8 +192,7 @@ npm run dev
 
 ### Production Mode
 ```bash
-npm run build
-npm start
+npm start   # compiles with tsconfig.server.json, then runs dist/server.js
 ```
 
 ## ☁️ AWS Elastic Beanstalk Deployment
@@ -124,7 +236,7 @@ eb printenv --environment your-env-name
 ### Deploy Code
 **Important:** Build the application locally before deploying:
 ```bash
-npm run build
+npx tsc --project tsconfig.server.json
 ```
 This ensures the `dist/` directory is created and included in the deployment bundle. The `dist/` folder contains the compiled JavaScript files and is not ignored in version control.
 
@@ -191,6 +303,21 @@ npx prisma migrate dev --create-only
 # Apply migration
 npx prisma migrate dev
 ```
+
+## 🌐 Distributed Hosting — Owner Operations
+
+Copies social data (friends, profiles, push tokens, notification prefs) from
+production Postgres to Firebase central. Needs `firebasecred.json` and the
+production `DATABASE_URL`; idempotent, so safe to re-run (e.g. for legacy
+accounts that gained a `firebaseUID` after the first pass):
+
+```bash
+npm run migrate:social              # dry run
+npm run migrate:social -- --apply
+```
+
+RTDB security rules live in `../backend-coordinator/rtdbrules.json` — keep the
+Firebase console rules in sync with that file when it changes.
 
 ## 📦 Data Migration Tools
 
