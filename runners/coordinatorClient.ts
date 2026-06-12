@@ -1,4 +1,5 @@
 import axios from "axios";
+import { prisma } from "../server";
 
 // Shard → coordinator heartbeat (Phase 1 of DISTRIBUTED_HOSTING_PLAN.md).
 //
@@ -27,12 +28,26 @@ export function getConnectedPlayerCount(): number {
   return connectedPlayers;
 }
 
+async function getTotalPlayerCount(): Promise<number> {
+  return prisma.gameplayUser.count({
+    where: {
+      Users: {
+        role: {
+          not: "bot",
+        },
+      },
+    },
+  });
+}
+
 const sendHeartbeat = async (coordinatorUrl: string, shardApiKey: string) => {
   try {
+    const totalPlayerCount = await getTotalPlayerCount();
     await axios.post(
       `${coordinatorUrl.replace(/\/$/, "")}/shards/heartbeat`,
       {
         playerCount: connectedPlayers,
+        totalPlayerCount,
         version,
         gitSha: process.env.GIT_SHA || undefined,
       },
