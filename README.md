@@ -24,13 +24,107 @@ Copyright (c) 2024 longtimeno-c. All rights reserved.
 - Database integration with Prisma
 
 ## 📋 Prerequisites
+
+For standard hosting, use Docker. You do **not** need to install Node.js,
+Postgres, Prisma, Firebase credentials, or SMTP credentials on the host machine.
+The Docker stack runs the backend and its own local Postgres database.
+
+- Docker Engine with the Compose plugin
+- `git`
+- `curl`
+- A public URL or public IP/port that players can reach
+
+Platform notes:
+
+- macOS: install Docker Desktop, then start it before running the launcher.
+- Linux VPS: install Docker Engine and make sure your firewall allows the shard
+  port, usually TCP `8080`.
+- Windows: use Docker Desktop with PowerShell, or use WSL and the Linux/macOS
+  command.
+
+Manual Node/Postgres setup is only for local development or custom deployments.
+See [Manual development setup](#manual-development-setup).
+
+## 🐳 Standard Setup With Docker
+
+This is the recommended setup for community-hosted shards. It starts a full
+shard: backend + local Postgres + one-time schema setup.
+
+```bash
+git clone https://github.com/Missile-Wars-Revival/backend.git
+cd backend
+
+./docker/host.sh
+```
+
+On Windows PowerShell:
+
+```powershell
+.\docker\host.ps1
+```
+
+The launcher will:
+
+1. Check Docker and Docker Compose are available.
+2. Generate a local `.env` file on first run, or repair missing Docker values
+   in an existing `.env`.
+3. Register your shard with the official coordinator.
+4. Build and start the Docker stack.
+5. Check `http://localhost:8080/healthz` and warn if the public port looks
+   closed.
+
+If macOS or Linux says `Permission denied`, fix the executable bit once:
+
+```bash
+chmod +x docker/host.sh docker/setup.sh
+./docker/host.sh
+```
+
+If Docker is installed but the launcher says the daemon is not running:
+
+- macOS: open Docker Desktop from Applications and wait until it says Docker is
+  running. Do not use `systemctl` on macOS.
+- Windows: start Docker Desktop and wait until it says Docker is running.
+- Linux: start the Docker service:
+
+```bash
+sudo systemctl start docker
+```
+
+Check the shard is alive:
+
+```bash
+curl http://localhost:8080/healthz
+```
+
+Expected response:
+
+```text
+ok
+```
+
+Useful Docker commands:
+
+```bash
+docker compose logs -f backend   # tail server logs
+docker compose down              # stop; database data persists
+docker compose down -v           # stop and wipe the database volume
+docker compose up -d --build     # rebuild after pulling updates
+```
+
+## 🛠️ Manual Development Setup
+
+Use this path only if you are developing the backend without Docker or running a
+custom deployment. Standard shard hosts should use
+[Standard Setup With Docker](#standard-setup-with-docker).
+
+Manual prerequisites:
+
 - Node.js (v16.x or higher)
 - npm (v8.x or higher)
 - PostgreSQL database
-- Firebase account for notifications and real time messaging
-- SMTP server access for emails
-
-## 🛠️ Setup
+- Firebase account for owner-only notification and account-management services
+- SMTP server access for password-reset emails, if needed
 
 ### 1. Environment Configuration
 Create an `.env` file in the root directory. The server boots in one of two
@@ -79,26 +173,16 @@ deployment does this:
 4. This enables the global chat message listener, Firebase Storage profile
    pictures, and Firebase account management (password/email changes).
 
-## 🐳 Self-hosting with Docker (recommended for community shards)
+## 🧭 Docker Hosting Details
 
 Stand up a full shard — backend + its own local Postgres — with one command.
 Your shard generates its own secrets locally, so no database credential or
 signing key is ever shared between hosts (see
 [DISTRIBUTED_HOSTING_PLAN.md](DISTRIBUTED_HOSTING_PLAN.md)).
 
-Requirements: Docker Engine with the compose plugin (any Linux VM works, e.g. a
-DigitalOcean droplet; on Windows use WSL, Docker Desktop, or PowerShell).
-
-```bash
-git clone https://github.com/Missile-Wars-Revival/backend.git
-cd backend
-
-./docker/host.sh        # Linux/macOS — one-click launcher
-# .\docker\host.ps1     # Windows PowerShell
-```
-
 The launcher checks Docker is installed (with install links if not), generates
-your local `.env` on first run, registers your shard with the official
+your local `.env` on first run or repairs missing Docker values in an existing
+`.env`, registers your shard with the official
 coordinator at `https://backend-coordinator.vercel.app/shards/register`
 (writing `COORDINATOR_URL`, `SHARD_API_KEY`, and `SHARD_ID` into
 `.env` — the API key is shown once and is revocable), starts the stack, and
@@ -147,23 +231,12 @@ guess. If you use a domain, HTTPS proxy, different public port, tunnel, or cloud
 load balancer, type the real public URL instead. The correct answer is the one a
 player's phone can open from mobile data.
 
-What the stack runs:
+What the Docker stack runs:
 
 - `db` — Postgres 16 with a named volume (`db-data`); password generated by
   `setup.sh`, unique to your machine.
 - `migrate` — one-shot `prisma db push` against your local DB, then exits.
 - `backend` — the game server on port `8080` (change `PORT` in `.env`).
-
-Check it's alive: `curl http://localhost:8080/healthz` → `ok`.
-
-Useful commands:
-
-```bash
-docker compose logs -f backend   # tail server logs
-docker compose down              # stop (DB data persists in the volume)
-docker compose down -v           # stop AND wipe the database
-docker compose up -d --build     # rebuild after pulling updates
-```
 
 Notes for hosts:
 
@@ -178,7 +251,7 @@ Notes for hosts:
 - Email settings in `.env` are optional and only used for password-reset
   emails on the owner's deployment.
 
-## 🚀 Running the Server
+## 🚀 Running the Server Manually
 
 ### Install Dependencies
 ```bash

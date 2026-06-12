@@ -54,8 +54,20 @@ fi
 
 if ! docker info >/dev/null 2>&1; then
     fail "Docker is installed but the daemon is not running (or you lack permission)."
-    echo "  Start Docker (Desktop) or: sudo systemctl start docker"
-    echo "  To run docker without sudo:  sudo usermod -aG docker \$USER  (then log out/in)"
+    case "$(uname -s)" in
+        Darwin)
+            echo "  Start Docker Desktop from Applications, wait until it says Docker is running,"
+            echo "  then re-run ./docker/host.sh."
+            echo "  macOS does not use systemctl, so 'sudo systemctl start docker' will not work."
+            ;;
+        Linux)
+            echo "  Start Docker with:  sudo systemctl start docker"
+            echo "  To run docker without sudo:  sudo usermod -aG docker \$USER  (then log out/in)"
+            ;;
+        *)
+            echo "  Start Docker Desktop and wait until it says Docker is running, then re-run this script."
+            ;;
+    esac
     exit 1
 fi
 
@@ -72,11 +84,7 @@ ok "Docker is ready ($COMPOSE)"
 
 # ------------------------------------------------------------- step 2: secrets
 bold "2/5 Local secrets (.env)..."
-if [ -f .env ]; then
-    ok ".env already exists - keeping it"
-else
-    ./docker/setup.sh
-fi
+./docker/setup.sh
 
 # Read a KEY=value from .env (last occurrence wins; ignores commented lines).
 env_get() {
