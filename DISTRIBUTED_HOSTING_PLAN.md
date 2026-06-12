@@ -579,18 +579,84 @@ shards' economies can't be inflated by arbitrary clients. Solo/no-coordinator
 hosts have no secret-key holder, so premium purchases are
 distributed-mode-only (the coin shop works everywhere).
 
+### Phase 10 — Temporary legacy Firebase reconciliation window
+
+Goal: for a limited migration window, let users who already created or confirmed
+a Firebase Auth account finish being linked to their old main-db account
+automatically. The Firebase account proves control of the email address; the
+owner/main database is used only as a legacy lookup source to recover username,
+friend list, and missing central RTDB rows.
+
+**Problem this phase fixes:** some production users exist in the main Postgres
+database with an email address and possibly a Firebase Auth account, but their
+`Users.firebaseUID`, `/profiles/<uid>`, `/friends/<uid>`, notification prefs,
+and coordinator username claim/index may not all be populated yet. In the Phase
+8 distributed login flow, those users can authenticate with Firebase but still
+look like incomplete or brand-new central accounts.
+
+- [ ] **Enable only on the owner/main shard**: add a temporary
+      `LEGACY_ACCOUNT_RECONCILIATION_UNTIL` env var (date, e.g. three months
+      from rollout). Community shards must not run this flow because they do
+      not hold the canonical historical database.
+- [ ] **Firebase login reconciliation path**: when `/api/login` or the
+      coordinator login/bootstrap flow receives a verified Firebase ID token,
+      first look up `Users.firebaseUID = uid`; if absent, look up
+      `Users.email = decoded.email`. Only continue when Firebase reports the
+      email as verified. Never link by unverified email.
+- [ ] **Safe linking rules**: if email lookup finds exactly one legacy user
+      whose `firebaseUID` is empty, set `Users.firebaseUID = uid` in a
+      transaction. Refuse and log if the email maps to multiple users, the UID
+      is already linked to a different username, or the legacy row has a
+      conflicting Firebase UID.
+- [ ] **Central username/profile repair**: after linking, upsert
+      `/profiles/<uid>` with `{ username, updatedAt, migratedFromLegacy: true }`
+      and claim/reserve the username in `/coordinator/usernameIndex` using the
+      same case-insensitive key as Phase 8. If the username is already claimed
+      by the same UID, continue; if claimed by another UID, stop and require
+      manual support because the identity boundary is ambiguous.
+- [ ] **Friend-list migration on demand**: copy the legacy
+      `Users.friends[]` username list to uid-keyed RTDB edges. For each friend,
+      resolve the friend's `firebaseUID` from the main DB. Write
+      `/friends/<uid>/<friendUid> = true` only when the friend has a UID; report
+      skipped friends without UIDs so they can be backfilled when those users
+      reconcile later. Do not create friend requests during this repair.
+- [ ] **Notification preferences repair**: if a linked legacy user has
+      `NotificationPreferences`, upsert `/notificationPreferences/<uid>` with
+      those flags. Do not restore old push tokens from Postgres; Phase 6 made
+      clients register current Expo tokens directly to RTDB.
+- [ ] **Make the migration idempotent**: expose a reusable helper/script, e.g.
+      `reconcileLegacyFirebaseUser(uid, email)` and
+      `npm run reconcile:legacy-social -- --email user@example.com`, so support
+      can run it manually and login can call the same code. Re-running should
+      only fill missing rows or confirm they already match.
+- [ ] **Audit and support visibility**: write a coordinator/admin audit row
+      under `/coordinator/accountReconciliations/<uid>` with timestamp, source
+      email, linked username, counts of migrated friend edges/prefs, skipped
+      friends, and any refusal reason. Add an admin-listable report of legacy
+      users still missing `firebaseUID`.
+- [ ] **Retirement plan**: once the window expires and the report is empty (or
+      acceptable), disable the env flag, remove email-based legacy linking from
+      login, and keep only explicit admin/support reconciliation for stragglers.
+
+*Security boundary:* Firebase email verification is the only automatic proof
+accepted here. Password knowledge from the old shard is not required, but an
+unverified Firebase email is not enough. Username/friend data flows only from
+the owner database to central RTDB, never from a community shard into the global
+social graph.
+
 ## File-level change map (known from current code)
 
 | File | Change |
 | ---- | ------ |
 | `backend/util/auth.ts` | HS256 → asymmetric verify-only; drop `signToken` on shard |
-| `backend/server-routes/authRoutes.ts` | Move login/register/reset/oauth to coordinator |
+| `backend/server-routes/authRoutes.ts` | Move login/register/reset/oauth to coordinator; **Phase 10** temporary owner-shard legacy email→Firebase UID reconciliation |
 | `backend/server-routes/*` (friends/profile) | **Phase 5** — delete social routes after Firebase cutover (no proxies) |
 | `backend/server.ts` | **Phase 5** — strip Firebase init; heartbeat loop already live |
 | `backend/runners/coordinatorClient.ts` | **Done** — 30s heartbeat to coordinator |
 | `backend/runners/*` (push/notification) | **Phase 5** — FCM send → coordinator `/relay/push` |
 | `backend/prisma/schema.prisma` | **Phase 5** — drop social models after migration script |
-| `backend/scripts/migrate-social-to-firebase.ts` | **Phase 5** — one-time Postgres → Firebase central export |
+| `backend/scripts/migrate-social-to-firebase.ts` | **Phase 5** — one-time Postgres → Firebase central export; **Phase 10** share/idempotently reuse repair logic for users linked later |
+| `backend/scripts/reconcile-legacy-firebase-user.ts` | **Phase 10** — new owner-only support script for email/UID linking + RTDB social backfill |
 | `backend/docker/host.sh` | **New** — one-click launcher: Docker detection, setup, register, port check |
 | `backend/docker/host.ps1` | **New** — Windows equivalent of `host.sh` |
 | `frontend/api/axios-instance.ts` | Coordinator discovery + shard select + unverified warning UI |
@@ -601,10 +667,10 @@ distributed-mode-only (the coin shop works everywhere).
 | `frontend` WebSocket setup | Point at chosen shard URL; **Phase 7** — waits for session confirmation |
 | `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect |
 | **coordinator** `../backend-coordinator/` | Vercel + Firebase RTDB; auth, directory, JWKS, relay, **admin portal** — **no Prisma** |
-| **coordinator** `src/routes/auth.ts` | **Phase 7 done** — history recorded on select-server/shard-token/refresh; profile username preferred |
+| **coordinator** `src/routes/auth.ts` | **Phase 7 done** — history recorded on select-server/shard-token/refresh; profile username preferred; **Phase 10** account bootstrap must tolerate centrally repaired legacy profiles |
 | **coordinator** server-list/discovery route | **Phase 7 done** — optional ID-token auth adds the user's history to `GET /servers` |
 | **coordinator** `rtdbrules.json` | **New** — lock `/coordinator/*`; `firebaseUID`-scoped social paths |
-| **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions, and **Phase 7 done** server history |
+| **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions, and **Phase 7 done** server history; **Phase 10** reconciliation audit rows |
 | **coordinator** `src/routes/purchases.ts` | **Phase 9** — new: RevenueCat secret-key verification, RTDB purchase ledger, grant-voucher minting |
 | `backend/server-routes/moneyApi.ts` | **Phase 9** — delete `/api/addMoney`; add voucher-verified `/api/redeemPurchase` |
 | `backend/prisma/schema.prisma` | **Phase 9** — redeemed-`txId` table for voucher replay protection; **done**: `stripeCustomerId` dropped |
@@ -630,6 +696,10 @@ distributed-mode-only (the coin shop works everywhere).
   shard endpoint reusing the existing JWKS verify path, and a `store.tsx`
   rewire. Riskiest part is deleting `/api/addMoney`/`addItem` while old app
   builds still call them — gate by app version or keep solo-mode-only.
+- **Phase 10:** moderate/high operational risk — identity repair touches old
+  account ownership. Keep it owner-shard-only, email-verified, idempotent,
+  audited, and time-limited so it solves migration fallout without becoming a
+  permanent ambiguous login path.
 
 ## Decided
 
@@ -652,6 +722,10 @@ distributed-mode-only (the coin shop works everywhere).
    user to choose a server. The coordinator records recently used servers in
    Firebase RTDB so the selector can offer a clear "continue/recent" flow on
    later launches.
+7. **Legacy account reconciliation** — temporary, owner-main-db-only
+   email-verified Firebase UID linking is acceptable for the migration window.
+   Community shards must never be allowed to write recovered social identity
+   into central RTDB.
 
 ## Open decisions to settle before/while building
 
@@ -669,3 +743,6 @@ distributed-mode-only (the coin shop works everywhere).
 6. **Port-forward check implementation** — external probe API vs self-hosted
    checker; must work from a typical home/VPS host and print the public URL
    players will use.
+7. **Phase 10 expiry date** — choose the exact rollout date and sunset date
+   for `LEGACY_ACCOUNT_RECONCILIATION_UNTIL`; default recommendation is three
+   months after deployment, then support-only manual reconciliation.
