@@ -78,6 +78,23 @@ export async function ensureGameplayRecords(username: string): Promise<GameplayU
   return gameplayUser;
 }
 
+export async function ensureNotificationPreferences(userId: number): Promise<void> {
+  const preferences = await prisma.notificationPreferences.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+  if (preferences) return;
+
+  await createHealingSequence(
+    "NotificationPreferences",
+    () => prisma.notificationPreferences.create({ data: { userId } }),
+    async () => !!(await prisma.notificationPreferences.findUnique({ where: { userId } }))
+  ).catch((error) => {
+    // A concurrent request creating the same row is success for us.
+    if (!isUniqueConstraint(error)) throw error;
+  });
+}
+
 // Full player setup for registration flows: Users row plus all gameplay
 // rows. A P2002 that is a genuine duplicate (username/email/firebaseUID
 // already taken) is rethrown so callers can keep mapping it to a 409.
@@ -104,7 +121,11 @@ export async function createPlayer(data: {
     return !!(await prisma.users.findUnique({ where: { firebaseUID: data.firebaseUID } }));
   });
 
+  const user = await prisma.users.findUnique({ where: { username: data.username } });
+  if (!user) return;
+
   await ensureGameplayRecords(data.username);
+  await ensureNotificationPreferences(user.id);
 }
 
 export async function ensureLocalUserForToken(decoded: TokenPayload): Promise<LocalUser | null> {
@@ -116,6 +137,9 @@ export async function ensureLocalUserForToken(decoded: TokenPayload): Promise<Lo
     if (!user.GameplayUser) {
       await ensureGameplayRecords(decoded.username);
       user = await findWithGameplay(decoded.username);
+    }
+    if (user) {
+      await ensureNotificationPreferences(user.id);
     }
     return user;
   }
@@ -146,12 +170,23 @@ export async function ensureLocalUserForToken(decoded: TokenPayload): Promise<Lo
     // below and continue if the rows now exist.
   }
 
-  return findWithGameplay(decoded.username);
+  user = await findWithGameplay(decoded.username);
+  if (user) {
+    if (!user.GameplayUser) {
+      await ensureGameplayRecords(decoded.username);
+      user = await findWithGameplay(decoded.username);
+    }
+    if (user) {
+      await ensureNotificationPreferences(user.id);
+    }
+  }
+
+  return user;
 }
 
 // Convenience for REST routes that only need the GameplayUser row: looks it
-// up, auto-provisioning the player (Users + GameplayUser + Statistics) when
-// the account hasn't touched this shard yet.
+// up, auto-provisioning the player (Users + GameplayUser + Statistics +
+// NotificationPreferences) when the account hasn't touched this shard yet.
 export async function ensureGameplayUserForToken(decoded: TokenPayload): Promise<GameplayUser | null> {
   const user = await ensureLocalUserForToken(decoded);
   return user?.GameplayUser ?? null;

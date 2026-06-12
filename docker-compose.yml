@@ -29,7 +29,7 @@ services:
   # are checked in.
   migrate:
     build: .
-    command: ["npx", "prisma", "db", "push", "--skip-generate"]
+    command: ["sh", "-c", "npx prisma db push --skip-generate && node prisma/seed-game-config.js"]
     environment:
       POSTGRES_HOST: db
       POSTGRES_USER: ${POSTGRES_USER:-missilewars}

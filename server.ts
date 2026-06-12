@@ -4,7 +4,10 @@ import express from "express";
 import type { Request, Response } from "express";
 import bodyParser from "body-parser";
 import expressWs from "express-ws";
+import fs from "fs";
+import path from "path";
 import { initAuth, verifyToken } from "./util/auth";
+import { ensureGameplayUserForToken } from "./util/provisionUser";
 import { AuthWithLocation, AuthWithLocationSchema } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, updateMissilePositions, addRandomLoot, checkPlayerProximity, deleteExpiredOther, checkAndCollectLoot } from "./runners/entitymanagment";
 import { startNotificationManager } from "./runners/notificationhelper";
@@ -55,8 +58,6 @@ const app = wsServer.app;
 // req.ip (used by rate limiting) reflects the real client address.
 app.set('trust proxy', 1);
 
-// Serve static files from public directory
-import path from 'path';
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Route to serve map.html
@@ -68,12 +69,16 @@ app.get('/healthz', (_req: Request, res: Response) => {
   res.status(200).send('ok');
 });
 
-let serviceAccount;
-try {
-  serviceAccount = require("./firebasecred.json");
-} catch (error) {
-  console.error("Failed to load Firebase credentials:", error);
-  serviceAccount = null;
+const firebaseCredentialsPath = path.join(__dirname, "firebasecred.json");
+let serviceAccount = null;
+if (fs.existsSync(firebaseCredentialsPath)) {
+  try {
+    serviceAccount = require(firebaseCredentialsPath);
+  } catch (error) {
+    console.error("Failed to load Firebase credentials from firebasecred.json:", error);
+  }
+} else {
+  console.warn("firebasecred.json not found; running without owner-only Firebase Admin features.");
 }
 
 // Initialize Firebase only if credentials are available
@@ -159,19 +164,19 @@ app.post(
       return res.status(401).json({ message: "Missing token" });
     }
 
-    let username: string;
+    let decoded;
     try {
-      username = verifyToken(location.token).username;
+      decoded = verifyToken(location.token);
     } catch {
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    // Check if the user exists
-    const user = await prisma.gameplayUser.findFirst({
-      where: {
-        username,
-      },
-    });
+    if (!decoded.username) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    const user = await ensureGameplayUserForToken(decoded);
+    const username = decoded.username;
 
     if (user) {
       const lastLocation = await prisma.locations.findFirst({
@@ -183,7 +188,7 @@ app.post(
         },
       });
 
-      const now = new Date().toISOString();
+      const now = new Date();
 
       if (lastLocation) {
         // User already has a location, update it
