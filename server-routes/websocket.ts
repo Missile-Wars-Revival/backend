@@ -2,6 +2,7 @@ import { Request } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
 import type { WebSocket as WsSocket } from "ws";
 import { verifyToken } from "../util/auth";
+import { ensureLocalUserForToken } from "../util/provisionUser";
 import * as middleearth from "middle-earth";
 import { prisma } from "../server";
 import { getMutualFriends } from "./friendsApi";
@@ -81,11 +82,7 @@ function authenticate(
         return;
       }
 
-      // Fetch the user based on the username from the token
-      let user = await prisma.users.findUnique({
-        where: { username: decoded.username },
-        include: { GameplayUser: true }
-      });
+      let user = await ensureLocalUserForToken(decoded);
 
       // Phase 7 server migration: a coordinator-signed token (RS256, identity
       // proven by the coordinator's private key) for a user this shard has

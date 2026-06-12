@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { verifyToken } from "../util/auth";
+import { ensureLocalUserForToken } from "../util/provisionUser";
 import { prisma } from "../server";
 import * as geolib from 'geolib';
 import { resolveProfileImageUrls } from "./profileImages";
@@ -55,6 +56,11 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(400).json({ message: "friendsOnly status must be provided and be a boolean." });
       }
   
+      const localUser = await ensureLocalUserForToken(decoded);
+      if (!localUser || !localUser.GameplayUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
       // Update the friendsOnly status in the GameplayUser table
       const updatedUser = await prisma.gameplayUser.update({
         where: {
@@ -64,11 +70,6 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
           friendsOnly: req.body.friendsOnly
         }
       });
-  
-      // If no user is found or updated, send a 404 error
-      if (!updatedUser) {
-        return res.status(404).json({ message: "User not found" });
-      }
   
       // Return the updated user info
       res.status(200).json({
@@ -107,11 +108,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(200).json([]);
       }
 
-      // Fetch the current user to get their friends list
-      const currentUser = await prisma.users.findUnique({
-        where: { username: decoded.username },
-        select: { friends: true }
-      });
+      const currentUser = await ensureLocalUserForToken(decoded);
   
       if (!currentUser) {
         return res.status(404).json({ message: "User not found" });
@@ -206,13 +203,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(401).json({ message: "Invalid token. Token must contain a username." });
       }
   
-      // Fetch the main user object to get access to the friends list
-      const mainUser = await prisma.users.findUnique({
-        where: {
-          username: decoded.username,
-        },
-        select: { friends: true }
-      });
+      const mainUser = await ensureLocalUserForToken(decoded);
   
       if (!mainUser) {
         return res.status(404).json({ message: "User not found" });

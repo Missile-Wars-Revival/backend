@@ -1,4 +1,5 @@
 import { issueToken, verifyToken } from "../util/auth";
+import { ensureLocalUserForToken } from "../util/provisionUser";
 import { syncProfileUsername } from "../util/socialStore";
 import { verifyFirebaseIdToken } from "../util/firebaseIdToken";
 import { prisma } from "../server";
@@ -116,7 +117,7 @@ export function setupAuthRoutes(app: any) {
         }
         try {
             const decoded = verifyToken(token);
-            const user = await prisma.users.findUnique({ where: { username: decoded.username } });
+            const user = await ensureLocalUserForToken(decoded);
             if (!user) {
                 return res.status(404).json({ message: "User not found" });
             }

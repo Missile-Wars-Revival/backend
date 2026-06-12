@@ -1,6 +1,7 @@
 import { GameplayUser, Prisma } from "@prisma/client";
 import { prisma } from "../server";
 import { verifyToken } from "./auth";
+import { ensureLocalUserForToken } from "./provisionUser";
 import { haversine } from "../runners/entitymanagment";
 
 // Shared building blocks for the entity placement endpoints (missiles,
@@ -20,7 +21,9 @@ type AuthResult =
 export async function authenticateUser(token: string): Promise<AuthResult> {
   let username: string;
   try {
-    username = verifyToken(token).username;
+    const decoded = verifyToken(token);
+    username = decoded.username;
+    await ensureLocalUserForToken(decoded);
   } catch {
     return { user: null, error: { status: 401, message: "Invalid token" } };
   }

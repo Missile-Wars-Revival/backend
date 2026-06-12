@@ -169,6 +169,8 @@ webpage** hosted on the coordinator (not a public API key alone). Capabilities:
 - View all registered shards (pending, active, offline, disabled).
 - **Set verified / unverified** status per shard (written to RTDB).
 - Approve pending registrations, disable or delist bad actors.
+- Edit a shard's public HTTP/WebSocket URLs in the server directory. This is
+  discovery metadata, separate from JWT signing keys and shard API keys.
 - Rotate shard API keys, view heartbeat/load/player counts.
 - Rotate JWT signing keys.
 
@@ -216,7 +218,7 @@ Holds the real secrets. **No Prisma, no Neon, no `schema.prisma`.**
 - [x] `GET /servers` / `GET /servers/best?lat=&lon=` → read shard list from RTDB; include `verified`, player count, region; filter disabled/offline/stale.
 - [x] `GET /.well-known/jwks.json` → **public** JWT verification key(s).
 - [x] Key management: RS256 keypair via `npm run generate-keys`; private key in host env, public key served via JWKS.
-- [x] **Admin portal** (login-protected web UI at `/admin`): list shards, approve/disable, **toggle verified**, rotate keys. Backed by `ADMIN_API_KEY`.
+- [x] **Admin portal** (login-protected web UI at `/admin`): list shards, approve/disable, **toggle verified**, edit public URLs, rotate keys. Backed by `ADMIN_API_KEY`.
 - [x] `POST /auth/select-server` → short-lived (12h) RS256 token with `sub` = firebaseUID, `aud` = shard id (placeholder identity check until Phase 3 moves full login here).
 
 ### Phase 3 — Auth split (highest-risk phase; touches every protected endpoint's assumptions)
@@ -387,46 +389,134 @@ authenticate the person first, then ask where they want to play, then connect to
 that shard. Server selection becomes a first-class step instead of a silent
 startup default.
 
-- [ ] **Frontend login flow**: after login/register/oauth succeeds, route the
-      user to a full-screen server selector before mounting gameplay. The
-      selector should show online shards from the coordinator, verified status,
-      region/player count, and a "previously used" / "recent" section when the
-      coordinator has history for this user.
-- [ ] **No automatic unverified selection**: verified servers may be suggested
-      or highlighted, but unverified servers still require the existing blocking
-      warning and per-server acknowledgement before connect.
-- [ ] **Connecting transition**: after the user chooses a server, show
-      `components/ConnectingScreen.tsx` while the app obtains/refreshes the
-      shard token, persists the selected shard, points axios/WebSocket at that
-      shard, and waits for the first successful gameplay connection/state load.
-      This avoids flashing map/death/gameplay UI while the shard connection is
-      still settling.
-- [ ] **Coordinator stores server history in Firebase RTDB**: every successful
-      server selection/token mint updates a coordinator-owned history path such
-      as `/coordinator/users/<uid>/serverHistory/<shardId>` with
+- [x] **Frontend login flow**: a full-screen selector
+      (`components/ServerSelectScreen.tsx`) gates the gameplay shell —
+      `ServerSessionGate` in `app/_layout.tsx` wraps the signed-in Stack, so
+      both fresh logins and cold starts pass through it before anything
+      connects. It shows online shards (verified badge, region, player count)
+      and a "Recent servers" section from coordinator history. *(Deviation,
+      deliberate: the login screen KEEPS its small Phase 6 picker — login
+      itself still talks to a shard (`/api/lookup` + `/api/login`; the shard
+      validates, the coordinator signs, per Phase 3), so the user needs a
+      login target before they authenticate. The post-login selector is the
+      authoritative "where do I play" step.)*
+- [x] **No automatic unverified selection**: the selector never auto-picks
+      anything; the quick "Continue" card only ever targets the most recent
+      still-listable **verified** shard. Unverified picks go through the same
+      blocking warning + per-server acknowledgment as Phase 6 (the modal is
+      now a shared component exported from `ServerPicker.tsx`).
+- [x] **Connecting transition**: implemented as a per-app-session "server
+      confirmed" flag in `api/server-discovery.ts` that the websocket hook
+      subscribes to — in distributed mode the socket cannot connect until the
+      selector confirms. After the pick, the selector mints the token, persists
+      the selection (axios/WS resolve URLs from it), then holds
+      `ConnectingScreen` until the first gameplay payload (`healthdata`)
+      arrives or a 15s safety timeout fires.
+- [x] **Coordinator stores server history in Firebase RTDB**:
+      `store.recordServerUse()` writes
+      `/coordinator/users/<uid>/serverHistory/<shardId>` =
       `{ firstUsedAt, lastUsedAt, useCount, lastServerName, lastRegion,
-      lastVerified }`. This is written only by the coordinator Admin SDK, never
-      directly by clients.
-- [ ] **History in the server list**: include the authenticated user's recent
-      server history in the existing coordinator server-list/discovery
-      response, joined with current shard status/discovery fields. The selector
-      should use that history to show recent servers first. Disabled or stale
-      shards can be shown as unavailable, but must not be connectable.
-- [ ] **Selection write path**: `POST /auth/select-server` should be the single
-      authoritative client selection path. After verifying the Firebase ID token
-      and confirming the shard is listable, it mints the shard-scoped JWT,
-      upserts `/profiles/<uid>.lastShardId`, and records server history.
-      Shard-mediated token mints (`/auth/shard-token`) may also record history
-      for compatibility, but the Phase 7 frontend should prefer
-      `/auth/select-server`.
-- [ ] **Resume behaviour**: on app launch with an existing Firebase session,
-      show the server selector with the user's recent servers first. A quick
-      "continue" action can target the most recent still-listable verified
-      shard, but the user should be able to change shards before gameplay
-      connects.
-- [ ] **Local/solo fallback**: when `EXPO_PUBLIC_COORDINATOR_URL` is unset, keep
-      the current direct-backend flow so development and solo hosts still work
-      without a selector/history service.
+      lastVerified }` via an RTDB transaction (display fields are snapshots so
+      delisted servers still render). Admin SDK only — the existing
+      `/coordinator` rules already lock it, **no rules re-deploy needed** for
+      Phase 7. Legacy accounts record under `user:<username>`.
+- [x] **History in the server list**: `GET /servers` accepts an optional
+      `Authorization: Bearer <Firebase idToken>`; when valid the response adds
+      `history` (sorted by `lastUsedAt` desc) with an `available` flag joined
+      against the currently-listable set. A missing/expired token silently
+      degrades to the anonymous response — discovery never fails over
+      identity. Unavailable history entries render dimmed and unpressable;
+      `select-server` refuses non-listable shards server-side regardless.
+- [x] **Selection write path**: `POST /auth/select-server` now reads the
+      canonical username from `/profiles/<uid>/username` (token claims only as
+      fallback for first-ever mints), mints the shard JWT, bootstraps the
+      profile (`lastShardId`), and records history. `/auth/shard-token` and
+      `/auth/refresh` record history too (compatibility). History writes are
+      non-fatal — they never break a mint.
+- [x] **Resume behaviour**: session confirmation is in-memory per JS session,
+      so every cold start with a Firebase-backed session shows the selector
+      (recents first, Continue quick action); returning from background within
+      the same session does not re-ask. Sign-out resets the flag. *(Honest
+      limits: legacy accounts — no `firebaseUID` in SecureStore — and the dev
+      offline token skip the selector entirely; their identity is shard-local,
+      so server switching is meaningless for them. If the coordinator is
+      unreachable at selection time, picking the already-selected server falls
+      back to the existing shard token instead of locking the player out.)*
+- [x] **Local/solo fallback**: when `EXPO_PUBLIC_COORDINATOR_URL` is unset the
+      session is always auto-confirmed and the selector never mounts — the
+      direct-backend flow is byte-for-byte the old behavior.
+      **Addition this phase required (shard side): server-migration
+      onboarding.** A coordinator-signed token for a user the shard has never
+      seen used to fail websocket auth, which would have made switching
+      servers impossible. `websocket.ts` now provisions `Users` +
+      `GameplayUser` on first connect when the token carries a `firebaseUID`
+      (identity proven by the coordinator's signature; fresh world, default
+      gameplay state). It refuses when that `firebaseUID` already exists
+      locally under a different username (central rename not applied here) or
+      when the username is taken by a different identity. Legacy HS256 tokens
+      never provision.
+
+### Phase 8 — Coordinator-only authentication (email / Apple / Google)
+
+Goal: authentication touches **only Firebase Auth and the coordinator** — no
+game server is contacted until the player has picked one in the post-login
+selector. Enabled by Phase 7's shard provisioning: a brand-new account's
+`Users`/`GameplayUser` rows are created at first websocket connect, so the app
+never needs shard `/api/register` or `/api/login` in distributed mode.
+
+- [x] **Email login is Firebase-direct**: the login form takes email +
+      password and calls `signInWithEmailAndPassword` — the shard
+      `/api/lookup` username→email resolution is gone from the distributed
+      flow. Apple/Google likewise stop calling shard `/api/oauth-login`; the
+      Firebase session alone is the authentication.
+- [x] **Usernames are allocated centrally**: coordinator
+      `POST /auth/claim-username` (auth: Firebase ID token) transactionally
+      claims the lowercased name in `/coordinator/usernameIndex` and writes
+      `/profiles/<uid>/username`; `GET /auth/username-available` backs the
+      register form. Availability also consults existing profiles (indexed
+      query) so pre-claim accounts keep their names. Format rule matches the
+      shards' historic one: 3-20 letters/numbers.
+- [x] **Register**: username availability check → Firebase `createUser` →
+      claim. A lost claim race doesn't strand the account — the session gate
+      re-asks via `components/UsernameClaimScreen.tsx`, which is also how
+      first-time Apple/Google users pick their name (prefilled from their
+      display name).
+- [x] **`/auth/select-server` returns `username`** and the client caches it
+      (SecureStore) — with email login the app otherwise wouldn't know the
+      game username. The session gate also caches it from the profile on
+      every cold start.
+- [x] **`/profiles` writes locked to the Admin SDK** in `rtdbrules.json`
+      (clients only ever read profiles — verified). Usernames can now only
+      enter via the coordinator's uniqueness-checked claim, the mint
+      bootstrap, or the owner shard's rename sync.
+      **This changes `rtdbrules.json` again — re-deploy it** (bundle with the
+      still-pending Phase 6 deploy).
+- [x] **Password reset via Firebase** (`sendPasswordResetEmail`) in
+      distributed mode — no shard email creds, no reset-code entry in the
+      app. The username-reminder option is hidden (login is by email).
+- [x] **Server picker removed from the login screen** — authentication no
+      longer needs a target, so the Phase 6 inline picker is gone from
+      `app/login.tsx`; the post-login full-screen selector is the only
+      server choice. (`ServerPicker.tsx` survives as the home of the shared
+      badge/warning-modal components.)
+- [x] **Selector de-duplicated**: each server appears in exactly one section —
+      the Continue card swallows its own history row, "Recent" holds the rest
+      (capped at 5), and the directory section ("Other servers", or "All
+      servers" when there's nothing above it) lists only what hasn't been
+      shown. A lone server renders once instead of three times.
+
+*Honest residuals:* solo/no-coordinator builds keep the legacy username login
+and the shard keeps `/api/lookup`/`/api/login`/`/api/register`/
+`/api/oauth-login` for them and for old app versions. **Legacy accounts
+without a Firebase identity cannot sign in through the new distributed flow
+at all** (they could before via the shard's argon2 path) — they need an old
+app build or a solo shard; their argon2-only credentials never worked with
+Firebase anyway. Renames still run through shard `/api/changeUsername`, which
+updates the profile but not the claim index — the old name stays reserved and
+rename centralization is future work. Claims are unique case-insensitively,
+but the existing-profile check is exact-match, so a case-variant of a
+pre-claim name can slip through. The `__DEV__` offline bypass only exists in
+the solo login path now.
 
 ## File-level change map (known from current code)
 
@@ -443,16 +533,17 @@ startup default.
 | `backend/docker/host.sh` | **New** — one-click launcher: Docker detection, setup, register, port check |
 | `backend/docker/host.ps1` | **New** — Windows equivalent of `host.sh` |
 | `frontend/api/axios-instance.ts` | Coordinator discovery + shard select + unverified warning UI |
-| `frontend/api/server-discovery.ts` | **Phase 7** — read history metadata from server list, select via coordinator before gameplay connect |
+| `frontend/api/server-discovery.ts` | **Phase 7 done** — history in server list, `/auth/select-server` client, per-session confirmation gate |
 | `frontend/api/friends.ts` | Read/write Firebase central instead of shard REST |
-| `frontend/components/ConnectingScreen.tsx` | **Phase 7** — show while selected shard token + REST/WS connection settles |
-| `frontend` login/navigation flow | **Phase 7** — login first, then full-screen server selector, then gameplay |
-| `frontend` WebSocket setup | Point at chosen shard URL |
+| `frontend/components/ServerSelectScreen.tsx` | **Phase 7 done** — full-screen post-login selector; holds `ConnectingScreen` until first gameplay payload |
+| `frontend` login/navigation flow | **Phase 7 done** — `ServerSessionGate` in `app/_layout.tsx`: login, then selector, then gameplay |
+| `frontend` WebSocket setup | Point at chosen shard URL; **Phase 7** — waits for session confirmation |
+| `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect |
 | **coordinator** `../backend-coordinator/` | Vercel + Firebase RTDB; auth, directory, JWKS, relay, **admin portal** — **no Prisma** |
-| **coordinator** `src/routes/auth.ts` | **Phase 7** — record server history during `/auth/select-server` |
-| **coordinator** server-list/discovery route | **Phase 7** — include authenticated user's server history in the existing server list response |
+| **coordinator** `src/routes/auth.ts` | **Phase 7 done** — history recorded on select-server/shard-token/refresh; profile username preferred |
+| **coordinator** server-list/discovery route | **Phase 7 done** — optional ID-token auth adds the user's history to `GET /servers` |
 | **coordinator** `rtdbrules.json` | **New** — lock `/coordinator/*`; `firebaseUID`-scoped social paths |
-| **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions, and **Phase 7** server history |
+| **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions, and **Phase 7 done** server history |
 
 ## Effort / risk
 
