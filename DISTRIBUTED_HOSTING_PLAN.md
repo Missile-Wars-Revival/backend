@@ -518,6 +518,67 @@ but the existing-profile check is exact-match, so a case-variant of a
 pre-claim name can slip through. The `__DEV__` offline bypass only exists in
 the solo login path now.
 
+### Phase 9 — Payment migration (RevenueCat verification moves to the coordinator)
+
+Goal: real-money purchases are verified by the **coordinator**, never trusted
+from the client and never requiring a secret on a shard.
+
+**Current state (what's wrong):** the app configures RevenueCat with the
+*public* SDK keys (`EXPO_PUBLIC_REVENUECAT_API_KEY_APPLE/GOOGLE`) — those are
+designed to ship in the binary and are fine. The hole is server-side: after a
+purchase, `store.tsx` checks `customerInfo.entitlements.active[...]` **in
+client JS** and then calls the shard's `/api/addMoney` / `/api/addItem` with a
+client-chosen amount. Nothing verifies the purchase server-side — any valid
+JWT can mint coins with one curl. The RevenueCat **secret** key (`sk_...`)
+exists nowhere in the repos yet; per the one security law it must live on the
+coordinator only.
+
+- [ ] **Stable purchase identity**: call `Purchases.logIn(firebaseUID)` at
+      sign-in so RevenueCat's `app_user_id` is the same identity the
+      coordinator mints tokens for (today it's an anonymous ID, which makes
+      server-side attribution impossible). Log out of RevenueCat on sign-out.
+- [ ] **Coordinator `POST /purchases/redeem`** (auth: Firebase ID token, same
+      pattern as `/auth/claim-username`): coordinator holds
+      `REVENUECAT_SECRET_KEY` in its env, calls RevenueCat REST
+      (`GET /v1/subscribers/{firebaseUID}`) to confirm the transaction exists
+      for that user, and records the RevenueCat transaction id in RTDB
+      (`/coordinator/purchases/<txId>`) so each purchase redeems **once**
+      (storing which shard received the grant — shards are separate worlds).
+      Optionally add a RevenueCat **webhook** receiver later for audit.
+- [ ] **Grant delivery via signed voucher**: the coordinator mints a
+      short-lived RS256 grant token (`sub` = firebaseUID, `aud` = target shard
+      id, claims `{grant, amount|item, txId}`) with the **same private key**
+      it already uses for auth tokens. The client presents it to the shard's
+      new `POST /api/redeemPurchase`; the shard verifies it with the JWKS it
+      already caches (`util/auth.ts`) and credits coins / inventory. Zero new
+      secrets on shards; no coordinator→shard credential needed.
+- [ ] **Shard replay protection**: shard stores redeemed `txId`s (new small
+      Prisma table) and refuses a voucher it has seen.
+- [ ] **Close the holes**: delete `/api/addMoney` and the client-callable
+      `/api/addItem` from the shard (or gate them solo-mode-only behind
+      `JWT_SECRET`, like the legacy login routes). Rewire `store.tsx`'s
+      `buyItem` to the redeem round-trip (purchase → coordinator redeem →
+      voucher → shard) and drop the client-side entitlement check as the
+      authority.
+- [ ] **Fix the consumable semantics while moving**: coin packs are
+      consumables — `entitlements.active['Coins']` is the wrong check
+      (entitlements model subscriptions/non-consumables). Server-side
+      verification should read the subscriber's non-subscription transaction
+      list; don't port the client bug.
+- [x] **Stripe removal**: `stripeCustomerId` dropped from `Users` in
+      `prisma/schema.prisma` — it was the only Stripe artifact in either repo
+      (no package, route, or webhook ever existed). The `donate.stripe.com`
+      links in the frontend settings screen are hosted donation URLs, not
+      purchase logic, and stay.
+
+*Honest residuals:* a community host can still grant themselves infinite coins
+**in their own world** — inherent and acceptable (the economy is world-local).
+This phase protects the **payment boundary**: nobody receives paid goods
+without a real store transaction, redeemed exactly once, and verified/owner
+shards' economies can't be inflated by arbitrary clients. Solo/no-coordinator
+hosts have no secret-key holder, so premium purchases are
+distributed-mode-only (the coin shop works everywhere).
+
 ## File-level change map (known from current code)
 
 | File | Change |
@@ -544,6 +605,11 @@ the solo login path now.
 | **coordinator** server-list/discovery route | **Phase 7 done** — optional ID-token auth adds the user's history to `GET /servers` |
 | **coordinator** `rtdbrules.json` | **New** — lock `/coordinator/*`; `firebaseUID`-scoped social paths |
 | **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions, and **Phase 7 done** server history |
+| **coordinator** `src/routes/purchases.ts` | **Phase 9** — new: RevenueCat secret-key verification, RTDB purchase ledger, grant-voucher minting |
+| `backend/server-routes/moneyApi.ts` | **Phase 9** — delete `/api/addMoney`; add voucher-verified `/api/redeemPurchase` |
+| `backend/prisma/schema.prisma` | **Phase 9** — redeemed-`txId` table for voucher replay protection; **done**: `stripeCustomerId` dropped |
+| `frontend/app/_layout.tsx` | **Phase 9** — `Purchases.logIn(firebaseUID)` after sign-in, logout on sign-out |
+| `frontend/app/(tabs)/store.tsx` | **Phase 9** — `buyItem` → coordinator redeem → shard voucher flow; drop client entitlement check as authority |
 
 ## Effort / risk
 
@@ -560,6 +626,10 @@ the solo login path now.
 - **Phase 7:** moderate — mostly frontend navigation/state sequencing plus a
   small coordinator RTDB history API. Low gameplay risk if the selector gates
   connection before REST/WS are pointed at a shard.
+- **Phase 9:** moderate — one new coordinator route + RTDB ledger, one new
+  shard endpoint reusing the existing JWKS verify path, and a `store.tsx`
+  rewire. Riskiest part is deleting `/api/addMoney`/`addItem` while old app
+  builds still call them — gate by app version or keep solo-mode-only.
 
 ## Decided
 
