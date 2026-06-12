@@ -33,56 +33,75 @@ Copyright (c) 2024 longtimeno-c. All rights reserved.
 ## 🛠️ Setup
 
 ### 1. Environment Configuration
-Create an `.env` file in the root directory:
+Create an `.env` file in the root directory. The server boots in one of two
+modes (it refuses to start if neither is configured):
+
 ```env
 # Server Configuration
 NODE_ENV="development"
-JWT_SECRET="your-secure-secret-here"  # REQUIRED — the server refuses to start without it. Generate a secure random string.
 VERBOSE_MODE="ON"
 PORT=3000
 
-# Database
+# Database (always local to this shard — never shared between hosts)
 DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
 
-# Email Configuration
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_SECURE=false
-EMAIL_USER="your-email@domain.com"
-EMAIL_PASS="your-app-specific-password"
-EMAIL_FROM="noreply@yourdomain.com"
+# --- Mode A: distributed (registered community shard) ---
+# Written automatically by ./docker/host.sh | .\docker\host.ps1 registration.
+# Tokens are minted and verified by the coordinator (RS256, 12h, refreshable);
+# Firebase ID-token login and push delivery also go through the coordinator.
+COORDINATOR_URL="https://your-coordinator.example.com"
+SHARD_API_KEY="mw_shard_..."   # issued at registration, revocable
+SHARD_ID="..."                 # enables the JWT audience check
 
-# WebSocket Configuration (Middle Earth)
-WS_PORT=3001
-WS_HEARTBEAT_INTERVAL=30000
+# --- Mode B: solo / local hosting (no coordinator) ---
+# JWT_SECRET="your-secure-secret-here"   # local HS256 tokens, 30-day expiry
+
+# Email (OPTIONAL — password-reset emails; owner deployment only)
+# EMAIL_HOST=smtp.gmail.com
+# EMAIL_PORT=587
+# EMAIL_SECURE=false
+# EMAIL_USER="your-email@domain.com"
+# EMAIL_PASS="your-app-specific-password"
+# EMAIL_FROM="noreply@yourdomain.com"
 ```
 
-Auth tokens issued by the server expire after 30 days. Clients can exchange a still-valid token for a fresh one via `POST /api/refresh`.
+Clients exchange a still-valid token for a fresh one via `POST /api/refresh`
+in both modes.
 
-### 2. Firebase Setup
+### 2. Firebase Setup (owner deployment ONLY)
+Community shards must **not** have Firebase credentials — they verify logins
+and deliver pushes through the coordinator. Only the project owner's central
+deployment does this:
+
 1. Create a Firebase project at [Firebase Console](https://console.firebase.google.com)
 2. Download your Firebase service account credentials
 3. Rename the credentials file to `firebasecred.json` and place it in the project root
-4. This enables real-time push notifications for android devices, profile picture storage and secure firebase authenticaiton / account management.
+4. This enables the global chat message listener, Firebase Storage profile
+   pictures, and Firebase account management (password/email changes).
 
 ## 🐳 Self-hosting with Docker (recommended for community shards)
 
-Stand up a full shard — backend + its own local Postgres — with two commands.
-This is Phase 1 of [DISTRIBUTED_HOSTING_PLAN.md](DISTRIBUTED_HOSTING_PLAN.md):
-your shard generates its own secrets locally, so no database credential or JWT
-secret is ever shared between hosts.
+Stand up a full shard — backend + its own local Postgres — with one command.
+Your shard generates its own secrets locally, so no database credential or
+signing key is ever shared between hosts (see
+[DISTRIBUTED_HOSTING_PLAN.md](DISTRIBUTED_HOSTING_PLAN.md)).
 
 Requirements: Docker Engine with the compose plugin (any Linux VM works, e.g. a
-DigitalOcean droplet; on Windows use WSL or Docker Desktop).
+DigitalOcean droplet; on Windows use WSL, Docker Desktop, or PowerShell).
 
 ```bash
 git clone https://github.com/Missile-Wars-Revival/backend.git
 cd backend
 
-./docker/setup.sh             # one-time: writes .env with locally generated
-                              # Postgres password + JWT secret (chmod 600)
-docker compose up -d --build  # builds the image, syncs the DB schema, starts
+./docker/host.sh        # Linux/macOS — one-click launcher
+# .\docker\host.ps1     # Windows PowerShell
 ```
+
+The launcher checks Docker is installed (with install links if not), generates
+your local `.env` on first run, **optionally registers your shard with the
+coordinator** (writing `COORDINATOR_URL`, `SHARD_API_KEY`, and `SHARD_ID` into
+`.env` — the API key is shown once and is revocable), starts the stack, and
+runs a reachability check so you know port forwarding works.
 
 What the stack runs:
 
@@ -104,13 +123,16 @@ docker compose up -d --build     # rebuild after pulling updates
 
 Notes for hosts:
 
-- `firebasecred.json` is **not** part of a community shard — push
-  notifications and Firebase-token login flows are centralized on the
-  coordinator (see the plan). Only the project owner's deployment mounts it.
-- Email settings in `.env` are optional and only needed for password-reset
-  emails, which also move to the coordinator in a later phase.
-- `COORDINATOR_URL` / `SHARD_API_KEY` in `.env` are placeholders until shard
-  registration ships (Phase 5).
+- `firebasecred.json` is **not** part of a community shard — Firebase ID-token
+  login is verified via the coordinator (`/auth/verify-id-token`) and push
+  notifications are delivered through the coordinator's rate-limited
+  `/relay/push`, so you never hold players' push tokens. Only the project
+  owner's deployment mounts it.
+- Registered shards heartbeat to the coordinator every 30s (player count +
+  version) so players can discover your server; unregistered shards skip this
+  and run standalone with a local `JWT_SECRET`.
+- Email settings in `.env` are optional and only used for password-reset
+  emails on the owner's deployment.
 
 ## 🚀 Running the Server
 
@@ -126,8 +148,7 @@ npm run dev
 
 ### Production Mode
 ```bash
-npm run build
-npm start
+npm start   # compiles with tsconfig.server.json, then runs dist/server.js
 ```
 
 ## ☁️ AWS Elastic Beanstalk Deployment
@@ -171,7 +192,7 @@ eb printenv --environment your-env-name
 ### Deploy Code
 **Important:** Build the application locally before deploying:
 ```bash
-npm run build
+npx tsc --project tsconfig.server.json
 ```
 This ensures the `dist/` directory is created and included in the deployment bundle. The `dist/` folder contains the compiled JavaScript files and is not ignored in version control.
 
@@ -237,6 +258,23 @@ npx prisma migrate dev --create-only
 
 # Apply migration
 npx prisma migrate dev
+```
+
+## 🌐 Distributed Hosting — Owner Operations
+
+One-time cutover steps for the central deployment (both need
+`firebasecred.json`; see [DISTRIBUTED_HOSTING_PLAN.md](DISTRIBUTED_HOSTING_PLAN.md)):
+
+```bash
+# 1. Copy social data (friends, profiles, push tokens, notification prefs)
+#    from production Postgres to Firebase central. Dry run first:
+npm run migrate:social
+npm run migrate:social -- --apply
+
+# 2. Deploy the RTDB security rules (backs up the live rules first):
+cd ../backend-coordinator
+node scripts/deploy-rules.js            # dry run + backup of current rules
+node scripts/deploy-rules.js --apply    # deploy rtdbrules.json
 ```
 
 ## 📦 Data Migration Tools

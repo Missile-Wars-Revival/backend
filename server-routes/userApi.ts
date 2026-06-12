@@ -507,10 +507,6 @@ export function setupUserApi(app: any) {
             // Delete Notifications
             await prisma.notifications.deleteMany({ where: { userId: username } });
 
-            // Delete FriendRequests
-            await prisma.friendRequests.deleteMany({ where: { username: username } });
-            await prisma.friendRequests.deleteMany({ where: { friend: username } });
-
             // Delete Locations
             await prisma.locations.delete({ where: { username: username } }).catch(() => { });
 

@@ -1,5 +1,6 @@
 import { issueToken, verifyToken } from "../util/auth";
 import { syncProfileUsername } from "../util/socialStore";
+import { verifyFirebaseIdToken } from "../util/firebaseIdToken";
 import { prisma } from "../server";
 import * as argon2 from "argon2";
 import nodemailer from 'nodemailer';
@@ -135,7 +136,9 @@ export function setupAuthRoutes(app: any) {
         if (!idToken) return res.status(400).json({ message: "idToken required" });
 
         try {
-            const decoded = await admin.auth().verifyIdToken(idToken);
+            // Local admin SDK when firebasecred.json exists, coordinator
+            // verification otherwise (community shards).
+            const decoded = await verifyFirebaseIdToken(idToken);
             const { uid, email } = decoded;
 
             let user = await prisma.users.findFirst({ where: { firebaseUID: uid } });
@@ -182,7 +185,7 @@ export function setupAuthRoutes(app: any) {
         if (idToken) {
             // Firebase auth path
             try {
-                const decoded = await admin.auth().verifyIdToken(idToken);
+                const decoded = await verifyFirebaseIdToken(idToken);
                 const user = await prisma.users.findFirst({
                     where: { OR: [{ email: decoded.email ?? '' }, { firebaseUID: decoded.uid }] },
                 });
@@ -222,7 +225,7 @@ export function setupAuthRoutes(app: any) {
         if (idToken) {
             // Firebase auth path
             try {
-                const decoded = await admin.auth().verifyIdToken(idToken);
+                const decoded = await verifyFirebaseIdToken(idToken);
                 const firebaseEmail = decoded.email || email || '';
 
                 if (!username || username.length < 3) {
@@ -695,10 +698,6 @@ export function setupAuthRoutes(app: any) {
             await prisma.$transaction(async (prisma: { notifications: { deleteMany: (arg0: { where: { userId: any; }; }) => any; }; friendRequests: { deleteMany: (arg0: { where: { username: any; } | { friend: any; }; }) => any; }; locations: { delete: (arg0: { where: { username: any; }; }) => Promise<any>; }; inventoryItem: { deleteMany: (arg0: { where: { GameplayUser: { username: any; }; }; }) => any; }; statistics: { deleteMany: (arg0: { where: { GameplayUser: { username: any; }; }; }) => any; }; gameplayUser: { delete: (arg0: { where: { username: any; }; }) => Promise<any>; }; users: { delete: (arg0: { where: { username: any; }; }) => any; }; }) => {
                 // Delete Notifications
                 await prisma.notifications.deleteMany({ where: { userId: username } });
-
-                // Delete FriendRequests
-                await prisma.friendRequests.deleteMany({ where: { username: username } });
-                await prisma.friendRequests.deleteMany({ where: { friend: username } });
 
                 // Delete Locations
                 await prisma.locations.delete({ where: { username: username } }).catch(() => { });

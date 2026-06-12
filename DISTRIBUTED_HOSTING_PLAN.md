@@ -263,23 +263,48 @@ social data directly with `rtdbrules.json` keyed on `firebaseUID`).
 
 ### Phase 5 — Shard changes
 
-- [ ] **Migration script**: one-time export of existing Postgres friends/profile
-      data → Firebase central for production users (run before shard DB cleanup).
-- [ ] **Shard DB cleanup**: drop social models from `prisma/schema.prisma`
-      (`Users.friends`, `FriendRequests`, profile fields that moved to Firebase)
-      and remove the corresponding routes (`friends` API, social profile handlers
-      on `userApi` / `authRoutes`). No thin proxies — cutover is atomic once the
-      migration script and Phase 4 Firebase paths are live.
-- [ ] `server.ts`: **strip Firebase Admin init** from shard; message listener
-      moves to coordinator or stays client-side RTDB only (chat is global).
-- [ ] `runners/`: replace direct FCM sends with coordinator **`POST /relay/push`**
-      (auth: shard key, rate-limited); relay reads FCM tokens from Firebase central.
-- [ ] Wire the **30s heartbeat loop on the shard** (not the coordinator) — the
-      shard POSTs to `/shards/heartbeat`; the coordinator only records what it
-      receives. Shards without `COORDINATOR_URL` + `SHARD_API_KEY` skip heartbeats
-      and stay usable for solo/local hosting.
-- [ ] Remove `JWT_SECRET`, shared `DATABASE_URL`, email vars, and
-      `firebasecred.json` from shard required setup. Update `CLAUDE.md` and `readme` with accurate information for setup.
+- [x] **Migration script**: `npm run migrate:social` (`backend/scripts/
+      migrate-social-to-firebase.ts`) — dry-run by default, `-- --apply` to
+      write. Exports friends (as uid edges), profiles, push tokens, and
+      notification preferences for every user with a `firebaseUID`; reports
+      and skips legacy accounts without one. Idempotent. Owner-run with
+      `firebasecred.json` + production `DATABASE_URL`. *(Not yet run against
+      production.)*
+- [ ] **Shard DB cleanup** — *partial.* Done: `FriendRequests` model dropped
+      from `prisma/schema.prisma` (no active write path existed) along with
+      its delete-cleanups and dead schema in `interfaces/common.ts`/
+      `export-script.ts`. Remaining: dropping `Users.friends` and the friends
+      API routes requires the Phase 6 frontend first — the live app still
+      calls those routes, and the gameplay loops (websocket visibility,
+      damage, proximity) still read the Postgres cache; removing them is the
+      atomic cutover once clients talk to Firebase central directly.
+- [x] `server.ts` Firebase Admin is now fully optional on shards: ID-token
+      login/register/oauth verify via the coordinator's
+      `POST /auth/verify-id-token` when there is no local admin SDK
+      (`util/firebaseIdToken.ts`). *(Reframed from "strip": the **owner**
+      deployment keeps `firebasecred.json` deliberately — the global chat
+      message listener needs exactly one long-lived process, which Vercel
+      can't host, and chat is global so community shards never needed it.
+      Without creds a shard also skips Storage profile images and Firebase
+      account-management ops like password/email changes.)*
+- [x] `runners/`: coordinator **`POST /relay/push`** (auth: shard key,
+      rate-limited 240/min per shard) reads tokens + preferences from Firebase
+      central (`/notificationTokens`, `/notificationPreferences`) and sends
+      via the **Expo push service** — correction: sends were never FCM-admin,
+      they're Expo, so shards *can* push without Firebase; the relay's value
+      is that community shards don't hold player push tokens. The shard's
+      `NotificationService` falls back to the relay when it has no local
+      token; full cutover (clients registering tokens centrally only) is
+      Phase 6.
+- [x] Wire the **30s heartbeat loop on the shard** — done in Phase 1
+      (`runners/coordinatorClient.ts`, started from `server.ts`; skips cleanly
+      when `COORDINATOR_URL` + `SHARD_API_KEY` are unset for solo/local
+      hosting).
+- [x] Required setup slimmed: boot needs `DATABASE_URL` (always local/own) and
+      either coordinator vars or `JWT_SECRET` (solo). Email vars and
+      `firebasecred.json` are optional, owner-deployment-only. `CLAUDE.md`
+      and `.env.example` updated. *(README host docs still describe the
+      Phase 1 flow — worth a pass when Phase 6 lands.)*
 
 ### Phase 6 — Frontend
 

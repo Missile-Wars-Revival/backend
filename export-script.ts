@@ -7,7 +7,6 @@ async function main() {
   const data = {}
   // List all your models here
   const models = [
-    'FriendRequests',
     'GameplayUser',
     'PasswordResetCodes',
     'InventoryItem',

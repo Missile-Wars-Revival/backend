@@ -24,7 +24,7 @@ eb deploy --staged           # AWS Elastic Beanstalk deploy — run `npm run bui
 docker compose up -d --build # self-host stack: Postgres + prisma db push + backend (see README)
 ```
 
-Required setup: `.env` (loaded via `dotenv` at the top of server.ts) with `JWT_SECRET` (**required — the server exits at boot if unset**), `DATABASE_URL`, `PORT`, `EMAIL_HOST/PORT/SECURE/USER/PASS/FROM`, optional `VERBOSE_MODE="ON"`. `firebasecred.json` (Firebase service-account key) goes in the repo root; if missing the server still boots but skips Firebase init, push notifications, and the message listener — Firebase-token login paths will fail at runtime.
+Required setup: `.env` (loaded via `dotenv` at the top of server.ts) with `DATABASE_URL`, `PORT`, and **either** `COORDINATOR_URL` + `SHARD_API_KEY` (distributed: coordinator mints/verifies tokens, verifies Firebase ID tokens, and relays pushes) **or** `JWT_SECRET` (solo/local hosting) — the server exits at boot if neither is set. Optional: `SHARD_ID` (JWT audience check), `EMAIL_*` vars (password-reset emails, owner deployment), `VERBOSE_MODE="ON"`. `firebasecred.json` (Firebase service-account key, **owner deployment only — never give it to community shards**) goes in the repo root; without it the server boots and runs fine, skipping the global chat message listener, Firebase Storage profile images, and Firebase account-management ops.
 
 ## Architecture
 
