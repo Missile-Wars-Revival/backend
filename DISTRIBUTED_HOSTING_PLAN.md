@@ -644,6 +644,84 @@ unverified Firebase email is not enough. Username/friend data flows only from
 the owner database to central RTDB, never from a community shard into the global
 social graph.
 
+### Phase 11 — Gameplay privacy/damage validation + host setup QA
+
+Goal: validate the gameplay behavior that matters most after the distributed
+hosting work: clients must see the intended diffused player location, diffused
+players must remain easy to select in the UI, missile damage must apply to
+everyone in radius regardless of friendship, and Docker hosting docs must be
+tested like a first-time community host would use them.
+
+#### 11A — Diffused location contract
+
+- [ ] **Define the authoritative location payload**: the websocket
+      `playerlocations` message must send the display-safe diffused
+      coordinates for other players, not their precise `Locations.latitude` /
+      `Locations.longitude`. Precise coordinates may remain server-only for
+      damage, proximity, anti-cheat, and movement validation.
+- [ ] **Add an explicit precision flag/type**: extend the websocket payload with
+      a field such as `locationPrecision: "precise" | "diffused"` or a
+      dedicated `diffusedPlayerLocation` message type. The `middle-earth`
+      package may need a versioned WS message/type update so old clients do not
+      silently misread the new shape.
+- [ ] **Validate click/tap hit testing**: reproduce the current issue where a
+      diffused player is harder to click, then verify the frontend marker uses
+      the rendered diffused coordinate and a stable hit area. The tap target
+      must not depend on hidden precise coordinates or marker jitter.
+- [ ] **Update player details copy**: the player-details UI should clearly say
+      the shown location is approximate/diffused, not precise. Do not expose
+      exact coordinates through details, debug text, or nested payload fields.
+- [ ] **Regression tests / fixture**: add a test or recorded websocket fixture
+      where a precise server location diffuses to a different client location,
+      and assert the outgoing `playerlocations` payload contains only the
+      diffused coordinate plus the precision marker.
+
+#### 11B — Missile damage validation
+
+- [ ] **Separate visibility from damage eligibility**: friendsOnly/friendship
+      filters can decide which missiles/entities a player sees, but damage
+      processing must evaluate every active player against every impacted
+      missile in radius. A friend/ally relationship must not suppress missile
+      damage.
+- [ ] **Friendly fire is intentional for missiles**: missiles should damage all
+      players in radius, including mutual friends/allies and the sender, unless
+      an explicit protection rule applies (shield, grace period, dead player,
+      inactive location, or outside radius).
+- [ ] **Audit sender/self-damage behavior**: confirm the sender is included in
+      the damage pass when they are inside the blast radius. Notifications and
+      rewards should not create nonsensical self-reward/self-elimination loops;
+      define the expected reward behavior before shipping the fix.
+- [ ] **Add targeted tests**: cover at least these cases: friend in radius takes
+      missile damage, sender in radius takes missile damage, non-friend in
+      radius takes missile damage, player outside radius does not, shielded
+      player does not, grace-period player does not.
+- [ ] **Keep landmine rules separate**: landmine ownership/friend behavior can
+      be reviewed separately; do not accidentally change landmine behavior while
+      fixing missile blast damage.
+
+#### 11C — Docker docs and first-time host validation
+
+- [ ] **Fresh-machine walkthrough**: run the README/community-host setup from a
+      clean checkout with no existing `.env`, containers, or volumes. Verify
+      `./docker/host.sh` and `.\docker\host.ps1` document prerequisites,
+      generate local DB credentials, register with the coordinator, start
+      services, run `prisma db push`, and print the usable public URL.
+- [ ] **Failure-path docs**: validate common failures have clear next steps:
+      Docker missing, Docker daemon stopped, port already in use, port not
+      forwarded, coordinator unreachable, bad shard API key, health check
+      failing, and database container not ready.
+- [ ] **Version/update path**: document the exact update flow for hosts pulling
+      a new backend version (`git pull`, rebuild, migrate, preserve DB volume),
+      plus how to wipe/reset intentionally.
+- [ ] **Smoke-test checklist**: add a short post-setup checklist: `/healthz`
+      works locally, public reachability check passes, coordinator admin shows
+      heartbeat/player count, server appears in discovery, a test user can
+      select it, websocket connects, and location/missile loops run.
+- [ ] **Docs match implementation**: ensure `.env.example`, README, host
+      scripts, Dockerfile, `docker-compose.yml`, and coordinator registration
+      messages all use the same env var names and do not mention deprecated
+      Firebase/admin secrets for community shards.
+
 ## File-level change map (known from current code)
 
 | File | Change |
@@ -665,7 +743,9 @@ social graph.
 | `frontend/components/ServerSelectScreen.tsx` | **Phase 7 done** — full-screen post-login selector; holds `ConnectingScreen` until first gameplay payload |
 | `frontend` login/navigation flow | **Phase 7 done** — `ServerSessionGate` in `app/_layout.tsx`: login, then selector, then gameplay |
 | `frontend` WebSocket setup | Point at chosen shard URL; **Phase 7** — waits for session confirmation |
-| `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect |
+| `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect; **Phase 11** send diffused player locations + precision metadata |
+| `backend/runners/damageProcessor.ts` | **Phase 11** — missile damage must ignore friendship/friendsOnly visibility filters and include allies/sender in radius |
+| `middle-earth` package | **Phase 11** — version WS message/type support for diffused-location metadata if the payload shape changes |
 | **coordinator** `../backend-coordinator/` | Vercel + Firebase RTDB; auth, directory, JWKS, relay, **admin portal** — **no Prisma** |
 | **coordinator** `src/routes/auth.ts` | **Phase 7 done** — history recorded on select-server/shard-token/refresh; profile username preferred; **Phase 10** account bootstrap must tolerate centrally repaired legacy profiles |
 | **coordinator** server-list/discovery route | **Phase 7 done** — optional ID-token auth adds the user's history to `GET /servers` |
@@ -676,6 +756,9 @@ social graph.
 | `backend/prisma/schema.prisma` | **Phase 9** — redeemed-`txId` table for voucher replay protection; **done**: `stripeCustomerId` dropped |
 | `frontend/app/_layout.tsx` | **Phase 9** — `Purchases.logIn(firebaseUID)` after sign-in, logout on sign-out |
 | `frontend/app/(tabs)/store.tsx` | **Phase 9** — `buyItem` → coordinator redeem → shard voucher flow; drop client entitlement check as authority |
+| `frontend` map/player marker components | **Phase 11** — click/tap target follows diffused marker position and remains easy to select |
+| `frontend` player-details UI | **Phase 11** — say location is approximate/diffused, not precise |
+| `README.md` / `.env.example` / `docker/*` | **Phase 11** — validate community-host docs against a clean first-time setup and failure paths |
 
 ## Effort / risk
 
@@ -700,6 +783,10 @@ social graph.
   account ownership. Keep it owner-shard-only, email-verified, idempotent,
   audited, and time-limited so it solves migration fallout without becoming a
   permanent ambiguous login path.
+- **Phase 11:** moderate gameplay/regression risk — damage and location privacy
+  touch hot websocket/game-loop paths. Keep precise coordinates server-only,
+  separate visibility from damage, and ship with targeted tests plus a manual
+  Docker first-time-host checklist.
 
 ## Decided
 
@@ -726,6 +813,13 @@ social graph.
    email-verified Firebase UID linking is acceptable for the migration window.
    Community shards must never be allowed to write recovered social identity
    into central RTDB.
+8. **Missile friendly fire** — missiles are area-of-effect damage and should
+   hurt every eligible player in radius, including allies/friends and the
+   sender. Friendship controls visibility/social UX, not blast immunity.
+9. **Location privacy contract** — player location sent to other clients should
+   be display-safe/diffused when diffusion applies; precise location remains a
+   backend-only gameplay input unless the viewer is explicitly allowed to see
+   precision.
 
 ## Open decisions to settle before/while building
 
@@ -746,3 +840,9 @@ social graph.
 7. **Phase 10 expiry date** — choose the exact rollout date and sunset date
    for `LEGACY_ACCOUNT_RECONCILIATION_UNTIL`; default recommendation is three
    months after deployment, then support-only manual reconciliation.
+8. **Diffusion algorithm ownership** — decide whether the backend owns the
+   diffusion calculation or whether `middle-earth` should expose a shared
+   deterministic helper used by both backend tests and frontend fixtures.
+9. **Self-damage rewards** — decide whether a missile sender who eliminates
+   themselves receives no reward, a penalty only, or the existing reward path
+   with safeguards. Do this before changing missile damage logic.
