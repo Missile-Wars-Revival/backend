@@ -1,5 +1,6 @@
 import { Request } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
+import type { WebSocket as WsSocket } from "ws";
 import { verifyToken } from "../util/auth";
 import * as middleearth from "middle-earth";
 import { prisma } from "../server";
@@ -8,7 +9,7 @@ import { resolveProfileImageUrls } from "./profileImages";
 // import { aiBots } from "../bots";
 import { Missile, Loot, Other, Landmine } from "middle-earth"; 
 import axios from 'axios';
-import { sendNotification } from "../runners/notificationhelper";
+import { playerConnected, playerDisconnected } from "../runners/coordinatorClient";
 
 function logVerbose(...items: any[]) {
   // Logs an item only if the VERBOSE_MODE env variable is set
@@ -49,7 +50,6 @@ async function updateOrCreateSession(userId: number, ip: string | undefined) {
 }
 
 function authenticate(
-  ws: import("ws"),
   req: Request<ParamsDictionary, any, any, any, Record<string, any>>
 ): Promise<AuthResult> {
   // Prefer the Authorization header (or Sec-WebSocket-Protocol) so the JWT
@@ -166,8 +166,8 @@ export function setupWebSocket(app: any) {
     cache.lastUpdate = now;
   }
 
-  app.ws("/", (ws: any, req: Request) => {
-    authenticate(ws, req).then((authResult) => {
+  app.ws("/", (ws: WsSocket, req: Request) => {
+    authenticate(req).then((authResult) => {
       if (!authResult.success || !authResult.username) {
         console.log("Connection attempted but authentication failed");
         ws.close(1008, "Authentication failed");
@@ -176,6 +176,7 @@ export function setupWebSocket(app: any) {
 
       const username = authResult.username;
       console.log(`WebSocket connection established for user: ${username}`);
+      playerConnected();
 
       logVerbose("New connection established");
 
@@ -513,8 +514,9 @@ export function setupWebSocket(app: any) {
         console.error("WebSocket error:", error);
       });
 
-      ws.on("close", (code: number, reason: string) => {
-        console.log(`WebSocket closed for ${username}. Code: ${code}, Reason: ${reason}`);
+      ws.on("close", (code: number, reason: Buffer) => {
+        console.log(`WebSocket closed for ${username}. Code: ${code}, Reason: ${reason.toString()}`);
+        playerDisconnected();
         clearInterval(intervalId);
         clearInterval(lessintervalId);
       });
@@ -572,7 +574,7 @@ async function isInSea(location: { latitude: number; longitude: number }): Promi
   return false; // Return false if max retries reached
 }
 
-async function handlePlayerLocation(ws: WebSocket, msg: any, username: string) {
+async function handlePlayerLocation(ws: WsSocket, msg: any, username: string) {
   const locationData = msg.data;
   
   if (!locationData || typeof locationData.latitude !== 'number' || typeof locationData.longitude !== 'number') {

@@ -4,7 +4,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import bodyParser from "body-parser";
 import expressWs from "express-ws";
-import { getJwtSecret, verifyToken } from "./util/auth";
+import { initAuth, verifyToken } from "./util/auth";
 import { AuthWithLocation, AuthWithLocationSchema } from "./interfaces/api";
 import { deleteExpiredLandmines, deleteExpiredLoot, deleteExpiredMissiles, updateMissilePositions, addRandomLoot, checkPlayerProximity, deleteExpiredOther, checkAndCollectLoot } from "./runners/entitymanagment";
 import { startNotificationManager } from "./runners/notificationhelper";
@@ -26,13 +26,15 @@ import { startDamageProcessing } from "./runners/damageProcessor";
 import * as admin from 'firebase-admin'
 import { setupMessageListener } from "./runners/messageListener";
 import { startShieldBreakerProcessing } from "./runners/shieldbreaker";
+import { startCoordinatorHeartbeat } from "./runners/coordinatorClient";
 import { setupWebApi } from "./server-routes/webApi";
 const { PrismaClient } = require('@prisma/client');
 
-// Refuse to boot without a JWT secret — otherwise every token would be
-// signed and verified with an empty string and anyone could forge one.
+// Refuse to boot without a way to verify tokens: either the coordinator
+// (COORDINATOR_URL + SHARD_API_KEY → RS256 via JWKS) or a local JWT_SECRET
+// for solo hosting. Also starts the background JWKS fetch/refresh loop.
 try {
-  getJwtSecret();
+  initAuth();
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);
@@ -108,6 +110,9 @@ startDamageProcessing();
 
 //manage shieldbreakers
 startShieldBreakerProcessing();
+
+//heartbeat to the distributed-hosting coordinator (no-op unless configured)
+startCoordinatorHeartbeat();
 
 //Bots:
 // manageAIBots();

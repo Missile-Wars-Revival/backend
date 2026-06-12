@@ -1,4 +1,5 @@
-import { signToken, verifyToken } from "../util/auth";
+import { issueToken, verifyToken } from "../util/auth";
+import { syncProfileUsername } from "../util/socialStore";
 import { prisma } from "../server";
 import * as argon2 from "argon2";
 import nodemailer from 'nodemailer';
@@ -121,7 +122,7 @@ export function setupAuthRoutes(app: any) {
             if (!user) {
                 return res.status(404).json({ message: "User not found" });
             }
-            return res.status(200).json({ message: "Token refreshed", token: signToken(user.username) });
+            return res.status(200).json({ message: "Token refreshed", token: await issueToken(user.username, user.firebaseUID) });
         } catch {
             return res.status(401).json({ message: "Invalid or expired token" });
         }
@@ -149,7 +150,7 @@ export function setupAuthRoutes(app: any) {
                 if (pushToken) {
                     await prisma.users.update({ where: { id: user.id }, data: { notificationToken: pushToken } });
                 }
-                const token = signToken(user.username);
+                const token = await issueToken(user.username, user.firebaseUID ?? uid);
                 return res.status(200).json({ message: "Login successful", token, username: user.username });
             }
 
@@ -166,7 +167,7 @@ export function setupAuthRoutes(app: any) {
                 data: { username, createdAt: new Date().toISOString() },
             });
 
-            const token = signToken(username);
+            const token = await issueToken(username, uid);
             return res.status(200).json({ message: "User created", token, username });
         } catch (error) {
             console.error("OAuth login error:", error);
@@ -192,7 +193,7 @@ export function setupAuthRoutes(app: any) {
                 if (pushToken) {
                     await prisma.users.update({ where: { id: user.id }, data: { notificationToken: pushToken } });
                 }
-                const token = signToken(user.username);
+                const token = await issueToken(user.username, user.firebaseUID ?? decoded.uid);
                 return res.status(200).json({ message: "Login successful", token });
             } catch {
                 return res.status(401).json({ message: "Invalid Firebase token" });
@@ -205,7 +206,7 @@ export function setupAuthRoutes(app: any) {
         }
         const user = await prisma.users.findFirst({ where: { username } });
         if (user && user.password && (await argon2.verify(user.password, password))) {
-            const token = signToken(user.username);
+            const token = await issueToken(user.username, user.firebaseUID);
             if (pushToken) {
                 await prisma.users.update({ where: { username }, data: { notificationToken: pushToken } });
             }
@@ -251,7 +252,7 @@ export function setupAuthRoutes(app: any) {
                     data: { username, createdAt: new Date().toISOString() },
                 });
 
-                const token = signToken(username);
+                const token = await issueToken(username, decoded.uid);
                 return res.status(200).json({ message: "User created", token });
             } catch (error: any) {
                 if (error?.code === 'P2002') return res.status(409).json({ message: "Username already exists" });
@@ -286,7 +287,7 @@ export function setupAuthRoutes(app: any) {
                 data: { username, createdAt: new Date().toISOString() },
             });
 
-            const token = signToken(username);
+            const token = await issueToken(username);
             return res.status(200).json({ message: "User created", token });
         } catch (error) {
             if (typeof error === 'object' && error !== null && 'code' in error && (error as any).code === 'P2002') {
@@ -448,7 +449,7 @@ export function setupAuthRoutes(app: any) {
             await prisma.users.update({ where: { username: decoded.username }, data: { password: null } });
 
             // Generate a new token with the updated password
-            const newToken = signToken(decoded.username);
+            const newToken = await issueToken(decoded.username, user.firebaseUID);
 
             res.status(200).json({
                 message: "Password changed successfully",
@@ -604,8 +605,15 @@ export function setupAuthRoutes(app: any) {
                 }
             });
 
-            // Generate a new token with the updated username
-            const newToken = signToken(newUsername);
+            // Keep the central profile (what cross-shard friends see) on the
+            // new name; non-fatal, the coordinator re-bootstraps it on mint.
+            await syncProfileUsername(user.firebaseUID, newUsername);
+
+            // Generate a new token with the updated username. With
+            // coordinator-minted tokens identity is the stable firebaseUID,
+            // so the rename doesn't invalidate other devices' tokens... but
+            // their username claim goes stale; those sessions must refresh.
+            const newToken = await issueToken(newUsername, user.firebaseUID);
 
             res.status(200).json({
                 message: "Username changed successfully",

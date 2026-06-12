@@ -1,5 +1,6 @@
 import * as jwt from "jsonwebtoken";
-import { signToken, verifyToken } from "../util/auth";
+import { issueToken, verifyToken } from "../util/auth";
+import { syncProfileUsername } from "../util/socialStore";
 import { prisma } from "../server";
 import { Request, Response } from "express";
 import { getMutualFriends } from "./friendsApi";
@@ -727,9 +728,15 @@ export function setupUserApi(app: any) {
         }
       });
 
+      // Keep the central profile (what cross-shard friends see) on the new
+      // name; non-fatal, the coordinator re-bootstraps it on token mint.
+      if (updates.username) {
+        await syncProfileUsername(user.firebaseUID, updates.username);
+      }
+
       // Generate a new token with the updated username. Never put the
       // password (even hashed) in the JWT — the payload is readable base64.
-      const newToken = signToken(updates.username || username);
+      const newToken = await issueToken(updates.username || username, user.firebaseUID);
 
       res.status(200).json({
         message: "User updated successfully",

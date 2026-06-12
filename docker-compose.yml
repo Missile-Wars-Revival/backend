@@ -1,0 +1,80 @@
+# Missile Wars shard — one-command self-host stack.
+#
+# First run:   ./docker/setup.sh        (generates .env with local secrets)
+# Then:        docker compose up -d --build
+#
+# The Postgres password is generated locally by setup.sh, so no shared
+# DATABASE_URL ever exists across shard hosts.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-missilewars}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run docker/setup.sh to generate .env}
+      POSTGRES_DB: ${POSTGRES_DB:-missilewars}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-missilewars} -d ${POSTGRES_DB:-missilewars}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot schema sync. The repo has no migrations directory yet, so this
+  # uses `prisma db push`; switch to `prisma migrate deploy` once migrations
+  # are checked in.
+  migrate:
+    build: .
+    command: ["npx", "prisma", "db", "push", "--skip-generate"]
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_USER: ${POSTGRES_USER:-missilewars}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run docker/setup.sh to generate .env}
+      POSTGRES_DB: ${POSTGRES_DB:-missilewars}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      PORT: 8080
+      JWT_SECRET: ${JWT_SECRET:?run docker/setup.sh to generate .env}
+      VERBOSE_MODE: ${VERBOSE_MODE:-OFF}
+      POSTGRES_HOST: db
+      POSTGRES_USER: ${POSTGRES_USER:-missilewars}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run docker/setup.sh to generate .env}
+      POSTGRES_DB: ${POSTGRES_DB:-missilewars}
+      # Optional — password-reset emails. Leave unset on community shards;
+      # these flows move to the coordinator in a later phase.
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_SECURE: ${EMAIL_SECURE:-false}
+      EMAIL_USER: ${EMAIL_USER:-}
+      EMAIL_PASS: ${EMAIL_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      # Distributed-hosting (coordinator) settings. When URL + API key are set
+      # the shard sends a 30s heartbeat (runners/coordinatorClient.ts) and
+      # session tokens are minted/verified via the coordinator (util/auth.ts).
+      # SHARD_ID enables the JWT audience check.
+      COORDINATOR_URL: ${COORDINATOR_URL:-}
+      SHARD_API_KEY: ${SHARD_API_KEY:-}
+      SHARD_ID: ${SHARD_ID:-}
+      GIT_SHA: ${GIT_SHA:-}
+    # firebasecred.json must NOT be given to community shards (it is full
+    # Firebase admin). Only the project owner's own deployment may mount it:
+    # volumes:
+    #   - ./firebasecred.json:/app/dist/firebasecred.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  db-data:

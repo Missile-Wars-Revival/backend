@@ -4,6 +4,7 @@ import { prisma } from "../server";
 import { sendPushNotification } from "../runners/NotificationService";
 import * as geolib from 'geolib';
 import { resolveProfileImageUrl, resolveProfileImageUrls } from "./profileImages";
+import { addFriendEdge, removeFriendEdge } from "../util/socialStore";
 
 const visibleUsername = (username: unknown) =>
   typeof username === "string" ? username.replace(/[\s\u200B-\u200D\uFEFF]/g, "") : "";
@@ -410,12 +411,10 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
   
       // Check if the friend has already added the user
       const isMutualFriend = friendUser.friends.includes(user.username);
-  
-      // Add friend
-      await prisma.users.update({
-        where: { username: user.username },
-        data: { friends: { push: friend } },
-      });
+
+      // Add friend — Firebase central is the source of truth (uid edge);
+      // Postgres Users.friends is updated as the gameplay read-cache.
+      await addFriendEdge(user, friendUser);
   
       // Send appropriate notification, with iOS communication metadata so the
       // sender's avatar shows on the push. The stored titles must stay exactly
@@ -490,16 +489,9 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(404).json({ message: "Friend not found" });
       }
   
-      await prisma.users.update({
-        where: {
-          username: user.username,
-        },
-        data: {
-          friends: {
-            set: user.friends.filter((f: any) => f !== friend),
-          },
-        },
-      });
+      // Remove the edge from Firebase central (source of truth) and the
+      // Postgres gameplay read-cache together.
+      await removeFriendEdge(user, friendUser);
       res.status(200).json({ message: "Friend removed successfully" }); // Corrected response message
     } catch (error) {
       console.error("Error processing request:", error);
