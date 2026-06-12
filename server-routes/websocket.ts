@@ -73,7 +73,7 @@ function authenticate(
 
   return new Promise(async (resolve) => {
     try {
-      const decoded = verifyToken(authToken) as { username: string; };
+      const decoded = verifyToken(authToken);
 
       if (!decoded.username) {
         console.log("Invalid token: Username is missing.");
@@ -82,10 +82,49 @@ function authenticate(
       }
 
       // Fetch the user based on the username from the token
-      const user = await prisma.users.findUnique({
+      let user = await prisma.users.findUnique({
         where: { username: decoded.username },
         include: { GameplayUser: true }
       });
+
+      // Phase 7 server migration: a coordinator-signed token (RS256, identity
+      // proven by the coordinator's private key) for a user this shard has
+      // never seen means a player arriving from another shard — provision a
+      // fresh account here. Each shard is its own game world, so they start
+      // with default gameplay state; friends/profile live in Firebase central.
+      // Legacy HS256 tokens never reach this branch (no firebaseUID claim).
+      if (!user && decoded.firebaseUID) {
+        const existingByUid = await prisma.users.findUnique({
+          where: { firebaseUID: decoded.firebaseUID },
+        });
+        if (existingByUid) {
+          // Same identity, different username: the account was renamed
+          // centrally but not on this shard. Renames are only applied through
+          // /api/changeUsername (which rewrites friends arrays etc.) — don't
+          // half-apply one here.
+          console.log(
+            `Auth refused: firebaseUID ${decoded.firebaseUID} exists here as "${existingByUid.username}" but token says "${decoded.username}".`
+          );
+          resolve({ success: false });
+          return;
+        }
+        try {
+          user = await prisma.users.create({
+            data: { username: decoded.username, email: "", firebaseUID: decoded.firebaseUID },
+            include: { GameplayUser: true },
+          });
+          await prisma.gameplayUser.create({
+            data: { username: decoded.username, createdAt: new Date().toISOString() },
+          });
+          console.log(`Provisioned migrated user on this shard: ${decoded.username}`);
+        } catch (error) {
+          // Unique-constraint race (double connect) or a local legacy account
+          // already owns this username with a different identity.
+          console.log(`Failed to provision migrated user ${decoded.username}:`, (error as Error).message);
+          resolve({ success: false });
+          return;
+        }
+      }
 
       if (!user) {
         console.log(`User not found: ${decoded.username}`);
