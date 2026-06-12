@@ -188,7 +188,7 @@ if we stop here.
 - [x] Setup script (`docker/setup.sh`) that **generates a local DB password on first run** and writes the shard's `.env` (so `DATABASE_URL` is never a shared value); container entrypoint assembles `DATABASE_URL` from the parts.
 - [x] `.env.example` documenting only the *safe* vars a host sets (PORT, coordinator URL, shard API key).
 - [x] Host setup docs in README.
-- [x] **One-click host launcher** (`docker/host.sh` + `docker/host.ps1`): single entry point that (a) detects Docker / compose and **prompts to install** with OS-specific links when missing, (b) runs `setup.sh` on first launch, (c) optionally registers the shard with the coordinator and writes `COORDINATOR_URL` + `SHARD_API_KEY` into `.env`, (d) starts `docker compose up -d --build`, (e) runs a **port-forwarding check** after boot (local healthz + public-IP reachability probe with clear guidance when the port is closed).
+- [x] **One-click host launcher** (`docker/host.sh` + `docker/host.ps1`): single entry point that (a) detects Docker / compose and **prompts to install** with OS-specific links when missing, (b) runs `setup.sh` on first launch, (c) registers the shard with the official coordinator and writes `COORDINATOR_URL` + `SHARD_API_KEY` + `SHARD_ID` into `.env`, (d) starts `docker compose up -d --build`, (e) runs a **port-forwarding check** after boot (local healthz + public-IP reachability probe with clear guidance when the port is closed).
 - [x] **Shard → coordinator heartbeat** in `backend/` (`runners/coordinatorClient.ts`): every 30s `POST /shards/heartbeat` with player count + version when `COORDINATOR_URL` and `SHARD_API_KEY` are set.
 
 > **Prisma belongs only in `backend/`** (per-shard gameplay DB). Community
@@ -308,18 +308,97 @@ social data directly with `rtdbrules.json` keyed on `firebaseUID`).
 
 ### Phase 6 — Frontend
 
-- [ ] Replace hardcoded `EXPO_PUBLIC_BACKEND_URL` in `api/axios-instance.ts` with
-      server-discovery: query coordinator → auto-pick nearest shard (manual
-      override) → persist choice → point axios **and** WebSocket at shard.
-- [ ] Only the **coordinator URL** and **Firebase client config** are baked into
-      the app build.
+- [x] Replace hardcoded `EXPO_PUBLIC_BACKEND_URL` in `api/axios-instance.ts` with
+      server-discovery: `api/server-discovery.ts` queries the coordinator,
+      auto-picks the nearest **verified** shard on first launch (manual
+      override via the picker; unverified is never auto-picked), persists the
+      choice in AsyncStorage (`selectedServer`, hydrated before the provider
+      tree mounts), and points axios (per-request baseURL) **and** the
+      WebSocket (resolved at connect time) at the chosen shard.
+- [x] Only the **coordinator URL** (`EXPO_PUBLIC_COORDINATOR_URL`) and Firebase
+      client config need to be baked into the app build.
+      `EXPO_PUBLIC_BACKEND_URL` / `_WEBSOCKET_URL` remain supported as
+      dev/solo-hosting fallbacks when no coordinator is configured or no
+      server is selected.
 - [ ] Login/register at coordinator; gameplay REST/WS at chosen shard; friends/
-      profile/chat/notification prefs at **Firebase central**.
-- [ ] **Unverified-server warning**: when user selects a shard with
-      `verified: false`, show a blocking modal explaining that the host may see
-      sensitive data (especially **live location**) and require explicit
-      acknowledgment before `POST /auth/select-server` / connect.
-- [ ] Verified badge on server picker for `verified: true` shards.
+      profile/chat/notification prefs at **Firebase central**. *(Partial by
+      architecture: gameplay REST/WS follow the chosen shard now, and chat is
+      already client↔Firebase. Login/register stay pointed at the shard —
+      per the Phase 3 design the shard validates and the **coordinator
+      signs**, so no client change is needed until accounts centralize.
+      Friends/profile/notification prefs still go through shard REST — they
+      move with the social/push-token cutovers below.)*
+- [x] **Unverified-server warning**: selecting a `verified: false` shard in the
+      picker opens a blocking modal (host can see live location, username,
+      in-game activity) requiring explicit acknowledgment; the accept is
+      remembered per server id, and re-warned for each different unverified
+      shard.
+- [x] Verified badge on server picker for `verified: true` shards (and an
+      "Unverified" tag otherwise), shown in both the list and the selected row
+      (`components/ServerPicker.tsx`, wired into the login screen).
+- [ ] **Push-token cutover** (deferred from Phase 5): client registers its Expo
+      push token to `/notificationTokens/<uid>` and preferences to
+      `/notificationPreferences/<uid>` in Firebase central (it can — rules
+      scope both to `auth.uid`). Then drop `Users.notificationToken` from the
+      shard schema, the pushToken writes in login/register, and the local-token
+      path in `NotificationService` (relay/central only).
+- [ ] **Social cutover** (deferred from Phase 5): client reads/writes friends
+      via Firebase central; then drop `Users.friends` + the friends API routes
+      from the shard. The gameplay loops (websocket friendsOnly visibility,
+      damage exemption, proximity) lose their Postgres source — replace with a
+      client-declared friends list sent at WS connect (read from Firebase by
+      the client, cached in shard memory per-session). Note: client-declared
+      friends affect *visibility and notifications only*; mutual-friend damage
+      exemption must require BOTH sides to declare, preserving the current
+      mutuality rule so it stays cheat-resistant.
+
+### Phase 7 — Post-login server selection + server history
+
+Goal: make the distributed flow explicit and user-controlled. The app should
+authenticate the person first, then ask where they want to play, then connect to
+that shard. Server selection becomes a first-class step instead of a silent
+startup default.
+
+- [ ] **Frontend login flow**: after login/register/oauth succeeds, route the
+      user to a full-screen server selector before mounting gameplay. The
+      selector should show online shards from the coordinator, verified status,
+      region/player count, and a "previously used" / "recent" section when the
+      coordinator has history for this user.
+- [ ] **No automatic unverified selection**: verified servers may be suggested
+      or highlighted, but unverified servers still require the existing blocking
+      warning and per-server acknowledgement before connect.
+- [ ] **Connecting transition**: after the user chooses a server, show
+      `components/ConnectingScreen.tsx` while the app obtains/refreshes the
+      shard token, persists the selected shard, points axios/WebSocket at that
+      shard, and waits for the first successful gameplay connection/state load.
+      This avoids flashing map/death/gameplay UI while the shard connection is
+      still settling.
+- [ ] **Coordinator stores server history in Firebase RTDB**: every successful
+      server selection/token mint updates a coordinator-owned history path such
+      as `/coordinator/users/<uid>/serverHistory/<shardId>` with
+      `{ firstUsedAt, lastUsedAt, useCount, lastServerName, lastRegion,
+      lastVerified }`. This is written only by the coordinator Admin SDK, never
+      directly by clients.
+- [ ] **History API for the selector**: add a coordinator endpoint, for example
+      `GET /users/me/server-history`, authenticated with a Firebase ID token,
+      that returns the user's recently used shards joined with current shard
+      status/discovery fields. Disabled or stale shards can be shown as
+      unavailable, but must not be connectable.
+- [ ] **Selection write path**: `POST /auth/select-server` should be the single
+      authoritative client selection path. After verifying the Firebase ID token
+      and confirming the shard is listable, it mints the shard-scoped JWT,
+      upserts `/profiles/<uid>.lastShardId`, and records server history.
+      Shard-mediated token mints (`/auth/shard-token`) may also record history
+      for compatibility, but the Phase 7 frontend should prefer
+      `/auth/select-server`.
+- [ ] **Resume behaviour**: on app launch with an existing Firebase session,
+      show the server selector with the user's recent servers first. A quick
+      "continue" action can target the most recent still-listable verified
+      shard, but the user should be able to change shards before gameplay
+      connects.
+- [ ] **Local/solo fallback**: when `EXPO_PUBLIC_COORDINATOR_URL` is unset, keep
+      the current direct-backend flow so development and solo hosts still work
+      without a selector/history service.
 
 ## File-level change map (known from current code)
 
@@ -336,11 +415,16 @@ social data directly with `rtdbrules.json` keyed on `firebaseUID`).
 | `backend/docker/host.sh` | **New** — one-click launcher: Docker detection, setup, register, port check |
 | `backend/docker/host.ps1` | **New** — Windows equivalent of `host.sh` |
 | `frontend/api/axios-instance.ts` | Coordinator discovery + shard select + unverified warning UI |
+| `frontend/api/server-discovery.ts` | **Phase 7** — fetch recent server history, select via coordinator before gameplay connect |
 | `frontend/api/friends.ts` | Read/write Firebase central instead of shard REST |
+| `frontend/components/ConnectingScreen.tsx` | **Phase 7** — show while selected shard token + REST/WS connection settles |
+| `frontend` login/navigation flow | **Phase 7** — login first, then full-screen server selector, then gameplay |
 | `frontend` WebSocket setup | Point at chosen shard URL |
 | **coordinator** `../backend-coordinator/` | Vercel + Firebase RTDB; auth, directory, JWKS, relay, **admin portal** — **no Prisma** |
+| **coordinator** `src/routes/auth.ts` | **Phase 7** — record server history during `/auth/select-server` |
+| **coordinator** `src/routes/users.ts` | **Phase 7** — new authenticated server-history endpoint for the selector |
 | **coordinator** `rtdbrules.json` | **New** — lock `/coordinator/*`; `firebaseUID`-scoped social paths |
-| **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions (already drafted) |
+| **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions, and **Phase 7** server history |
 
 ## Effort / risk
 
@@ -354,6 +438,9 @@ social data directly with `rtdbrules.json` keyed on `firebaseUID`).
   Firebase Admin from shard. Run the script before dropping models.
 - **Phase 6:** moderate — frontend server discovery + social reads/writes against
   Firebase central.
+- **Phase 7:** moderate — mostly frontend navigation/state sequencing plus a
+  small coordinator RTDB history API. Low gameplay risk if the selector gates
+  connection before REST/WS are pointed at a shard.
 
 ## Decided
 
@@ -372,6 +459,10 @@ social data directly with `rtdbrules.json` keyed on `firebaseUID`).
    detect missing Docker and prompt install, auto-generate local secrets, optional
    coordinator registration, and port-forwarding reachability check with actionable
    guidance (community hosts must forward `PORT` on their router).
+6. **Player server choice UX** — after authentication, the frontend prompts the
+   user to choose a server. The coordinator records recently used servers in
+   Firebase RTDB so the selector can offer a clear "continue/recent" flow on
+   later launches.
 
 ## Open decisions to settle before/while building
 
