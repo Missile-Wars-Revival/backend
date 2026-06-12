@@ -4,6 +4,7 @@ import { ensureLocalUserForToken } from "../util/provisionUser";
 import { prisma } from "../server";
 import * as geolib from 'geolib';
 import { resolveProfileImageUrls } from "./profileImages";
+import { getFriendUsernames } from "../util/socialStore";
 
 // Phase 6 social cutover: the friend graph lives in Firebase central
 // (/friends/<uid>/<friendUid> uid edges, written by the client under the
@@ -16,16 +17,19 @@ import { resolveProfileImageUrls } from "./profileImages";
 const visibleUsername = (username: unknown) =>
   typeof username === "string" ? username.replace(/[\s\u200B-\u200D\uFEFF]/g, "") : "";
 
-export async function getMutualFriends(currentUser: { friends: any; username: string; }) {
+export async function getMutualFriends(currentUser: { friends: any; username: string; firebaseUID?: string | null; }) {
     const mutualFriends = [];
+    const currentFriends = await getFriendUsernames(currentUser);
   
     // Fetch each friend and check if they also have currentUser in their friends list
-    for (const friendUsername of currentUser.friends) {
+    for (const friendUsername of currentFriends) {
       const friend = await prisma.users.findUnique({
         where: { username: friendUsername }
       });
   
-      if (friend && friend.friends.includes(currentUser.username)) {
+      if (!friend) continue;
+      const friendFriends = await getFriendUsernames(friend);
+      if (friendFriends.includes(currentUser.username)) {
         mutualFriends.push(friendUsername);
       }
     }
@@ -114,13 +118,14 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(404).json({ message: "User not found" });
       }
   
+      const centralFriendUsernames = await getFriendUsernames(currentUser);
       const excludedUsernames = new Set(
-        [decoded.username, ...currentUser.friends]
+        [decoded.username, ...centralFriendUsernames]
           .filter((username): username is string => typeof username === "string")
           .map((username) => visibleUsername(username).toLowerCase())
           .filter(Boolean)
       );
-      const friendsToExclude = currentUser.friends.filter(
+      const friendsToExclude = centralFriendUsernames.filter(
         (username: string) => visibleUsername(username).length > 0
       );
 
@@ -210,13 +215,14 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       }
   
       const radiusInMeters = 15000; // 15 km
+      const centralFriendUsernames = await getFriendUsernames(mainUser);
   
       // Fetch nearby users
       const nearbyUsers = await prisma.gameplayUser.findMany({
         where: {
           AND: [
             { username: { not: { equals: decoded.username } } }, // Exclude self
-            { username: { not: { in: mainUser.friends } } }, // Exclude friends
+            { username: { not: { in: centralFriendUsernames } } }, // Exclude friends
             { friendsOnly: false }, // Only include users with friendsOnly set to false
             {
               Locations: {

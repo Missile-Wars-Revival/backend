@@ -374,8 +374,10 @@ social data directly with `rtdbrules.json` keyed on `firebaseUID`).
       still gains nothing unless they declare back. Friend-request pushes now
       fire from the declaration diff, capped at 3 adds per declare so a
       first-time sync on a fresh shard can't blast a whole friends list. The
-      friends-list UI still consumes the websocket `friends` payload, sourced
-      from the declared cache.)*
+      friends-list UI still consumes the websocket `friends` payload; owner
+      deployments read it from Firebase Admin directly, community shards read
+      it through coordinator `POST /relay/friends`, and both fall back to the
+      declared cache when central is unavailable.)*
       **Rules changed for this cutover — re-deploy `rtdbrules.json`:**
       `/friends/$uid` is now authed-read (clients need the back-edge for
       mutuality; friend lists were never private in the old REST API), and

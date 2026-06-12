@@ -9,6 +9,7 @@ import { prisma } from "../server";
 import { getMutualFriends } from "./friendsApi";
 import { resolveProfileImageUrl, resolveProfileImageUrls } from "./profileImages";
 import { sendPushNotification } from "../runners/NotificationService";
+import { getFriendUsernames } from "../util/socialStore";
 // import { aiBots } from "../bots";
 import { Missile, Loot, Other, Landmine } from "middle-earth"; 
 import axios from 'axios';
@@ -321,27 +322,20 @@ export function setupWebSocket(app: any) {
           }
 
           //friends data
-          const friendsRows = await prisma.users.findMany({
-            where: {
-              username: {
-                in: currentUser.friends,
-              },
-              friends: {
-                has: currentUser.username
-              }
-            },
-            select: {
-              username: true,
-            },
-          });
+          const friendUsernames = await getFriendUsernames(currentUser);
+          if (friendUsernames.join("\0") !== currentUser.friends.join("\0")) {
+            await prisma.users.update({
+              where: { username: currentUser.username },
+              data: { friends: { set: friendUsernames } },
+            });
+            currentUser.friends = friendUsernames;
+          }
 
           // Resolve profile image URLs server-side so the client doesn't have to.
-          const friendsImageUrls = await resolveProfileImageUrls(
-            friendsRows.map((f: { username: string }) => f.username)
-          );
-          const friendsData = friendsRows.map((f: { username: string }) => ({
-            username: f.username,
-            profileImageUrl: friendsImageUrls[f.username] ?? null,
+          const friendsImageUrls = await resolveProfileImageUrls(friendUsernames);
+          const friendsData = friendUsernames.map((friendUsername) => ({
+            username: friendUsername,
+            profileImageUrl: friendsImageUrls[friendUsername] ?? null,
           }));
 
           const mutualFriendsUsernames = await getMutualFriends(currentUser);
@@ -622,7 +616,7 @@ async function isInSea(location: { latitude: number; longitude: number }): Promi
 // declaring strangers as friends gains nothing unless the stranger declares
 // them back — exactly like the old one-sided "add" semantics.
 async function handleFriendsDeclare(msg: any, username: string) {
-  const declared = msg?.data?.friends;
+  const declared = normalizeDeclaredFriends(msg?.data?.friends);
   if (!Array.isArray(declared) || declared.length > 1000) {
     console.error(`Invalid friendsDeclare from ${username}`);
     return;
@@ -679,6 +673,29 @@ async function handleFriendsDeclare(msg: any, username: string) {
   } catch (error) {
     console.error(`Failed to store declared friends for ${username}:`, error);
   }
+}
+
+function normalizeDeclaredFriends(declared: unknown): unknown[] | null {
+  if (Array.isArray(declared)) {
+    return declared;
+  }
+  if (!declared || typeof declared !== "object") {
+    return null;
+  }
+
+  const values = Object.entries(declared as Record<string, unknown>).map(([key, value]) => {
+    if (typeof value === "string") return value;
+    if (value && typeof value === "object" && typeof (value as { username?: unknown }).username === "string") {
+      return (value as { username: string }).username;
+    }
+    return key;
+  });
+
+  if (process.env.VERBOSE_MODE === "ON") {
+    console.log("[friendsDeclare] normalized object sample:", values.slice(0, 5));
+  }
+
+  return values;
 }
 
 async function handlePlayerLocation(ws: WsSocket, msg: any, username: string) {
