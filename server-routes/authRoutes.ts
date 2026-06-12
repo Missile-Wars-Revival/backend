@@ -1,5 +1,5 @@
 import { issueToken, verifyToken } from "../util/auth";
-import { ensureLocalUserForToken } from "../util/provisionUser";
+import { createPlayer, ensureLocalUserForToken } from "../util/provisionUser";
 import { syncProfileUsername } from "../util/socialStore";
 import { verifyFirebaseIdToken } from "../util/firebaseIdToken";
 import { prisma } from "../server";
@@ -157,12 +157,7 @@ export function setupAuthRoutes(app: any) {
                 username = generateUsername(displayName || '');
             }
 
-            await prisma.users.create({
-                data: { username, email: email || '', firebaseUID: uid },
-            });
-            await prisma.gameplayUser.create({
-                data: { username, createdAt: new Date().toISOString() },
-            });
+            await createPlayer({ username, email: email || '', firebaseUID: uid });
 
             const token = await issueToken(username, uid);
             return res.status(200).json({ message: "User created", token, username });
@@ -229,16 +224,7 @@ export function setupAuthRoutes(app: any) {
                 if (existingByUsername) return res.status(409).json({ message: "Username already exists" });
                 if (existingByEmail) return res.status(409).json({ message: "Email already registered" });
 
-                await prisma.users.create({
-                    data: {
-                        username,
-                        email: firebaseEmail,
-                        firebaseUID: decoded.uid,
-                    },
-                });
-                await prisma.gameplayUser.create({
-                    data: { username, createdAt: new Date().toISOString() },
-                });
+                await createPlayer({ username, email: firebaseEmail, firebaseUID: decoded.uid });
 
                 const token = await issueToken(username, decoded.uid);
                 return res.status(200).json({ message: "User created", token });
@@ -268,12 +254,7 @@ export function setupAuthRoutes(app: any) {
 
             const hashedPassword = await argon2.hash(password);
 
-            await prisma.users.create({
-                data: { username, password: hashedPassword, email },
-            });
-            await prisma.gameplayUser.create({
-                data: { username, createdAt: new Date().toISOString() },
-            });
+            await createPlayer({ username, password: hashedPassword, email });
 
             const token = await issueToken(username);
             return res.status(200).json({ message: "User created", token });

@@ -42,6 +42,12 @@ try {
 
 export const prisma = new PrismaClient();
 
+// Databases restored via the import script carry explicit ids, which leaves
+// the Postgres autoincrement sequences behind MAX(id) and makes every later
+// create() fail with a unique-constraint error on `id`. Resync at boot.
+import { syncAutoIncrementSequences } from "./util/dbSequences";
+syncAutoIncrementSequences();
+
 const wsServer = expressWs(express());
 const app = wsServer.app;
 
