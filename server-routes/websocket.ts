@@ -616,18 +616,27 @@ async function isInSea(location: { latitude: number; longitude: number }): Promi
 // declaring strangers as friends gains nothing unless the stranger declares
 // them back — exactly like the old one-sided "add" semantics.
 async function handleFriendsDeclare(msg: any, username: string) {
-  const declared = normalizeDeclaredFriends(msg?.data?.friends);
-  if (!Array.isArray(declared) || declared.length > 1000) {
+  const declaredEntries = normalizeDeclaredFriends(msg?.data?.friends);
+  if (!declaredEntries || declaredEntries.length > 1000) {
     console.error(`Invalid friendsDeclare from ${username}`);
     return;
   }
-  const friends = [...new Set(
-    declared.filter((f): f is string => typeof f === "string" && f.length > 0 && f.length <= 64 && f !== username)
+  let friends = [...new Set(
+    declaredEntries
+      .map((entry) => {
+        if (typeof entry === "string") return entry;
+        if (!entry || typeof entry !== "object") return "";
+        const record = entry as Record<string, unknown>;
+        const candidate = record.username ?? record.friendUsername ?? record.name;
+        return typeof candidate === "string" ? candidate : "";
+      })
+      .map((friend) => friend.trim())
+      .filter((friend) => friend.length > 0 && friend.length <= 64 && friend !== username)
   )];
   try {
     const current = await prisma.users.findUnique({
       where: { username },
-      select: { friends: true },
+      select: { friends: true, firebaseUID: true },
     });
     if (!current) return;
 
@@ -638,6 +647,12 @@ async function handleFriendsDeclare(msg: any, username: string) {
       where: { username },
       data: { friends: { set: friends } },
     });
+
+    if (process.env.VERBOSE_MODE === "ON") {
+      console.log(`[friendsDeclare] ${username}: received=${declaredEntries.length}, stored=${friends.length}`, {
+        sample: friends.slice(0, 5),
+      });
+    }
 
     // Friend-request pushes used to be sent by /api/addFriend; now they fire
     // off the declaration diff. Only small diffs notify — an interactive add

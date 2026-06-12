@@ -742,6 +742,14 @@ minimumSupportedVersion, rolloutPercent, migrationRequired, publishedAt }`.
       shard heartbeat response. The heartbeat request already sends the shard's
       current `version` and `gitSha`; the response should say whether the shard
       is `current`, `update_available`, `update_required`, or `blocked`.
+- [ ] **Coordinator social read relay compatibility**: before forcing
+      community shards onto auto-updated backend builds, expose a shard-auth
+      `POST /relay/friends` endpoint that accepts `{ firebaseUID }` and returns
+      resolved friend usernames from Firebase central
+      (`/friends/<uid>` + `/profiles/<friendUid>/username`). Shards use this to
+      keep their local `Users.friends` gameplay cache and websocket `friends`
+      payload aligned with the coordinator/Firebase graph when they do not have
+      `firebasecred.json`.
 - [ ] **Version policy**: coordinator compares semantic versions, not strings.
       Patch/minor releases can be optional or gradual via `rolloutPercent`;
       security fixes or protocol-breaking releases set `minimumSupportedVersion`
