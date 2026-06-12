@@ -6,6 +6,8 @@
 # The Postgres password is generated locally by setup.sh, so no shared
 # DATABASE_URL ever exists across shard hosts.
 
+name: missile-wars-backend
+
 services:
   db:
     image: postgres:16-alpine

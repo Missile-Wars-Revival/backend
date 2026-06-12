@@ -10,7 +10,19 @@ import { prisma } from "../server";
 
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds in milliseconds
 
-const version: string = require("../package.json").version;
+function readPackageVersion(): string {
+  try {
+    return require("../../package.json").version;
+  } catch {
+    try {
+      return require("../package.json").version;
+    } catch {
+      return "unknown";
+    }
+  }
+}
+
+const version: string = readPackageVersion();
 
 // Live WebSocket connection count, maintained by websocket.ts. This is the
 // "player count" reported to the coordinator — connected clients, not DB rows.
