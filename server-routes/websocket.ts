@@ -1,5 +1,6 @@
 import { Request } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
+import { Prisma } from "@prisma/client";
 import type { WebSocket as WsSocket } from "ws";
 import { verifyToken } from "../util/auth";
 import { ensureLocalUserForToken } from "../util/provisionUser";
@@ -25,6 +26,25 @@ interface AuthResult {
   username?: string;
 }
 
+function isSessionIdUniqueConstraint(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002" &&
+    Array.isArray(error.meta?.target) &&
+    error.meta.target.includes("id")
+  );
+}
+
+async function repairSessionsIdSequence() {
+  await prisma.$queryRaw`
+    SELECT setval(
+      pg_get_serial_sequence('"Sessions"', 'id'),
+      COALESCE((SELECT MAX(id) FROM "Sessions"), 0) + 1,
+      false
+    )
+  `;
+}
+
 async function updateOrCreateSession(userId: number, ip: string | undefined) {
   const existingSession = await prisma.sessions.findFirst({
     where: { userId: userId }
@@ -41,13 +61,30 @@ async function updateOrCreateSession(userId: number, ip: string | undefined) {
     });
   } else {
     // If no session exists, create a new one
-    await prisma.sessions.create({
-      data: {
-        userId: userId,
-        lastLoginTime: new Date(),
-        lastIp: ip || 'unknown'
+    try {
+      await prisma.sessions.create({
+        data: {
+          userId: userId,
+          lastLoginTime: new Date(),
+          lastIp: ip || 'unknown'
+        }
+      });
+    } catch (error) {
+      if (!isSessionIdUniqueConstraint(error)) {
+        throw error;
       }
-    });
+
+      // Imported data can leave the Postgres sequence behind existing rows.
+      // Repair it and retry once so first-time connects do not fail auth.
+      await repairSessionsIdSequence();
+      await prisma.sessions.create({
+        data: {
+          userId: userId,
+          lastLoginTime: new Date(),
+          lastIp: ip || 'unknown'
+        }
+      });
+    }
   }
 }
 
@@ -83,45 +120,6 @@ function authenticate(
       }
 
       let user = await ensureLocalUserForToken(decoded);
-
-      // Phase 7 server migration: a coordinator-signed token (RS256, identity
-      // proven by the coordinator's private key) for a user this shard has
-      // never seen means a player arriving from another shard — provision a
-      // fresh account here. Each shard is its own game world, so they start
-      // with default gameplay state; friends/profile live in Firebase central.
-      // Legacy HS256 tokens never reach this branch (no firebaseUID claim).
-      if (!user && decoded.firebaseUID) {
-        const existingByUid = await prisma.users.findUnique({
-          where: { firebaseUID: decoded.firebaseUID },
-        });
-        if (existingByUid) {
-          // Same identity, different username: the account was renamed
-          // centrally but not on this shard. Renames are only applied through
-          // /api/changeUsername (which rewrites friends arrays etc.) — don't
-          // half-apply one here.
-          console.log(
-            `Auth refused: firebaseUID ${decoded.firebaseUID} exists here as "${existingByUid.username}" but token says "${decoded.username}".`
-          );
-          resolve({ success: false });
-          return;
-        }
-        try {
-          user = await prisma.users.create({
-            data: { username: decoded.username, email: "", firebaseUID: decoded.firebaseUID },
-            include: { GameplayUser: true },
-          });
-          await prisma.gameplayUser.create({
-            data: { username: decoded.username, createdAt: new Date().toISOString() },
-          });
-          console.log(`Provisioned migrated user on this shard: ${decoded.username}`);
-        } catch (error) {
-          // Unique-constraint race (double connect) or a local legacy account
-          // already owns this username with a different identity.
-          console.log(`Failed to provision migrated user ${decoded.username}:`, (error as Error).message);
-          resolve({ success: false });
-          return;
-        }
-      }
 
       if (!user) {
         console.log(`User not found: ${decoded.username}`);
