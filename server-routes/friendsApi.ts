@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { verifyToken } from "../util/auth";
 import { ensureLocalUserForToken } from "../util/provisionUser";
+import { getCentralFriendUsernames } from "../util/socialStore";
 import { prisma } from "../server";
 import * as geolib from 'geolib';
 import { resolveProfileImageUrls } from "./profileImages";
@@ -16,22 +17,40 @@ import { resolveProfileImageUrls } from "./profileImages";
 const visibleUsername = (username: unknown) =>
   typeof username === "string" ? username.replace(/[\s\u200B-\u200D\uFEFF]/g, "") : "";
 
-export async function getMutualFriends(currentUser: { friends: any; username: string; }) {
-    const mutualFriends = [];
-  
-    // Fetch each friend and check if they also have currentUser in their friends list
-    for (const friendUsername of currentUser.friends) {
-      const friend = await prisma.users.findUnique({
-        where: { username: friendUsername }
-      });
-  
-      if (friend && friend.friends.includes(currentUser.username)) {
-        mutualFriends.push(friendUsername);
-      }
+export async function getFriendUsernames(currentUser: { friends: any; firebaseUID?: string | null; username: string; }): Promise<string[]> {
+  const centralFriends = await getCentralFriendUsernames(currentUser.firebaseUID);
+  const source = centralFriends ?? currentUser.friends;
+  if (!Array.isArray(source)) return [];
+
+  return [...new Set(
+    source
+      .filter((username): username is string => typeof username === "string")
+      .map(visibleUsername)
+      .filter((username) => username.length > 0 && username !== currentUser.username)
+  )];
+}
+
+export async function getMutualFriends(currentUser: { friends: any; firebaseUID?: string | null; username: string; }) {
+  const friendUsernames = await getFriendUsernames(currentUser);
+  const mutualFriends = [];
+
+  for (const friendUsername of friendUsernames) {
+    const friend = await prisma.users.findUnique({
+      where: { username: friendUsername },
+      select: { friends: true, firebaseUID: true },
+    });
+
+    if (!friend) continue;
+
+    const friendCentralFriends = await getCentralFriendUsernames(friend.firebaseUID);
+    const friendFriends = friendCentralFriends ?? friend.friends;
+    if (Array.isArray(friendFriends) && friendFriends.includes(currentUser.username)) {
+      mutualFriends.push(friendUsername);
     }
-  
-    return mutualFriends;
   }
+
+  return mutualFriends;
+}
   
   export function setupFriendsApi(app: any) {
   app.patch("/api/friendsOnlyStatus", async (req: Request, res: Response) => {
@@ -114,13 +133,14 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         return res.status(404).json({ message: "User not found" });
       }
   
+      const friendUsernames = await getFriendUsernames(currentUser);
       const excludedUsernames = new Set(
-        [decoded.username, ...currentUser.friends]
+        [decoded.username, ...friendUsernames]
           .filter((username): username is string => typeof username === "string")
           .map((username) => visibleUsername(username).toLowerCase())
           .filter(Boolean)
       );
-      const friendsToExclude = currentUser.friends.filter(
+      const friendsToExclude = friendUsernames.filter(
         (username: string) => visibleUsername(username).length > 0
       );
 
@@ -208,6 +228,8 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
       if (!mainUser) {
         return res.status(404).json({ message: "User not found" });
       }
+
+      const friendUsernames = await getFriendUsernames(mainUser);
   
       const radiusInMeters = 15000; // 15 km
   
@@ -216,7 +238,7 @@ export async function getMutualFriends(currentUser: { friends: any; username: st
         where: {
           AND: [
             { username: { not: { equals: decoded.username } } }, // Exclude self
-            { username: { not: { in: mainUser.friends } } }, // Exclude friends
+            { username: { not: { in: friendUsernames } } }, // Exclude friends
             { friendsOnly: false }, // Only include users with friendsOnly set to false
             {
               Locations: {

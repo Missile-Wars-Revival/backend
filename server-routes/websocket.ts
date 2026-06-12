@@ -6,9 +6,10 @@ import { verifyToken } from "../util/auth";
 import { ensureLocalUserForToken } from "../util/provisionUser";
 import * as middleearth from "middle-earth";
 import { prisma } from "../server";
-import { getMutualFriends } from "./friendsApi";
+import { getFriendUsernames, getMutualFriends } from "./friendsApi";
 import { resolveProfileImageUrl, resolveProfileImageUrls } from "./profileImages";
 import { sendPushNotification } from "../runners/NotificationService";
+import { syncLocalFriendsFromCentral } from "../util/socialStore";
 // import { aiBots } from "../bots";
 import { Missile, Loot, Other, Landmine } from "middle-earth"; 
 import axios from 'axios';
@@ -320,28 +321,17 @@ export function setupWebSocket(app: any) {
             return;
           }
 
-          //friends data
-          const friendsRows = await prisma.users.findMany({
-            where: {
-              username: {
-                in: currentUser.friends,
-              },
-              friends: {
-                has: currentUser.username
-              }
-            },
-            select: {
-              username: true,
-            },
-          });
+          const centralFriends = await syncLocalFriendsFromCentral(
+            currentUser.username,
+            currentUser.firebaseUID
+          );
+          const friendUsernames = centralFriends ?? await getFriendUsernames(currentUser);
 
           // Resolve profile image URLs server-side so the client doesn't have to.
-          const friendsImageUrls = await resolveProfileImageUrls(
-            friendsRows.map((f: { username: string }) => f.username)
-          );
-          const friendsData = friendsRows.map((f: { username: string }) => ({
-            username: f.username,
-            profileImageUrl: friendsImageUrls[f.username] ?? null,
+          const friendsImageUrls = await resolveProfileImageUrls(friendUsernames);
+          const friendsData = friendUsernames.map((friendUsername: string) => ({
+            username: friendUsername,
+            profileImageUrl: friendsImageUrls[friendUsername] ?? null,
           }));
 
           const mutualFriendsUsernames = await getMutualFriends(currentUser);
@@ -623,27 +613,59 @@ async function isInSea(location: { latitude: number; longitude: number }): Promi
 // them back — exactly like the old one-sided "add" semantics.
 async function handleFriendsDeclare(msg: any, username: string) {
   const declared = msg?.data?.friends;
-  if (!Array.isArray(declared) || declared.length > 1000) {
+  const declaredEntries = Array.isArray(declared)
+    ? declared
+    : declared && typeof declared === "object"
+      ? Object.entries(declared).map(([key, value]) => {
+          if (typeof value === "string") return value;
+          if (value && typeof value === "object") return value;
+          return key;
+        })
+      : null;
+
+  if (!declaredEntries || declaredEntries.length > 1000) {
     console.error(`Invalid friendsDeclare from ${username}`);
     return;
   }
-  const friends = [...new Set(
-    declared.filter((f): f is string => typeof f === "string" && f.length > 0 && f.length <= 64 && f !== username)
+  let friends = [...new Set(
+    declaredEntries
+      .map((entry) => {
+        if (typeof entry === "string") return entry;
+        if (!entry || typeof entry !== "object") return "";
+        const record = entry as Record<string, unknown>;
+        const candidate = record.username ?? record.friendUsername ?? record.name;
+        return typeof candidate === "string" ? candidate : "";
+      })
+      .map((friend) => friend.trim())
+      .filter((friend) => friend.length > 0 && friend.length <= 64 && friend !== username)
   )];
   try {
     const current = await prisma.users.findUnique({
       where: { username },
-      select: { friends: true },
+      select: { friends: true, firebaseUID: true },
     });
     if (!current) return;
+
+    const centralFriends = await syncLocalFriendsFromCentral(username, current.firebaseUID);
+    if (centralFriends) {
+      friends = centralFriends.filter((friend) => friend !== username);
+    }
 
     const previous = new Set(current.friends);
     const added = friends.filter((f) => !previous.has(f));
 
-    await prisma.users.update({
-      where: { username },
-      data: { friends: { set: friends } },
-    });
+    if (!centralFriends) {
+      await prisma.users.update({
+        where: { username },
+        data: { friends: { set: friends } },
+      });
+    }
+
+    if (process.env.VERBOSE_MODE === "ON") {
+      console.log(`[friendsDeclare] ${username}: received=${declaredEntries.length}, stored=${friends.length}`, {
+        sample: friends.slice(0, 5),
+      });
+    }
 
     // Friend-request pushes used to be sent by /api/addFriend; now they fire
     // off the declaration diff. Only small diffs notify — an interactive add
