@@ -9,7 +9,6 @@ import { z, ZodError } from "zod";
 import * as admin from 'firebase-admin';
 import { randomInt } from "crypto";
 import rateLimit from "express-rate-limit";
-import Expo from "expo-server-sdk";
 
 // Per-IP limits on credential-related endpoints (requires `trust proxy` to be
 // set in server.ts so the client IP survives the Elastic Beanstalk LB).
@@ -93,11 +92,9 @@ function generateUsername(displayName: string): string {
     return `${base}${suffix}`;
 }
 
-function normalizePushToken(notificationToken: unknown): string | undefined {
-    return typeof notificationToken === 'string' && Expo.isExpoPushToken(notificationToken)
-        ? notificationToken
-        : undefined;
-}
+// Push tokens are no longer accepted here (Phase 6): the client registers its
+// Expo token directly in Firebase central (/notificationTokens/<uid>). Any
+// notificationToken field old clients still send is simply ignored.
 
 export function setupAuthRoutes(app: any) {
     // Returns the email for a given username (used by client to look up email
@@ -131,8 +128,7 @@ export function setupAuthRoutes(app: any) {
 
     // OAuth login — verifies Firebase ID token, finds or creates user
     app.post("/api/oauth-login", authLimiter, async (req: Request, res: Response) => {
-        const { idToken, displayName, notificationToken } = req.body;
-        const pushToken = normalizePushToken(notificationToken);
+        const { idToken, displayName } = req.body;
         if (!idToken) return res.status(400).json({ message: "idToken required" });
 
         try {
@@ -150,9 +146,6 @@ export function setupAuthRoutes(app: any) {
                 if (!user.firebaseUID) {
                     await prisma.users.update({ where: { id: user.id }, data: { firebaseUID: uid } });
                 }
-                if (pushToken) {
-                    await prisma.users.update({ where: { id: user.id }, data: { notificationToken: pushToken } });
-                }
                 const token = await issueToken(user.username, user.firebaseUID ?? uid);
                 return res.status(200).json({ message: "Login successful", token, username: user.username });
             }
@@ -164,7 +157,7 @@ export function setupAuthRoutes(app: any) {
             }
 
             await prisma.users.create({
-                data: { username, email: email || '', firebaseUID: uid, notificationToken: pushToken ?? '' },
+                data: { username, email: email || '', firebaseUID: uid },
             });
             await prisma.gameplayUser.create({
                 data: { username, createdAt: new Date().toISOString() },
@@ -179,8 +172,7 @@ export function setupAuthRoutes(app: any) {
     });
 
     app.post("/api/login", authLimiter, async (req: Request, res: Response) => {
-        const { idToken, username, password, notificationToken } = req.body;
-        const pushToken = normalizePushToken(notificationToken);
+        const { idToken, username, password } = req.body;
 
         if (idToken) {
             // Firebase auth path
@@ -192,9 +184,6 @@ export function setupAuthRoutes(app: any) {
                 if (!user) return res.status(404).json({ message: "User not found" });
                 if (!user.firebaseUID) {
                     await prisma.users.update({ where: { id: user.id }, data: { firebaseUID: decoded.uid } });
-                }
-                if (pushToken) {
-                    await prisma.users.update({ where: { id: user.id }, data: { notificationToken: pushToken } });
                 }
                 const token = await issueToken(user.username, user.firebaseUID ?? decoded.uid);
                 return res.status(200).json({ message: "Login successful", token });
@@ -210,17 +199,13 @@ export function setupAuthRoutes(app: any) {
         const user = await prisma.users.findFirst({ where: { username } });
         if (user && user.password && (await argon2.verify(user.password, password))) {
             const token = await issueToken(user.username, user.firebaseUID);
-            if (pushToken) {
-                await prisma.users.update({ where: { username }, data: { notificationToken: pushToken } });
-            }
             return res.status(200).json({ message: "Login successful", token });
         }
         return res.status(401).json({ message: "Invalid username or password" });
     });
 
     app.post("/api/register", authLimiter, async (req: Request, res: Response) => {
-        const { idToken, username, email, password, notificationToken } = req.body;
-        const pushToken = normalizePushToken(notificationToken);
+        const { idToken, username, email, password } = req.body;
 
         if (idToken) {
             // Firebase auth path
@@ -248,7 +233,6 @@ export function setupAuthRoutes(app: any) {
                         username,
                         email: firebaseEmail,
                         firebaseUID: decoded.uid,
-                        notificationToken: pushToken ?? '',
                     },
                 });
                 await prisma.gameplayUser.create({
@@ -284,7 +268,7 @@ export function setupAuthRoutes(app: any) {
             const hashedPassword = await argon2.hash(password);
 
             await prisma.users.create({
-                data: { username, password: hashedPassword, email, notificationToken: pushToken ?? '' },
+                data: { username, password: hashedPassword, email },
             });
             await prisma.gameplayUser.create({
                 data: { username, createdAt: new Date().toISOString() },

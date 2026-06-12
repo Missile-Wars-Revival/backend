@@ -49,7 +49,7 @@ DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
 # Written automatically by ./docker/host.sh | .\docker\host.ps1 registration.
 # Tokens are minted and verified by the coordinator (RS256, 12h, refreshable);
 # Firebase ID-token login and push delivery also go through the coordinator.
-COORDINATOR_URL="https://your-coordinator.example.com"
+COORDINATOR_URL="https://backend-coordinator.vercel.app"
 SHARD_API_KEY="mw_shard_..."   # issued at registration, revocable
 SHARD_ID="..."                 # enables the JWT audience check
 
@@ -98,10 +98,54 @@ cd backend
 ```
 
 The launcher checks Docker is installed (with install links if not), generates
-your local `.env` on first run, **optionally registers your shard with the
-coordinator** (writing `COORDINATOR_URL`, `SHARD_API_KEY`, and `SHARD_ID` into
+your local `.env` on first run, registers your shard with the official
+coordinator at `https://backend-coordinator.vercel.app/shards/register`
+(writing `COORDINATOR_URL`, `SHARD_API_KEY`, and `SHARD_ID` into
 `.env` — the API key is shown once and is revocable), starts the stack, and
 runs a reachability check so you know port forwarding works.
+
+The registration request looks like this:
+
+```bash
+curl -X POST "https://backend-coordinator.vercel.app/shards/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Official Main",
+    "region": "eu-west",
+    "publicHttpUrl": "https://YOUR-BACKEND-DOMAIN",
+    "publicWsUrl": "wss://YOUR-BACKEND-DOMAIN",
+    "ownerContact": "you@example.com"
+  }'
+```
+
+You normally do **not** need to run that curl command yourself. The Docker
+launcher asks you for those values and sends the request for you.
+
+What the prompts mean:
+
+- `Server name`: the friendly name players see in the server list. Example:
+  `Official Main`, `London Shard`, or `Alice's Server`. Names are unique. If
+  someone already registered that name, the launcher asks you to pick another.
+- `Region`: a short location label so players can pick something nearby.
+  Examples: `eu-west`, `us-east`, `us-west`, `australia`.
+- `Public HTTP URL`: the normal internet address for this backend. This must be
+  reachable by a phone that is **not** on your computer. Do not enter
+  `localhost`, `127.0.0.1`, `db`, `backend`, or a Docker container name. Those
+  only work inside your machine.
+- `Public WebSocket URL`: usually the same address with `ws://` instead of
+  `http://`, or `wss://` instead of `https://`. If your HTTP URL is
+  `https://play.example.com`, the WebSocket URL is normally
+  `wss://play.example.com`.
+- `Owner contact email`: required. Use an email address you actually read, like
+  `you@example.com`. Admins use this if your server is down, misconfigured, or
+  needs verification help.
+
+The launcher tries to help with `publicHttpUrl` by asking the internet what IP
+address your server appears to have. If your shard listens on port `8080`, it
+will suggest something like `http://203.0.113.10:8080`. That guess is only a
+guess. If you use a domain, HTTPS proxy, different public port, tunnel, or cloud
+load balancer, type the real public URL instead. The correct answer is the one a
+player's phone can open from mobile data.
 
 What the stack runs:
 
@@ -129,8 +173,8 @@ Notes for hosts:
   `/relay/push`, so you never hold players' push tokens. Only the project
   owner's deployment mounts it.
 - Registered shards heartbeat to the coordinator every 30s (player count +
-  version) so players can discover your server; unregistered shards skip this
-  and run standalone with a local `JWT_SECRET`.
+  version) so players can discover your server. The Docker host launcher now
+  registers public shards with the official coordinator before starting them.
 - Email settings in `.env` are optional and only used for password-reset
   emails on the owner's deployment.
 
@@ -262,20 +306,18 @@ npx prisma migrate dev
 
 ## 🌐 Distributed Hosting — Owner Operations
 
-One-time cutover steps for the central deployment (both need
-`firebasecred.json`; see [DISTRIBUTED_HOSTING_PLAN.md](DISTRIBUTED_HOSTING_PLAN.md)):
+Copies social data (friends, profiles, push tokens, notification prefs) from
+production Postgres to Firebase central. Needs `firebasecred.json` and the
+production `DATABASE_URL`; idempotent, so safe to re-run (e.g. for legacy
+accounts that gained a `firebaseUID` after the first pass):
 
 ```bash
-# 1. Copy social data (friends, profiles, push tokens, notification prefs)
-#    from production Postgres to Firebase central. Dry run first:
-npm run migrate:social
+npm run migrate:social              # dry run
 npm run migrate:social -- --apply
-
-# 2. Deploy the RTDB security rules (backs up the live rules first):
-cd ../backend-coordinator
-node scripts/deploy-rules.js            # dry run + backup of current rules
-node scripts/deploy-rules.js --apply    # deploy rtdbrules.json
 ```
+
+RTDB security rules live in `../backend-coordinator/rtdbrules.json` — keep the
+Firebase console rules in sync with that file when it changes.
 
 ## 📦 Data Migration Tools
 

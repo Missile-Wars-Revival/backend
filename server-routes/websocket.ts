@@ -5,7 +5,8 @@ import { verifyToken } from "../util/auth";
 import * as middleearth from "middle-earth";
 import { prisma } from "../server";
 import { getMutualFriends } from "./friendsApi";
-import { resolveProfileImageUrls } from "./profileImages";
+import { resolveProfileImageUrl, resolveProfileImageUrls } from "./profileImages";
+import { sendPushNotification } from "../runners/NotificationService";
 // import { aiBots } from "../bots";
 import { Missile, Loot, Other, Landmine } from "middle-earth"; 
 import axios from 'axios';
@@ -499,6 +500,9 @@ export function setupWebSocket(app: any) {
               case "playerLocation":
                 await handlePlayerLocation(ws, msg, username);
                 break;
+              case "friendsDeclare":
+                await handleFriendsDeclare(msg, username);
+                break;
               default:
                 console.log(`Unhandled message type: ${msg.itemType}`);
             }
@@ -572,6 +576,75 @@ async function isInSea(location: { latitude: number; longitude: number }): Promi
 
   console.error("Max retries reached. Returning false.");
   return false; // Return false if max retries reached
+}
+
+// Phase 6 social cutover: friendships live in Firebase central (uid edges,
+// written by the client). The client DECLARES its friend list here and the
+// shard caches it in Users.friends purely for gameplay — friendsOnly
+// visibility, friendly-fire exemption, proximity alerts. The cache must
+// outlive the session (an offline friend's missile still must not hurt you),
+// which is why this stays a column and not in-memory state. Cheat-resistance
+// is unchanged: every check that matters uses MUTUAL friendship, so a player
+// declaring strangers as friends gains nothing unless the stranger declares
+// them back — exactly like the old one-sided "add" semantics.
+async function handleFriendsDeclare(msg: any, username: string) {
+  const declared = msg?.data?.friends;
+  if (!Array.isArray(declared) || declared.length > 1000) {
+    console.error(`Invalid friendsDeclare from ${username}`);
+    return;
+  }
+  const friends = [...new Set(
+    declared.filter((f): f is string => typeof f === "string" && f.length > 0 && f.length <= 64 && f !== username)
+  )];
+  try {
+    const current = await prisma.users.findUnique({
+      where: { username },
+      select: { friends: true },
+    });
+    if (!current) return;
+
+    const previous = new Set(current.friends);
+    const added = friends.filter((f) => !previous.has(f));
+
+    await prisma.users.update({
+      where: { username },
+      data: { friends: { set: friends } },
+    });
+
+    // Friend-request pushes used to be sent by /api/addFriend; now they fire
+    // off the declaration diff. Only small diffs notify — an interactive add
+    // is 1 name, while a first sync on a fresh shard can be a whole list and
+    // must not blast every friend with a push.
+    if (added.length > 0 && added.length <= 3) {
+      const senderAvatarUrl = await resolveProfileImageUrl(username);
+      // The stored titles must stay exactly "Friend Accepted" /
+      // "Friend Request" — they double as the pending-request inbox.
+      const communicationData = {
+        fromUserId: username,
+        communication: true,
+        senderName: username,
+        ...(senderAvatarUrl ? { senderAvatarUrl } : {}),
+        communicationThreadId: `friend-${username}`,
+      };
+      for (const friendName of added) {
+        const friendUser = await prisma.users.findUnique({
+          where: { username: friendName },
+          select: { friends: true },
+        });
+        if (!friendUser) continue;
+        const isMutual = friendUser.friends.includes(username);
+        await sendPushNotification({
+          userId: friendName,
+          title: isMutual ? "Friend Accepted" : "Friend Request",
+          body: isMutual ? `${username} has added you back!` : `${username} has added you as a friend!`,
+          type: "friend_request",
+          data: { type: isMutual ? "friend_accepted" : "friend_request", ...communicationData },
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`Failed to store declared friends for ${username}:`, error);
+  }
 }
 
 async function handlePlayerLocation(ws: WsSocket, msg: any, username: string) {

@@ -9,8 +9,10 @@
 // are reported and skipped — they migrate when they next log in via Firebase):
 //   /profiles/<uid>            { username, updatedAt }
 //   /friends/<uid>/<friendUid> true        (only when the friend has a uid)
-//   /notificationTokens/<uid>  "<expo push token>"
 //   /notificationPreferences/<uid> { ...prisma NotificationPreferences flags }
+//
+// (Push tokens were exported by the original Phase 5 run; the Postgres column
+// was dropped in Phase 6 — clients now register tokens centrally themselves.)
 //
 // Idempotent: every write is an upsert keyed on stable uids; rerunning is safe.
 
@@ -36,7 +38,6 @@ async function main() {
       username: true,
       firebaseUID: true,
       friends: true,
-      notificationToken: true,
       notificationPreferences: true,
     },
   });

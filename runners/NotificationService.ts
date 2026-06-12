@@ -1,5 +1,6 @@
 import Expo, { ExpoPushMessage } from "expo-server-sdk";
 import axios from "axios";
+import * as admin from "firebase-admin";
 import { prisma } from "../server";
 
 // Local TypeScript interface matching the Prisma NotificationPreferences model
@@ -102,16 +103,34 @@ export async function sendPushNotification(payload: NotificationPayload): Promis
     });
   }
 
-  if (!user.notificationToken) {
-    // No local token — the user may have registered their token in Firebase
-    // central instead (Phase 5); ask the coordinator to relay the push.
+  // Phase 6: push tokens live ONLY in Firebase central
+  // (/notificationTokens/<uid>, written by the client). Resolve and send
+  // locally when this deployment has the admin SDK (owner); otherwise hand
+  // delivery to the coordinator's relay, which reads the same path.
+  if (!admin.apps.length) {
     await relayPushViaCoordinator(payload, user.firebaseUID);
     return;
   }
 
-  if (!Expo.isExpoPushToken(user.notificationToken)) {
-    console.error(`Push token ${user.notificationToken} is not a valid Expo push token`);
-    await clearNotificationToken(userId);
+  if (!user.firebaseUID) {
+    // Legacy pre-Firebase account: it cannot register a central token (rules
+    // key on auth.uid), so there is nowhere to deliver to.
+    console.log(`No push destination for legacy account: ${userId}`);
+    return;
+  }
+
+  const tokenRef = admin.database().ref(`notificationTokens/${user.firebaseUID}`);
+  let pushToken: string | null = null;
+  try {
+    const snap = await tokenRef.get();
+    pushToken = snap.exists() ? (snap.val() as string) : null;
+  } catch (error) {
+    console.error(`Failed to read push token for ${userId}:`, error);
+    return;
+  }
+
+  if (!pushToken || !Expo.isExpoPushToken(pushToken)) {
+    console.log(`No valid notification token for username: ${userId}`);
     return;
   }
 
@@ -121,7 +140,7 @@ export async function sendPushNotification(payload: NotificationPayload): Promis
   const needsMutation = !!data?.communication || !!richContent?.image;
 
   const message: ExpoPushMessage = {
-    to: user.notificationToken,
+    to: pushToken,
     channelId: "default",
     ...(silent
       ? { _contentAvailable: true }
@@ -142,7 +161,7 @@ export async function sendPushNotification(payload: NotificationPayload): Promis
         // The token is dead (app uninstalled / token rotated) — drop it so
         // the client's next registerAndSyncPushToken() repairs it.
         if (ticket.details?.error === "DeviceNotRegistered") {
-          await clearNotificationToken(userId);
+          await tokenRef.remove().catch(() => {});
         }
       }
     }
@@ -185,13 +204,3 @@ async function relayPushViaCoordinator(
   }
 }
 
-async function clearNotificationToken(username: string): Promise<void> {
-  try {
-    await prisma.users.update({
-      where: { username },
-      data: { notificationToken: "" },
-    });
-  } catch (error) {
-    console.error(`Failed to clear notification token for ${username}:`, error);
-  }
-}

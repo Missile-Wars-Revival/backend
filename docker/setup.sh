@@ -46,9 +46,10 @@ JWT_SECRET=${JWT_SECRET}
 # Set to ON for chatty logs.
 VERBOSE_MODE=OFF
 
-# --- Distributed hosting (fill in once registered with the coordinator) ---
-#COORDINATOR_URL=
+# --- Distributed hosting (written by docker/host.sh after registration) ---
+#COORDINATOR_URL=https://backend-coordinator.vercel.app
 #SHARD_API_KEY=
+#SHARD_ID=
 
 # --- Optional: password-reset emails (moves to coordinator later) ---
 #EMAIL_HOST=

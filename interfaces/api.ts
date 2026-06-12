@@ -1,16 +1,17 @@
 import { z } from "zod";
 
+// notificationToken is no longer part of these bodies (Phase 6: clients
+// register push tokens in Firebase central). Old clients may still send it;
+// zod ignores unknown keys, so it is silently dropped.
 const LoginSchema = z.object({
   username: z.string(),
   password: z.string(),
-  notificationToken: z.string().optional(),
 });
 
 const RegisterSchema = z.object({
   username: z.string(),
   email: z.string(),
   password: z.string(),
-  notificationToken: z.string(),
 });
 
 const AuthWithLocationSchema = z.object({

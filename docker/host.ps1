@@ -3,7 +3,7 @@
 # PowerShell equivalent of docker/host.sh:
 #   1. Checks Docker Desktop + compose are installed (with install links).
 #   2. Generates .env with local secrets on first launch (setup.sh equivalent).
-#   3. Optionally registers this shard with the coordinator and saves
+#   3. Registers this shard with the official coordinator and saves
 #      COORDINATOR_URL + SHARD_API_KEY into .env.
 #   4. Starts the stack: docker compose up -d --build
 #   5. Verifies /healthz locally and probes public reachability.
@@ -12,6 +12,8 @@
 $ErrorActionPreference = "Stop"
 
 Set-Location (Join-Path $PSScriptRoot "..")
+
+$OfficialCoordinatorUrl = "https://backend-coordinator.vercel.app"
 
 function Write-Ok($msg)   { Write-Host "[OK]   $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
@@ -80,9 +82,10 @@ JWT_SECRET=$jwtSecret
 # Set to ON for chatty logs.
 VERBOSE_MODE=OFF
 
-# --- Distributed hosting (fill in once registered with the coordinator) ---
-#COORDINATOR_URL=
+# --- Distributed hosting (written by docker/host.ps1 after registration) ---
+#COORDINATOR_URL=https://backend-coordinator.vercel.app
 #SHARD_API_KEY=
+#SHARD_ID=
 
 # --- Optional: password-reset emails (moves to coordinator later) ---
 #EMAIL_HOST=
@@ -107,61 +110,120 @@ $port = Get-EnvValue "PORT"
 if (-not $port) { $port = "8080" }
 
 # -------------------------------------------------------- step 3: registration
-Write-Step "3/5 Coordinator registration (optional)..."
+Write-Step "3/5 Official coordinator registration..."
 
 $coordinatorUrl = Get-EnvValue "COORDINATOR_URL"
 $shardApiKey = Get-EnvValue "SHARD_API_KEY"
 
+function Read-Required($prompt) {
+    do {
+        $value = Read-Host $prompt
+        if (-not $value) { Write-Warn "Please type something here. Empty answers cannot be registered." }
+    } while (-not $value)
+    return $value
+}
+
+function Read-AvailableName($coordinatorUrl) {
+    do {
+        $value = Read-Required "Server name players will see (example: Official Main)"
+        try {
+            $encodedName = [System.Uri]::EscapeDataString($value)
+            $result = Invoke-RestMethod -Uri "$coordinatorUrl/shards/name-available?name=$encodedName" -TimeoutSec 10
+            if ($result.data.available) {
+                return $value
+            }
+            Write-Warn "That server name is already taken. Pick a different name."
+            $value = ""
+        } catch {
+            Write-Warn "Could not check that name right now. Registration will still verify it at the end."
+            return $value
+        }
+    } while (-not $value)
+}
+
+function Read-OwnerEmail {
+    do {
+        $value = Read-Host "Owner contact email (required, example: you@example.com)"
+        if ($value -notmatch "^[^@\s]+@[^@\s]+\.[^@\s]+$") {
+            Write-Warn "Please enter an email address with an @ and a domain. This lets admins contact you if your server breaks."
+            $value = ""
+        }
+    } while (-not $value)
+    return $value
+}
+
 if ($coordinatorUrl -and $shardApiKey) {
     Write-Ok "Already registered (COORDINATOR_URL + SHARD_API_KEY set) - heartbeats enabled"
 } else {
-    $reply = Read-Host "Register this shard with a coordinator so players can discover it? [y/N]"
-    if ($reply -eq "y" -or $reply -eq "Y") {
-        $publicIp = ""
-        try { $publicIp = (Invoke-RestMethod -Uri "https://api.ipify.org" -TimeoutSec 5) } catch {}
+    $regCoord = $OfficialCoordinatorUrl
+    $publicIp = ""
+    try { $publicIp = (Invoke-RestMethod -Uri "https://api.ipify.org" -TimeoutSec 5) } catch {}
 
-        $regCoord = (Read-Host "Coordinator URL (e.g. https://coordinator.example.com)").TrimEnd("/")
-        $regName = Read-Host "Shard name (shown to players)"
-        $regRegion = Read-Host "Region (e.g. eu-west, us-east)"
-        if ($publicIp) { $defaultHttp = "http://${publicIp}:${port}" } else { $defaultHttp = "http://YOUR_PUBLIC_IP:${port}" }
-        $regHttp = Read-Host "Public HTTP URL [$defaultHttp]"
-        if (-not $regHttp) { $regHttp = $defaultHttp }
-        $defaultWs = $regHttp -replace "^http", "ws"
-        $regWs = Read-Host "Public WebSocket URL [$defaultWs]"
-        if (-not $regWs) { $regWs = $defaultWs }
-        $regContact = Read-Host "Owner contact (email/discord, optional)"
+    Write-Host "This server must introduce itself to the Missile Wars backend coordinator:"
+    Write-Host "  $regCoord/shards/register"
+    Write-Host ""
+    Write-Host "Use real public details here. The phone app will copy these values later."
+    Write-Host "Do not use localhost, 127.0.0.1, db, backend, or a Docker container name."
+    Write-Host ""
 
-        $body = @{
-            name = $regName
-            region = $regRegion
-            publicHttpUrl = $regHttp
-            publicWsUrl = $regWs
-            ownerContact = $regContact
-        } | ConvertTo-Json
+    $regName = Read-AvailableName $regCoord
+    $regRegion = Read-Required "Region label (example: eu-west, us-east, australia)"
 
-        Write-Host "Registering with $regCoord ..."
-        try {
-            $response = Invoke-RestMethod -Uri "$regCoord/shards/register" -Method Post `
-                -ContentType "application/json" -Body $body -TimeoutSec 15
-            $apiKey = $response.data.apiKey
-            $shardId = $response.data.shardId
-            if ($apiKey) {
-                $append = "`n# Coordinator registration (written by docker/host.ps1; key shown once by the coordinator)`n"
-                $append += "COORDINATOR_URL=$regCoord`n"
-                $append += "SHARD_API_KEY=$apiKey`n"
-                $append += "SHARD_ID=$shardId`n"
-                [System.IO.File]::AppendAllText((Join-Path (Get-Location) ".env"), $append, (New-Object System.Text.UTF8Encoding($false)))
-                Write-Ok "Registered (shard id: $shardId). API key saved to .env - it is revocable and safe to keep here."
-            } else {
-                Write-Fail "Unexpected response from coordinator:"
-                Write-Host ($response | ConvertTo-Json -Depth 5)
-            }
-        } catch {
-            Write-Fail "Registration failed - check the coordinator URL and try again later."
-            Write-Host "  The shard will still start; re-run .\docker\host.ps1 to retry."
+    if ($publicIp) { $defaultHttp = "http://${publicIp}:${port}" } else { $defaultHttp = "http://YOUR_PUBLIC_IP:${port}" }
+    Write-Host ""
+    Write-Host "Public HTTP URL:"
+    Write-Host "  This is the normal web address for this backend from OUTSIDE this computer."
+    Write-Host "  If you bought a domain and set up HTTPS, use that, for example:"
+    Write-Host "    https://play.example.com"
+    Write-Host "  If this is a VPS or home server without a domain, this script guessed:"
+    Write-Host "    $defaultHttp"
+    Write-Host "  The guessed IP comes from the internet seeing this machine. If your router"
+    Write-Host "  forwards a different port, or your cloud provider gave you a DNS name, type"
+    Write-Host "  the correct full URL instead. Include http:// or https:// at the front."
+    $regHttp = Read-Host "Public HTTP URL [$defaultHttp]"
+    if (-not $regHttp) { $regHttp = $defaultHttp }
+
+    $defaultWs = $regHttp -replace "^https", "wss"
+    $defaultWs = $defaultWs -replace "^http", "ws"
+    Write-Host ""
+    Write-Host "Public WebSocket URL:"
+    Write-Host "  This is usually the same address with ws:// instead of http://, or wss://"
+    Write-Host "  instead of https://. The default below is normally correct."
+    $regWs = Read-Host "Public WebSocket URL [$defaultWs]"
+    if (-not $regWs) { $regWs = $defaultWs }
+
+    $regContact = Read-OwnerEmail
+
+    $body = @{
+        name = $regName
+        region = $regRegion
+        publicHttpUrl = $regHttp
+        publicWsUrl = $regWs
+        ownerContact = $regContact
+    } | ConvertTo-Json
+
+    Write-Host "Registering with $regCoord ..."
+    try {
+        $response = Invoke-RestMethod -Uri "$regCoord/shards/register" -Method Post `
+            -ContentType "application/json" -Body $body -TimeoutSec 15
+        $apiKey = $response.data.apiKey
+        $shardId = $response.data.shardId
+        if ($apiKey) {
+            $append = "`n# Coordinator registration (written by docker/host.ps1; key shown once by the coordinator)`n"
+            $append += "COORDINATOR_URL=$regCoord`n"
+            $append += "SHARD_API_KEY=$apiKey`n"
+            $append += "SHARD_ID=$shardId`n"
+            [System.IO.File]::AppendAllText((Join-Path (Get-Location) ".env"), $append, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Ok "Registered (shard id: $shardId). API key saved to .env - it is revocable and safe to keep here."
+        } else {
+            Write-Fail "Unexpected response from coordinator:"
+            Write-Host ($response | ConvertTo-Json -Depth 5)
+            exit 1
         }
-    } else {
-        Write-Host "Skipping - the shard runs standalone. Re-run .\docker\host.ps1 any time to register."
+    } catch {
+        Write-Fail "Registration failed - check the public URLs and try again."
+        Write-Host "  Nothing was saved to .env. Re-run .\docker\host.ps1 to retry."
+        exit 1
     }
 }
 

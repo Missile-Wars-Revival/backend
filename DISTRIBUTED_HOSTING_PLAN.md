@@ -154,6 +154,7 @@ reviewed and tell users honestly before they connect.
 | ------ | ------- | ----------------- |
 | **Verified** | Project owner has reviewed and trusts this host (own infra or vetted community server). | Shown with a verified badge; no extra warning. |
 | **Unverified** | Registered with the coordinator but not reviewed by the project owner. | **Mandatory warning** before connect: their information may not be secure — including **live location**, auth tokens in transit, and other gameplay traffic visible to the host. User must acknowledge to proceed. |
+| **Offline** | Registered shard missed the configured heartbeat window (5-10 missed 30s heartbeats; default 5). | Hidden from discovery until heartbeats resume. |
 | **Disabled** | Delisted by admin. | Hidden from discovery; cannot obtain a scoped token. |
 
 Verification is a **trust label**, not a cryptographic guarantee. It tells users
@@ -336,21 +337,48 @@ social data directly with `rtdbrules.json` keyed on `firebaseUID`).
 - [x] Verified badge on server picker for `verified: true` shards (and an
       "Unverified" tag otherwise), shown in both the list and the selected row
       (`components/ServerPicker.tsx`, wired into the login screen).
-- [ ] **Push-token cutover** (deferred from Phase 5): client registers its Expo
-      push token to `/notificationTokens/<uid>` and preferences to
-      `/notificationPreferences/<uid>` in Firebase central (it can — rules
-      scope both to `auth.uid`). Then drop `Users.notificationToken` from the
-      shard schema, the pushToken writes in login/register, and the local-token
-      path in `NotificationService` (relay/central only).
-- [ ] **Social cutover** (deferred from Phase 5): client reads/writes friends
-      via Firebase central; then drop `Users.friends` + the friends API routes
-      from the shard. The gameplay loops (websocket friendsOnly visibility,
-      damage exemption, proximity) lose their Postgres source — replace with a
-      client-declared friends list sent at WS connect (read from Firebase by
-      the client, cached in shard memory per-session). Note: client-declared
-      friends affect *visibility and notifications only*; mutual-friend damage
-      exemption must require BOTH sides to declare, preserving the current
-      mutuality rule so it stays cheat-resistant.
+- [x] Coordinator marks active shards **offline** after the configured missed
+      heartbeat window (`OFFLINE_AFTER_MISSED_HEARTBEATS`, default 5; allowed
+      5-10). The next valid heartbeat moves `offline` shards back to `active`;
+      offline shards are hidden from discovery.
+- [x] Coordinator admin web page shows the registered shard details needed for
+      operations: name, id, description, owner contact, region, public HTTP/WS
+      URLs, status/listability, verified state, player count, heartbeat time,
+      version, git SHA, coordinates, created/updated timestamps, and actions.
+- [x] **Push-token cutover**: the client writes its Expo token to
+      `/notificationTokens/<uid>` and mirrors preference changes to
+      `/notificationPreferences/<uid>` (both `auth.uid`-scoped);
+      logout removes the central token. `Users.notificationToken` is dropped
+      from the shard schema along with the login/register pushToken writes and
+      the `/api/updateNotificationToken` / `notificationTokenStatus` /
+      `deleteNotificationToken` endpoints. `NotificationService` resolves
+      delivery from Firebase central (admin SDK on the owner deployment,
+      coordinator `/relay/push` on community shards). *(Known gap: legacy
+      accounts without a Firebase session can't register a token — rules key
+      on `auth.uid` — so they don't receive pushes; password reset migrates
+      them to Firebase.)*
+- [x] **Social cutover**: clients write uid edges to `/friends/<uid>` and a
+      request entry to the target's `/friendRequests` inbox (`api/friends.ts`);
+      `/api/friends`, `/api/addFriend`, `/api/removeFriend` and
+      `/api/searchfriendsadded` are deleted from the shard. The client keeps an
+      RTDB listener on its own edges and (re)declares the username list over
+      the websocket (`friendsDeclare`) on connect and on every change.
+      *(Design deviations, deliberate: `Users.friends` is NOT dropped — it
+      survives as the client-DECLARED gameplay cache written only by the
+      `friendsDeclare` handler, because friendly-fire exemption and
+      friendsOnly visibility must keep working for OFFLINE friends, which a
+      session-scoped in-memory graph cannot do. All ~100 gameplay read sites
+      and the mutuality rule keep working unchanged — declaring strangers
+      still gains nothing unless they declare back. Friend-request pushes now
+      fire from the declaration diff, capped at 3 adds per declare so a
+      first-time sync on a fresh shard can't blast a whole friends list. The
+      friends-list UI still consumes the websocket `friends` payload, sourced
+      from the declared cache.)*
+      **Rules changed for this cutover — re-deploy `rtdbrules.json`:**
+      `/friends/$uid` is now authed-read (clients need the back-edge for
+      mutuality; friend lists were never private in the old REST API), and
+      `/profiles` gained root authed-read + `.indexOn: ["username"]` for the
+      username→uid lookup.
 
 ### Phase 7 — Post-login server selection + server history
 
@@ -379,11 +407,11 @@ startup default.
       `{ firstUsedAt, lastUsedAt, useCount, lastServerName, lastRegion,
       lastVerified }`. This is written only by the coordinator Admin SDK, never
       directly by clients.
-- [ ] **History API for the selector**: add a coordinator endpoint, for example
-      `GET /users/me/server-history`, authenticated with a Firebase ID token,
-      that returns the user's recently used shards joined with current shard
-      status/discovery fields. Disabled or stale shards can be shown as
-      unavailable, but must not be connectable.
+- [ ] **History in the server list**: include the authenticated user's recent
+      server history in the existing coordinator server-list/discovery
+      response, joined with current shard status/discovery fields. The selector
+      should use that history to show recent servers first. Disabled or stale
+      shards can be shown as unavailable, but must not be connectable.
 - [ ] **Selection write path**: `POST /auth/select-server` should be the single
       authoritative client selection path. After verifying the Firebase ID token
       and confirming the shard is listable, it mints the shard-scoped JWT,
@@ -415,14 +443,14 @@ startup default.
 | `backend/docker/host.sh` | **New** — one-click launcher: Docker detection, setup, register, port check |
 | `backend/docker/host.ps1` | **New** — Windows equivalent of `host.sh` |
 | `frontend/api/axios-instance.ts` | Coordinator discovery + shard select + unverified warning UI |
-| `frontend/api/server-discovery.ts` | **Phase 7** — fetch recent server history, select via coordinator before gameplay connect |
+| `frontend/api/server-discovery.ts` | **Phase 7** — read history metadata from server list, select via coordinator before gameplay connect |
 | `frontend/api/friends.ts` | Read/write Firebase central instead of shard REST |
 | `frontend/components/ConnectingScreen.tsx` | **Phase 7** — show while selected shard token + REST/WS connection settles |
 | `frontend` login/navigation flow | **Phase 7** — login first, then full-screen server selector, then gameplay |
 | `frontend` WebSocket setup | Point at chosen shard URL |
 | **coordinator** `../backend-coordinator/` | Vercel + Firebase RTDB; auth, directory, JWKS, relay, **admin portal** — **no Prisma** |
 | **coordinator** `src/routes/auth.ts` | **Phase 7** — record server history during `/auth/select-server` |
-| **coordinator** `src/routes/users.ts` | **Phase 7** — new authenticated server-history endpoint for the selector |
+| **coordinator** server-list/discovery route | **Phase 7** — include authenticated user's server history in the existing server list response |
 | **coordinator** `rtdbrules.json` | **New** — lock `/coordinator/*`; `firebaseUID`-scoped social paths |
 | **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions, and **Phase 7** server history |
 
