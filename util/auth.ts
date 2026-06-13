@@ -54,6 +54,14 @@ function distributedMode(): boolean {
     return Boolean(coordinatorUrl() && process.env.SHARD_API_KEY);
 }
 
+// Exposed so routes that must not exist in distributed mode (the old
+// client-callable coin/item grants, replaced by the coordinator-verified
+// purchase voucher flow) can refuse there while staying available for
+// solo/local hosting and legacy app builds.
+export function isDistributedMode(): boolean {
+    return distributedMode();
+}
+
 // ------------------------------------------------------------- JWKS cache
 
 // kid -> PEM public key. Kept as PEM so the hot path stays jwt.verify (sync).
@@ -175,6 +183,49 @@ export function verifyToken(token: string): TokenPayload {
         throw new jwt.JsonWebTokenError("Token payload missing username");
     }
     return decoded as TokenPayload;
+}
+
+// Phase 9: a purchase grant voucher minted by the coordinator (RS256, same
+// JWKS as session tokens). Separate from verifyToken because a voucher carries
+// no username, must be RS256 (never the legacy HS256 path), and is identified
+// by its scope. `sub` is the buyer's firebaseUID; callers cross-check it
+// against the session token before crediting.
+export interface VoucherGrant {
+    kind: "coins" | "item";
+    amount?: number;
+    itemName?: string;
+}
+
+export interface VoucherPayload extends jwt.JwtPayload {
+    scope: string;
+    txId: string;
+    productId: string;
+    grant: VoucherGrant;
+}
+
+export function verifyVoucher(token: string): VoucherPayload {
+    const header = decodeHeader(token);
+    if (header.alg !== "RS256") {
+        throw new jwt.JsonWebTokenError("Purchase vouchers must be coordinator-signed (RS256)");
+    }
+    const kid = header.kid ?? "default";
+    const pem = publicKeys.get(kid);
+    if (!pem) {
+        refreshJwks().catch(() => {});
+        throw new jwt.JsonWebTokenError("Verification key not available for this voucher");
+    }
+    const decoded = jwt.verify(token, pem, {
+        algorithms: ["RS256"],
+        audience: process.env.SHARD_ID || undefined,
+    });
+    if (typeof decoded === "string" || decoded.scope !== "purchase:grant") {
+        throw new jwt.JsonWebTokenError("Not a purchase voucher");
+    }
+    const payload = decoded as VoucherPayload;
+    if (!payload.sub || !payload.txId || !payload.grant || typeof payload.grant !== "object") {
+        throw new jwt.JsonWebTokenError("Voucher missing required claims");
+    }
+    return payload;
 }
 
 function decodeHeader(token: string): { alg: string; kid?: string } {

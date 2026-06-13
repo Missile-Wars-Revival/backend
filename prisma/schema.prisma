@@ -24,6 +24,7 @@ model GameplayUser {
   leagueId       String?
   locActive      Boolean          @default(true)
   randomLocation Boolean          @default(false)
+  lastDailyReward DateTime?
   league         League?          @relation(fields: [leagueId], references: [id])
   Users          Users            @relation(fields: [username], references: [username])
   InventoryItem  InventoryItem[]
@@ -155,6 +156,18 @@ model MissileType {
   radius      Int
   damage      Int
   fallout     Int
+}
+
+// Phase 9 (DISTRIBUTED_HOSTING_PLAN.md): replay protection for purchase grant
+// vouchers. The coordinator verifies the real store transaction and mints a
+// signed voucher; the shard records the transaction id here so a voucher can
+// never be redeemed twice (e.g. resubmitted, or re-minted after a retry).
+model RedeemedPurchase {
+  txId       String   @id
+  username   String
+  productId  String   @default("")
+  grantKind  String   @default("")
+  createdAt  DateTime @default(now())
 }
 
 model RefreshTokens {

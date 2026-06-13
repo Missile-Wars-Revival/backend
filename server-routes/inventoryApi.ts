@@ -1,12 +1,12 @@
 import { Request, Response } from "express";
-import { verifyToken } from "../util/auth";
+import { isDistributedMode, verifyToken } from "../util/auth";
 import { ensureGameplayUserForToken } from "../util/provisionUser";
 import { prisma } from "../server";
 
 // Resolves the inventory category for an item: another player's copy first
 // (matches whatever convention is already live on this shard), then the
 // weapon type tables so brand-new shards/items still work.
-async function resolveItemCategory(itemName: string): Promise<string | null> {
+export async function resolveItemCategory(itemName: string): Promise<string | null> {
     const existing = await prisma.inventoryItem.findFirst({
         where: { name: itemName },
         select: { category: true },
@@ -26,6 +26,14 @@ async function resolveItemCategory(itemName: string): Promise<string | null> {
 
 export function setupInventoryApi(app: any) {
     app.post("/api/addItem", async (req: Request, res: Response) => {
+        // Phase 9: this client-callable grant is a forge-a-missile hole in
+        // distributed mode (any JWT could mint inventory). Premium items now
+        // arrive via the coordinator-verified purchase voucher
+        // (/api/redeemPurchase). Kept solo/local-only, where the host owns
+        // their own world anyway.
+        if (isDistributedMode()) {
+            return res.status(403).json({ message: "Direct item grants are disabled on networked servers. Premium items are delivered through a verified purchase voucher." });
+        }
         const { token, itemName, category } = req.body;
 
         try {
