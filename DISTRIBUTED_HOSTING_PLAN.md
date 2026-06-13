@@ -755,6 +755,16 @@ minimumSupportedVersion, rolloutPercent, migrationRequired, publishedAt }`.
       keep their local `Users.friends` gameplay cache and websocket `friends`
       payload aligned with the coordinator/Firebase graph when they do not have
       `firebasecred.json`.
+- [ ] **Frontend selected-server persistence and recovery**: the frontend must
+      persist the selected shard in AsyncStorage/SecureStore after a successful
+      server selection/session confirmation, then reuse it on full app reopen
+      without prompting again. Track consecutive connection/session failures
+      for the stored shard; after 5 failed attempts, clear the stored shard and
+      return the user to server selection. Clear the stored shard on logout so
+      the next account does not inherit it. Add a Settings entry to manually
+      change server, which opens the same verified/unverified-aware server
+      picker and replaces the stored shard only after the new shard connects
+      successfully.
 - [ ] **Version policy**: coordinator compares semantic versions, not strings.
       Patch/minor releases can be optional or gradual via `rolloutPercent`;
       security fixes or protocol-breaking releases set `minimumSupportedVersion`
