@@ -122,24 +122,29 @@ Each shard has its own Postgres for **gameplay and world state**. Accounts/
 identity are **global** (one login works everywhere, issued by the coordinator).
 **Social and non-game-essential profile data** live in **Firebase central** so
 they survive server migration — a player who switches shards keeps their friends,
-contact details, chat history, and notification preferences.
+contact details, chat history, notification preferences, public badges, and
+cross-shard profile stats.
 
 | Data | Where it lives | Why |
 | ---- | -------------- | --- |
 | Server registry, verified flags, heartbeats | **Firebase RTDB** `/coordinator/shards/*` | Coordinator control plane; admin SDK only |
 | Friends list, friend requests | **Firebase RTDB** `/friends/*` | Must not be wiped when a user migrates shards |
 | Profile / contact details (avatar, display info) | **Firebase RTDB** `/profiles/*` | Identity/social; not tied to one game world |
+| Public profile badges + cross-shard stat mirror | **Firebase RTDB** `/profiles/<uid>/badges`, `/profiles/<uid>/stats`, `/profiles/<uid>/statsByShard/*` | Profile continuity across shards; synced async from trusted shard/coordinator writes |
 | Chat messages | **Firebase RTDB** `/chat/*` (existing) | Already global; friends can message across shards |
 | Notification prefs + FCM tokens | **Firebase RTDB** `/notifications/*` | Tied to the person, not a shard |
 | Account auth (Firebase UID, email, username) | **Firebase Auth + RTDB** `/coordinator/users/*` | Minting tokens; never on shards |
-| Inventory, money, level, rank, stats | **Per-shard Postgres** | Game economy is world-local |
+| Inventory, money, level, local rank, authoritative gameplay stats | **Per-shard Postgres** | Game economy and world progression are local; Firebase receives only a profile-safe mirror |
 | Live location, entities, leagues, missiles/loot | **Per-shard Postgres** | Hot gameplay path; must stay local |
 
 **Server migration behaviour:** when a user picks a different shard, their
-Firebase social graph and profile come with them. Gameplay state (inventory,
-in-world progress, local statistics) does **not** — that is intentional: each
-shard is a separate game world. The coordinator may later offer optional
-export/import tooling, but that is out of scope for v1.
+Firebase social graph, profile, badges, and cross-shard profile statistics come
+with them. Gameplay state (inventory, in-world progress, local rank, money, and
+live world state) does **not** — that is intentional: each shard is a separate
+game world. Phase 13 adds an async profile/stat mirror so profile screens can
+show portable achievements without making Firebase the hot gameplay database.
+The coordinator may later offer optional export/import tooling, but that is out
+of scope for v1.
 
 For a location-based game, the coordinator routes physically-near players to
 the same regional shard, so people near each other share a world anyway.
@@ -794,6 +799,75 @@ host can always modify local code or disable the updater. The coordinator uses
 version status only for discovery/routing and admin visibility. Verified status
 still means human trust in the host, not proof that the binary is unmodified.
 
+### Phase 13 — Global profile/stat mirror across Firebase
+
+Goal: keep profile-facing data consistent when a player moves between shards
+without centralizing the live game economy. Shards remain authoritative for
+their own world state, but badges and profile-safe statistics are mirrored to
+Firebase central through the coordinator so every shard and client can render
+the same public profile.
+
+- [ ] **Firebase profile schema**: extend `/profiles/<uid>` with a portable
+      public profile snapshot:
+      `{ username, avatar/profileImage metadata, badges, stats, statsByShard,
+      updatedAt }`. `stats` is the cross-shard aggregate; `statsByShard/<id>`
+      records the latest per-shard contribution and last sync metadata. Clients
+      can read profile snapshots under RTDB rules, but only the coordinator or
+      owner-admin tooling can write the aggregate.
+- [ ] **Stat contract**: define exactly which existing `Statistics` fields are
+      portable profile facts: `badges`, `numDeaths`, `numLootPlaced`,
+      `numLandminesPlaced`, `numMissilesPlaced`, `numLootPickups`, and
+      `numKills`. Keep inventory, money, local rank/league placement, live
+      location, entities, and purchase grants out of the global mirror unless a
+      later phase explicitly promotes them.
+- [ ] **Coordinator relay**: add shard-authenticated
+      `POST /relay/profile-stats` accepting `{ firebaseUID, username,
+      shardId, snapshot, delta?, eventId? }`. The coordinator verifies the shard
+      API key, resolves the uid/username against `/profiles`, rejects mismatches,
+      and writes RTDB transactions that update both `/profiles/<uid>/stats` and
+      `/profiles/<uid>/statsByShard/<shardId>`.
+- [ ] **Idempotency and conflict rules**: each shard sends monotonic snapshots
+      plus optional deltas with stable `eventId`s. The coordinator dedupes
+      events, treats badge sets as union-only unless an admin repair explicitly
+      removes one, and recalculates the aggregate from `statsByShard` when
+      needed so retries cannot double-count.
+- [ ] **Shard sync helper**: add a backend utility that queues/debounces profile
+      syncs after local stat mutations. Owner deployments with Firebase Admin
+      can still write through the same coordinator-shaped helper; community
+      shards without `firebasecred.json` call the coordinator relay using their
+      shard API key. Failed syncs are retried in the background and never block
+      hot gameplay routes.
+- [ ] **Backend write-path coverage**: wire the helper into every place that
+      mutates `Statistics` or awards badges, including placement APIs/runners,
+      damage/kill processing, loot pickups, league badge awards
+      (`server-routes/leagueApi.ts`), and user provisioning defaults. Add a
+      focused audit so future `Statistics` updates cannot skip the mirror.
+- [ ] **Backend read-path merge**: update profile endpoints and websocket
+      profile payloads so badges and profile stats prefer Firebase central when
+      available, falling back to the shard's local `Statistics` row while the
+      relay is unavailable or a user is still legacy/solo. First connect to a
+      fresh shard should seed local display fields from the central profile
+      snapshot without importing money/inventory/progression.
+- [ ] **Repair and backfill script**: add an owner-only script that walks the
+      current production shard, maps `Users.firebaseUID` to `Statistics`, and
+      backfills `/profiles/<uid>/badges`, `/profiles/<uid>/stats`, and
+      `/profiles/<uid>/statsByShard/<ownerShardId>`. It must be idempotent and
+      safe to re-run after legacy Firebase reconciliation.
+- [ ] **Frontend profile use**: profile screens should display central badges
+      and cross-shard stats when signed in with Firebase, with local fallback in
+      solo/dev mode. Copy should distinguish global profile stats from
+      shard-local rank/progression if both appear together.
+- [ ] **Observability/admin repair**: admin portal shows last profile-stat sync
+      per shard/user, rejected writes, duplicate events, and aggregate repair
+      actions. A verified admin can trigger a recompute from `statsByShard`
+      without touching shard databases.
+
+*Security boundary:* Firebase profile stats are public/profile-facing and must
+not become an authority for rewards, purchases, damage, inventory, or league
+eligibility. Unverified shards can inflate the stats they report; show the data
+as profile history, and keep any competitive/global leaderboard based on
+verified shards only or a separate anti-cheat pipeline.
+
 ## File-level change map (known from current code)
 
 | File | Change |
@@ -807,6 +881,12 @@ still means human trust in the host, not proof that the binary is unmodified.
 | `backend/prisma/schema.prisma` | **Phase 5** — drop social models after migration script |
 | `backend/scripts/migrate-social-to-firebase.ts` | **Phase 5** — one-time Postgres → Firebase central export; **Phase 10** share/idempotently reuse repair logic for users linked later |
 | `backend/scripts/reconcile-legacy-firebase-user.ts` | **Phase 10** — new owner-only support script for email/UID linking + RTDB social backfill |
+| `backend/util/profileStatsSync.ts` | **Phase 13** — new queued helper for shard → coordinator/Firebase badge and stat mirror writes |
+| `backend/server-routes/userApi.ts` | **Phase 13** — profile reads merge Firebase central badges/stats with local fallback |
+| `backend/server-routes/leagueApi.ts` | **Phase 13** — badge awards call profile-stat sync helper |
+| `backend/server-routes/entityApi.ts` / placement helpers | **Phase 13** — stat mutation paths enqueue profile mirror updates |
+| `backend/runners/damageProcessor.ts` / entity runners | **Phase 13** — kill/death/placement/loot stat changes enqueue profile mirror updates |
+| `backend/scripts/backfill-profile-stats-to-firebase.ts` | **Phase 13** — owner-only idempotent Statistics → `/profiles/<uid>/stats*` backfill |
 | `backend/docker/host.sh` | **New** — one-click launcher: Docker detection, setup, register, port check |
 | `backend/docker/host.ps1` | **New** — Windows equivalent of `host.sh` |
 | `frontend/api/axios-instance.ts` | Coordinator discovery + shard select + unverified warning UI |
@@ -815,7 +895,7 @@ still means human trust in the host, not proof that the binary is unmodified.
 | `frontend/components/ServerSelectScreen.tsx` | **Phase 7 done** — full-screen post-login selector; holds `ConnectingScreen` until first gameplay payload |
 | `frontend` login/navigation flow | **Phase 7 done** — `ServerSessionGate` in `app/_layout.tsx`: login, then selector, then gameplay |
 | `frontend` WebSocket setup | Point at chosen shard URL; **Phase 7** — waits for session confirmation |
-| `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect; **Phase 11** send diffused player locations + precision metadata |
+| `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect; **Phase 11** send diffused player locations + precision metadata; **Phase 13** seed/display central profile snapshot data |
 | `backend/runners/damageProcessor.ts` | **Phase 11** — missile damage must ignore friendship/friendsOnly visibility filters and include allies/sender in radius |
 | `backend/docker/update.sh` | **Phase 12** — new Unix updater used by heartbeat-triggered and manual updates |
 | `backend/docker/update.ps1` | **Phase 12** — new Windows updater used by heartbeat-triggered and manual updates |
@@ -823,8 +903,9 @@ still means human trust in the host, not proof that the binary is unmodified.
 | **coordinator** `../backend-coordinator/` | Vercel + Firebase RTDB; auth, directory, JWKS, relay, **admin portal** — **no Prisma** |
 | **coordinator** `src/routes/auth.ts` | **Phase 7 done** — history recorded on select-server/shard-token/refresh; profile username preferred; **Phase 10** account bootstrap must tolerate centrally repaired legacy profiles |
 | **coordinator** server-list/discovery route | **Phase 7 done** — optional ID-token auth adds the user's history to `GET /servers` |
-| **coordinator** `rtdbrules.json` | **New** — lock `/coordinator/*`; `firebaseUID`-scoped social paths |
+| **coordinator** `rtdbrules.json` | **New** — lock `/coordinator/*`; `firebaseUID`-scoped social paths; **Phase 13** client-readable profile stats with coordinator-only writes |
 | **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions, and **Phase 7 done** server history; **Phase 10** reconciliation audit rows |
+| **coordinator** `src/routes/profileStats.ts` | **Phase 13** — new shard-auth relay for badge/stat snapshots, deltas, idempotency, and aggregate recompute |
 | **coordinator** release route/store | **Phase 12** — latest backend release metadata, semver policy, heartbeat update instructions, admin update status |
 | **coordinator** `src/routes/purchases.ts` | **Phase 9** — new: RevenueCat secret-key verification, RTDB purchase ledger, grant-voucher minting |
 | `backend/server-routes/moneyApi.ts` | **Phase 9** — delete `/api/addMoney`; add voucher-verified `/api/redeemPurchase` |
@@ -833,6 +914,7 @@ still means human trust in the host, not proof that the binary is unmodified.
 | `frontend/app/(tabs)/store.tsx` | **Phase 9** — `buyItem` → coordinator redeem → shard voucher flow; drop client entitlement check as authority |
 | `frontend` map/player marker components | **Phase 11** — click/tap target follows diffused marker position and remains easy to select |
 | `frontend` player-details UI | **Phase 11** — say location is approximate/diffused, not precise |
+| `frontend` profile screens | **Phase 13** — display Firebase central badges/cross-shard profile stats with shard-local fallback |
 | `README.md` / `.env.example` / `docker/*` | **Phase 11** — validate community-host docs against a clean first-time setup and failure paths |
 
 ## Effort / risk
@@ -866,6 +948,11 @@ still means human trust in the host, not proof that the binary is unmodified.
   host offline if release metadata, migrations, or Docker rebuilds are wrong.
   Keep release metadata explicit, updates locked/serialized, health-checked,
   rollback-aware, and visible in the admin portal.
+- **Phase 13:** moderate data-consistency risk — badges and stats are touched
+  from several gameplay paths, and retries must not double-count. Keep shard
+  gameplay state authoritative locally, make Firebase a profile projection,
+  write through coordinator transactions, and backfill/repair from per-shard
+  snapshots.
 
 ## Decided
 
@@ -873,9 +960,11 @@ still means human trust in the host, not proof that the binary is unmodified.
    labels. Unverified servers stay playable; users get a mandatory security
    warning (location, tokens, host visibility). Project owner sets verification
    via the coordinator admin portal.
-2. **Social data** — **Firebase central (RTDB)** for friends, profile/contact
-   details, chat, notification prefs. **Per-shard Postgres** for inventory,
-   economy, live gameplay. Friend lists must survive shard migration.
+2. **Social/profile data** — **Firebase central (RTDB)** for friends,
+   profile/contact details, public badges, cross-shard profile stats, chat, and
+   notification prefs. **Per-shard Postgres** for inventory, economy, local
+   rank, and live gameplay. Friend lists and public profile history must
+   survive shard migration.
 3. **Chat** — **global Firebase RTDB** (existing); not per-shard.
 4. **Coordinator storage** — **Firebase RTDB only** for server registry,
    verified status, heartbeats, and global account rows. **No Postgres/Prisma in
@@ -903,6 +992,10 @@ still means human trust in the host, not proof that the binary is unmodified.
    of truth. Shards report it in heartbeats; the coordinator can instruct
    auto-update, hide unsupported versions from discovery, and surface failures
    in the admin portal.
+11. **Profile badges/stats portability** — badges and selected public
+   `Statistics` fields should sync to Firebase central so profiles survive
+   shard migration. Inventory, money, local rank, live world state, and reward
+   authority stay per-shard.
 
 ## Open decisions to settle before/while building
 
@@ -930,3 +1023,10 @@ still means human trust in the host, not proof that the binary is unmodified.
 9. **Self-damage rewards** — decide whether a missile sender who eliminates
    themselves receives no reward, a penalty only, or the existing reward path
    with safeguards. Do this before changing missile damage logic.
+10. **Phase 13 stat aggregation shape** — decide whether cross-shard profile
+   stats are lifetime totals across all shards, a verified-shards-only total
+   plus unverified breakdown, or a UI toggle between global and per-shard
+   values.
+11. **Badge revocation policy** — decide whether badges are union-only profile
+   achievements forever, admin-revocable, or recalculated from shard snapshots
+   during aggregate repair.
