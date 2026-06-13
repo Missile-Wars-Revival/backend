@@ -733,15 +733,19 @@ tested like a first-time community host would use them.
       tick, so the marker jumped each update. `diffuseCoordinate` is
       **deterministic** (FNV-1a hash of the username → fixed offset within the
       diffusion radius), so the diffused point is stable frame-to-frame.
-      *(Refinement:)* the diffusion radius was reduced from 100m to **60m** (the
-      100m circle read as oddly massive), and the client no longer renders the
-      avatar dead-center: the `<Circle>` sits on the server-diffused point while
-      the `<Marker>` is placed at a second **deterministic** offset *inside* the
-      circle (`stableOffset(username + ':m', 0.62·radius)` in `player.tsx`). The
-      `<Circle>` is non-interactive, so taps land on the off-center marker, not
-      the circle's middle. Server `DIFFUSION_RADIUS_METERS` and the client
-      `approximateRadius` are kept in step so the circle honestly bounds the
-      player.
+      *(Refinements:)* (a) the diffusion radius is the diffused player's **league
+      airspace** (`leagueAirspace` server-side / `getLeagueAirspace` client —
+      bronze 60m … legend 200m), sent as `airspaceRadius` on the `playerlocations`
+      payload (middle-earth 1.2.0); the server hides the position within that
+      radius and the client draws a circle of it, so the zone scales with rank.
+      (b) The client no longer renders the avatar dead-center: the `<Circle>`
+      sits on the server-diffused point while the `<Marker>` is at a second
+      **deterministic** offset *inside* the circle (`stableOffset(username + ':m',
+      0.62·radius)` in `player.tsx`). The `<Circle>` is non-interactive, so taps
+      land on the off-center marker. (c) The `anchor` prop was removed from the
+      `<Marker>` — a non-default anchor on a custom-view marker broke
+      react-native-maps hit-testing, making players unclickable; the default
+      anchor (long-standing config) is reliably tappable.
 - [x] **Update player details copy**: `player-details.tsx` drives the
       Approximate/Precise row off `locationPrecision` (falling back to the legacy
       `randomlocation` flag only for old servers). No exact coordinates are
@@ -757,7 +761,8 @@ their types — at runtime the payload is plain msgpack objects, so the behavior
 already works without that. (2) The diffusion offset is a constant per username,
 so it's stable/tappable but in principle reverse-engineerable by correlating a
 player's diffused track over time; precise coords still never leave the server,
-so the worst case is the diffusion radius (~60m), but rotating the seed
+so the worst case is the player's airspace radius (60–200m by league), but
+rotating the seed
 periodically (at the cost of tap-stability) is a future option. (3) A *new* client talking to an *old* server
 (no `locationPrecision`) still falls back to the legacy client-side
 `Math.random` diffusion for `randomlocation` players; an *old* client talking to

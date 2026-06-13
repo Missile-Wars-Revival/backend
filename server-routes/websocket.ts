@@ -373,7 +373,7 @@ export function setupWebSocket(app: any) {
 
           const allGameplayUsers = await prisma.gameplayUser.findMany({
             where: whereClause,
-            include: { Locations: true }
+            include: { Locations: true, league: true }
           });
 
           interface Location {
@@ -431,7 +431,7 @@ export function setupWebSocket(app: any) {
             allGameplayUsers.map((gpu: { username: string }) => gpu.username)
           );
 
-          const locations = await Promise.all(allGameplayUsers.map(async (gpu: { Locations: any; username: string; health: any; randomLocation: any; }) => {
+          const locations = await Promise.all(allGameplayUsers.map(async (gpu: { Locations: any; username: string; health: any; randomLocation: any; league: { tier: string } | null }) => {
             const currentLocation = gpu.Locations;
             if (!currentLocation) return null; // Skip this user if no location data
 
@@ -448,9 +448,13 @@ export function setupWebSocket(app: any) {
 
             // Phase 11A: diffuse server-side. A player who opted into location
             // diffusion (`randomLocation`) has their precise coordinates
-            // replaced with a stable, deterministic ~100m-offset point before
-            // it ever leaves the server. This applies to friends and
-            // non-friends; friendship controls visibility, not precision.
+            // replaced with a stable, deterministic offset point before it ever
+            // leaves the server. The offset radius is the player's league
+            // AIRSPACE (bronze 60m … legend 200m), so the diffusion zone scales
+            // with rank, and the client draws a circle of that radius with the
+            // marker placed inside it. Applies to friends and non-friends;
+            // friendship controls visibility, not precision.
+            const airspaceRadius = leagueAirspace(gpu.league?.tier);
             const shouldDiffuse = gpu.randomLocation;
             let outLat = currentLocation.latitude;
             let outLong = currentLocation.longitude;
@@ -458,7 +462,8 @@ export function setupWebSocket(app: any) {
               const diffused = diffuseCoordinate(
                 parseFloat(currentLocation.latitude),
                 parseFloat(currentLocation.longitude),
-                gpu.username
+                gpu.username,
+                airspaceRadius
               );
               outLat = diffused.latitude.toString();
               outLong = diffused.longitude.toString();
@@ -474,6 +479,9 @@ export function setupWebSocket(app: any) {
               // New clients render this point as-is; the legacy `randomlocation`
               // flag stays for old clients (which re-diffuse harmlessly).
               locationPrecision: shouldDiffuse ? "diffused" : "precise",
+              // The player's league airspace radius — sizes the diffusion circle
+              // and the marker's randomised offset on the client.
+              airspaceRadius,
               transportStatus,
               profileImageUrl: locationImageUrls[gpu.username] ?? null
             };
@@ -585,10 +593,21 @@ export function setupWebSocket(app: any) {
 // never sent for a diffused player, so this offset is all an observer ever
 // sees. (Honest residual: a constant offset is in principle reverse-engineerable
 // over time; rotating the seed periodically would trade tap-stability for that.)
-// Keep in step with the frontend's diffusion circle (player.tsx
-// approximateRadius) so the drawn circle honestly bounds where the player is.
-const DIFFUSION_RADIUS_METERS = 60;
-function diffuseCoordinate(latitude: number, longitude: number, seed: string): { latitude: number; longitude: number } {
+// Per-league airspace radius (mirrors the frontend getLeagueAirspace). Sizes
+// the diffusion zone so the drawn circle honestly bounds the player's real
+// position. A user with no league defaults to bronze (matches map-comp.tsx).
+function leagueAirspace(tier: string | undefined | null): number {
+  switch ((tier ?? "bronze").toLowerCase()) {
+    case "bronze": return 60;
+    case "silver": return 80;
+    case "gold": return 120;
+    case "diamond": return 140;
+    case "legend": return 200;
+    default: return 20;
+  }
+}
+
+function diffuseCoordinate(latitude: number, longitude: number, seed: string, radiusMeters: number): { latitude: number; longitude: number } {
   // FNV-1a hash → a stable angle and distance within the diffusion radius.
   let hash = 2166136261;
   for (let i = 0; i < seed.length; i++) {
@@ -597,7 +616,7 @@ function diffuseCoordinate(latitude: number, longitude: number, seed: string): {
   }
   const u = hash >>> 0;
   const angle = ((u % 36000) / 36000) * 2 * Math.PI;
-  const distance = (((u >>> 8) % 1000) / 1000) * DIFFUSION_RADIUS_METERS;
+  const distance = (((u >>> 8) % 1000) / 1000) * radiusMeters;
   const earthRadius = 6371000;
   const dLat = (distance / earthRadius) * (180 / Math.PI) * Math.cos(angle);
   const dLong = (distance / earthRadius) * (180 / Math.PI) * Math.sin(angle) / Math.cos(latitude * Math.PI / 180);
