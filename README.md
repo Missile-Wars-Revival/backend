@@ -251,6 +251,30 @@ Notes for hosts:
 - Email settings in `.env` are optional and only used for password-reset
   emails on the owner's deployment.
 
+### Updating your shard (auto-update)
+
+Registered shards check the coordinator for new backend releases on each 30s
+heartbeat. When a newer **approved** release exists, the shard runs the updater
+itself: it checks out the approved tag (`backend-vX.Y.Z`) or commit, rebuilds
+with `docker compose up -d --build` (your `.env` and the Postgres `db-data`
+volume are preserved, and migrations run automatically), health-checks
+`/healthz`, and **rolls back** to the previous version if anything fails. Auto
+updates wait for a quiet moment (no players connected) unless the release is
+marked `critical`.
+
+- **Opt out:** set `AUTO_UPDATE=false` in `.env` to never self-update. The
+  coordinator may still hide shards on an unsupported version from player
+  discovery until you update.
+- **Update manually anytime:** `./docker/update.sh` (Linux/macOS) or
+  `.\docker\update.ps1` (Windows). Same script the agent uses.
+- **Requirement:** the updater runs `docker compose` + `git`, so the backend
+  process must be able to reach them — run the launcher on the host, or mount
+  the Docker socket and repo into the container. If you can't, use
+  `AUTO_UPDATE=false` and run `docker/update.sh` from the host.
+- A failed update writes `docker/.update-result.json`; the shard reports the
+  failure (`fromVersion`/`toVersion`/`reason`) to the coordinator so the owner's
+  admin portal can see broken hosts.
+
 ## 🚀 Running the Server Manually
 
 ### Install Dependencies
@@ -391,6 +415,24 @@ npm run migrate:social -- --apply
 
 RTDB security rules live in `../backend-coordinator/rtdbrules.json` — keep the
 Firebase console rules in sync with that file when it changes.
+
+### Publishing a backend release (auto-update)
+
+Community shards self-update toward the latest **approved** release. To publish
+one (Phase 12):
+
+1. Bump `version` in `backend/package.json` and tag the commit `backend-vX.Y.Z`
+   (the version source of truth), then push the tag so shards can fetch it.
+2. In the coordinator admin portal (`/admin` → **Backend release**), publish the
+   release: set the version, and optionally `minimumSupportedVersion` (makes it
+   **mandatory** — older shards are hidden from discovery until they update),
+   `rolloutPercent` (gradual/optional rollout), and `critical` (allowed to update
+   even while players are connected).
+
+Shards pick it up on their next heartbeat. You can also **Request update** on a
+single shard (updates on its next heartbeat without shell access), and the table
+shows each shard's version, `updateStatus`, and last update error. Release
+publishing is manual today — there is no CI step wired to the git tag yet.
 
 ## 📦 Data Migration Tools
 

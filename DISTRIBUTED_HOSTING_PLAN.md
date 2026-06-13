@@ -718,10 +718,17 @@ tested like a first-time community host would use them.
 - [x] **Validate click/tap hit testing**: the old jitter was `player.tsx` calling
       `Math.random()` for both the circle offset and the marker on every location
       tick, so the marker jumped each update. `diffuseCoordinate` is
-      **deterministic** (FNV-1a hash of the username → fixed ~100m offset), so the
-      diffused point is stable frame-to-frame; the client now renders the
-      server coordinate directly (no client-side re-randomising except the
-      old-server fallback). Stable point = stable, tappable hit area.
+      **deterministic** (FNV-1a hash of the username → fixed offset within the
+      diffusion radius), so the diffused point is stable frame-to-frame.
+      *(Refinement:)* the diffusion radius was reduced from 100m to **60m** (the
+      100m circle read as oddly massive), and the client no longer renders the
+      avatar dead-center: the `<Circle>` sits on the server-diffused point while
+      the `<Marker>` is placed at a second **deterministic** offset *inside* the
+      circle (`stableOffset(username + ':m', 0.62·radius)` in `player.tsx`). The
+      `<Circle>` is non-interactive, so taps land on the off-center marker, not
+      the circle's middle. Server `DIFFUSION_RADIUS_METERS` and the client
+      `approximateRadius` are kept in step so the circle honestly bounds the
+      player.
 - [x] **Update player details copy**: `player-details.tsx` drives the
       Approximate/Precise row off `locationPrecision` (falling back to the legacy
       `randomlocation` flag only for old servers). No exact coordinates are
@@ -737,8 +744,8 @@ their types — at runtime the payload is plain msgpack objects, so the behavior
 already works without that. (2) The diffusion offset is a constant per username,
 so it's stable/tappable but in principle reverse-engineerable by correlating a
 player's diffused track over time; precise coords still never leave the server,
-so the worst case is ~100m, but rotating the seed periodically (at the cost of
-tap-stability) is a future option. (3) A *new* client talking to an *old* server
+so the worst case is the diffusion radius (~60m), but rotating the seed
+periodically (at the cost of tap-stability) is a future option. (3) A *new* client talking to an *old* server
 (no `locationPrecision`) still falls back to the legacy client-side
 `Math.random` diffusion for `randomlocation` players; an *old* client talking to
 a *new* server receives already-diffused coords and harmlessly re-offsets them.
@@ -798,92 +805,101 @@ The coordinator stores the latest approved release metadata in RTDB, e.g.
 `/coordinator/releases/backend/latest = { version, gitSha, imageDigest,
 minimumSupportedVersion, rolloutPercent, migrationRequired, publishedAt }`.
 
-- [ ] **Coordinator release metadata endpoint**: add
-      `GET /releases/backend/latest` and include the same release fields in the
-      shard heartbeat response. The heartbeat request already sends the shard's
-      current `version` and `gitSha`; the response should say whether the shard
-      is `current`, `update_available`, `update_required`, or `blocked`.
-- [ ] **Coordinator social read relay compatibility**: before forcing
-      community shards onto auto-updated backend builds, expose a shard-auth
-      `POST /relay/friends` endpoint that accepts `{ firebaseUID }` and returns
-      resolved friend usernames from Firebase central
-      (`/friends/<uid>` + `/profiles/<friendUid>/username`). Shards use this to
-      keep their local `Users.friends` gameplay cache and websocket `friends`
-      payload aligned with the coordinator/Firebase graph when they do not have
-      `firebasecred.json`.
-- [ ] **Frontend selected-server persistence and recovery**: the frontend must
-      persist the selected shard in AsyncStorage/SecureStore after a successful
-      server selection/session confirmation, then reuse it on full app reopen
-      without prompting again. Track consecutive connection/session failures
-      for the stored shard; after 5 failed attempts, clear the stored shard and
-      return the user to server selection. Clear the stored shard on logout so
-      the next account does not inherit it. Add a Settings entry to manually
-      change server, which opens the same verified/unverified-aware server
-      picker and replaces the stored shard only after the new shard connects
-      successfully.
-- [ ] **Server discovery empty state**: when the server picker has no online
-      listable shards, replace the dead-end "No servers online" copy with a
-      clear call to action such as "No servers online. Host your own!" and link
-      or route to the community-hosting instructions. Keep the copy short enough
-      to fit the existing selector layout on mobile.
-- [ ] **Frontend update overlay UX and restart hardening**: improve the OTA
-      update overlay so title/subtitle/progress-step text wraps and scales
-      cleanly on small screens, and harden the completion path so finishing an
-      update cannot start overlapping checks or reload while the app is already
-      backgrounded/restarting. Verify the restart handoff on iOS and Android.
-- [ ] **Version policy**: coordinator compares semantic versions, not strings.
-      Patch/minor releases can be optional or gradual via `rolloutPercent`;
-      security fixes or protocol-breaking releases set `minimumSupportedVersion`
-      so outdated shards are hidden from discovery until updated.
-- [ ] **Shard update agent**: extend `runners/coordinatorClient.ts` so a shard
-      that receives `update_available` schedules a local update instead of only
-      logging it. The update path should run `git pull`, `npm install`, any
-      required build/migration step, and restart the shard. Updates must be
-      serialized with a lock file so repeated heartbeats cannot start
-      overlapping pulls/builds.
-- [ ] **Updater script**: add `backend/docker/update.sh` and
-      `backend/docker/update.ps1` used by both the heartbeat-triggered updater
-      and manual host runs. The script should:
-      1. fetch the approved tag/commit or pull the approved image digest,
-      2. verify it matches coordinator release metadata,
-      3. preserve `.env` and Postgres volumes,
-      4. run `docker compose pull` or `docker compose build`,
-      5. run the migrate step,
-      6. restart the backend,
-      7. wait for `/healthz`,
-      8. send an immediate heartbeat with the new version.
-- [ ] **Rollback and failure reporting**: if update or health check fails, keep
-      the previous container/image running when possible, write a local update
-      log, and report `updateFailed: { fromVersion, toVersion, reason }` in the
-      next heartbeat so the admin portal can surface broken hosts.
-- [ ] **Admin portal visibility**: show each shard's `version`, `gitSha`,
-      `updateStatus`, `lastUpdateAttempt`, and `lastUpdateError`. Add a manual
-      "request update" action that marks a shard for update on its next
-      heartbeat without needing shell access to the host.
-- [ ] **Admin shard delete**: in addition to disable/delist, add a protected
-      coordinator admin action to permanently delete a shard. Deletion removes
-      `/coordinator/shards/<shardId>`, shard key/index rows, pending update
-      state, and any other coordinator-owned directory metadata for that shard.
-      It also removes `/coordinator/users/*/serverHistory/<shardId>` so deleted
-      shards disappear from Continue/Recent history instead of lingering as
-      unavailable entries. Require an explicit confirmation in the admin UI and
-      make delete distinct from reversible disable.
-- [ ] **Safety controls**: hosts can set `AUTO_UPDATE=false` to opt out, but the
-      coordinator may mark old versions unavailable for player routing. Auto
-      updates should not run while active players are connected unless the
-      release is marked `critical`; otherwise wait for zero players or a quiet
-      window.
-- [ ] **Docs and test matrix**: document automatic and manual update paths,
-      including Docker image vs git checkout mode, Windows PowerShell, failed
-      migration recovery, and how to intentionally pin a version. Add a smoke
-      test that starts an old shard, publishes fake release metadata, observes
-      update scheduling, and confirms the shard returns with the new
-      `package.json` version in its heartbeat.
+- [x] **Coordinator release metadata endpoint**: `GET /releases/backend/latest`
+      (`src/routes/releases.ts`) serves the latest approved release. The
+      heartbeat response (`src/routes/shards.ts`) now carries `release`,
+      `updateStatus` (current / update_available / update_required / blocked) and
+      `updateRequested`. Status is computed in `src/releases.ts` from the shard's
+      reported version vs the release (semver in `src/semver.ts`), stored on the
+      shard record for admin visibility.
+- [x] **Coordinator social read relay compatibility**: already shipped earlier —
+      `POST /relay/friends` exists in `src/routes/relay.ts` (shard-auth; resolves
+      `/friends/<uid>` + `/profiles/<friendUid>/username`). Phase 11B also routed
+      the shard damage path through it via `getFriendUsernames`.
+- [x] **Frontend selected-server persistence and recovery**: the shard was
+      already persisted in AsyncStorage (`selectedServer`). Added consecutive
+      failure tracking (`recordServerFailure`/`resetServerFailures` in
+      `api/server-discovery.ts`): the websocket hook resets the streak on a good
+      connect and records a failure when reconnects are exhausted; after 5 it
+      drops the stored shard and un-confirms the session, and `ServerSessionGate`
+      (`app/_layout.tsx`) subscribes and re-shows the selector. `signOut`
+      (`util/logincache.ts`) now clears the stored shard. Settings has a "Change
+      Server" row (`profile/settings.tsx`) that re-opens the selector (the
+      existing pick flow holds the connecting screen until the new shard
+      connects).
+- [x] **Server discovery empty state**: `ServerSelectScreen.tsx` now renders a
+      "No servers online / Host your own →" CTA (links to the community Discord)
+      instead of a dead-end message.
+- [x] **Frontend update overlay UX and restart hardening**: the overlay already
+      wraps/scales text (`numberOfLines` + `adjustsFontSizeToFit` + a `compact`
+      layout under 360px). Hardened `useUpdates.ts`: it already guarded
+      overlapping checks (`checkingRef`/`reloadingRef`) and aborted the reload if
+      backgrounded at install; now it re-checks `AppState`/mount right before
+      `reloadAsync` so a background during the final delay defers the reload.
+      *(iOS/Android restart handoff can't be device-verified here.)*
+- [x] **Version policy**: `src/semver.ts` compares numeric major.minor.patch
+      (never strings). `rolloutPercent` gates optional releases via a stable hash
+      of the shard id; `minimumSupportedVersion` makes a release mandatory and
+      hides below-floor shards from discovery (`/servers` + `/servers/best`
+      filter on `isUpdateRequired`).
+- [x] **Shard update agent**: `runners/coordinatorClient.ts` consumes the
+      heartbeat decision and, on `update_available`/`update_required`/
+      `updateRequested`, runs the platform updater — serialized by a same-process
+      flag plus a `docker/.update.lock` file (with a 30-min stale-lock escape).
+      *(Git-checkout mode via the updater script, not raw `git pull`/`npm install`,
+      so the rebuild/migrate/restart is the compose stack's job.)*
+- [x] **Updater script**: `backend/docker/update.sh` + `update.ps1` — fetch the
+      approved tag (`backend-vX.Y.Z`) or pinned SHA, verify the checked-out
+      `package.json` version matches, `docker compose up -d --build` (preserves
+      `.env` + the `db-data` volume; the migrate service runs as a dependency),
+      health-check `/healthz`, and roll back to the previous commit on any
+      failure. The restarted backend heartbeats its new version on boot (step 8).
+      *(Image-digest mode is recorded in metadata but the scripts implement
+      git-checkout mode, matching the compose `build: .` setup.)*
+- [x] **Rollback and failure reporting**: the updater rolls back to the previous
+      commit and brings the old container back on build/health failure, and
+      writes `docker/.update-result.json`; the agent reports it as
+      `updateFailed: { fromVersion, toVersion, reason }` in the next heartbeat,
+      which the coordinator stores as `lastUpdateError`/`lastUpdateAttemptAt`.
+- [x] **Admin portal visibility**: the `/admin` shard table shows `version`,
+      `gitSha`, `updateStatus`, `autoUpdate`, `lastUpdateAttemptAt`, and
+      `lastUpdateError`, plus a "Request update" button
+      (`POST /admin/api/shards/:id/request-update`, delivered+cleared on the next
+      heartbeat). A "Backend release" panel publishes the latest release
+      (`POST /admin/api/releases/backend`).
+- [x] **Admin shard delete**: a double-confirmed Delete button →
+      `POST /admin/api/shards/:id/delete` → `store.deleteShard` removes the shard
+      record, key/name index rows, and every user's
+      `serverHistory/<shardId>` entry (distinct from the reversible Disable).
+- [x] **Safety controls**: `AUTO_UPDATE=false` opts a host out (it still reports
+      `autoUpdate` so the admin sees opt-outs, and a below-floor opt-out shows as
+      `blocked`); the coordinator still hides outdated shards from routing. The
+      agent defers an update while players are connected unless the release is
+      `critical`.
+- [ ] **Docs and test matrix**: update paths are documented in the README /
+      CLAUDE.md (below). An automated smoke test (start old shard, publish fake
+      release, observe scheduling, confirm new version in heartbeat) is **not**
+      added — neither repo has a test harness, and the agent/scripts can't be
+      runtime-exercised in this environment.
 
 *Security boundary:* auto-update cannot make an untrusted host trustworthy; a
 host can always modify local code or disable the updater. The coordinator uses
 version status only for discovery/routing and admin visibility. Verified status
 still means human trust in the host, not proof that the binary is unmodified.
+
+*Honest residuals (Phase 12):* (1) **Nothing here was runtime-tested** — all
+three repos typecheck, but the self-update agent, the `update.sh`/`update.ps1`
+scripts, and the iOS/Android OTA restart handoff cannot be exercised in this
+environment. Treat them as code-complete, not verified. (2) The agent spawns the
+updater script directly; a **containerized** shard therefore needs the Docker
+socket and repo available to the backend process (or to run on the host) for
+self-update to work — documented in the README. Hosts who can't grant that use
+`AUTO_UPDATE=false` + manual `docker/update.sh`. (3) The scripts implement
+**git-checkout mode** (matching the compose `build: .` stack); image-digest mode
+is carried in release metadata but not yet implemented. (4) Release publishing
+is **manual** via the admin portal — there is no CI step that publishes on a
+`backend-vX.Y.Z` tag yet. (5) `rolloutPercent` is sampled per shard id, so the
+same shards roll first; it is not a time-based canary.
 
 ### Phase 13 — Gameplay damage, run overlay, and push relay hardening
 
@@ -1032,7 +1048,7 @@ identity, email, or password-management authority.
 | `backend/server-routes/authRoutes.ts` | Move login/register/reset/oauth to coordinator; **Phase 14** delete unused shard-owned login/register/lookup/password/email routes or gate solo-only survivors |
 | `backend/server-routes/*` (friends/profile) | **Phase 5** — delete social routes after Firebase cutover (no proxies) |
 | `backend/server.ts` | **Phase 5** — strip Firebase init; heartbeat loop already live |
-| `backend/runners/coordinatorClient.ts` | **Done** — 30s heartbeat to coordinator; **Phase 12** consume release metadata from heartbeat responses and schedule locked auto-updates |
+| `backend/runners/coordinatorClient.ts` | **Done** — 30s heartbeat to coordinator; **Phase 12 done** — consumes heartbeat update decision, runs locked self-update (AUTO_UPDATE + quiet-window aware), reports `updateFailed` |
 | `backend/runners/*` (push/notification) | **Phase 5** — FCM send → coordinator `/relay/push` |
 | `backend/prisma/schema.prisma` | **Phase 5** — drop social models after migration script; **Phase 14** remove unused auth/email/password schema fields |
 | `backend/scripts/migrate-social-to-firebase.ts` | **Phase 5** — one-time Postgres → Firebase central export for social data only |
@@ -1056,7 +1072,7 @@ identity, email, or password-management authority.
 | `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect; **Phase 11A done** — `diffuseCoordinate` diffuses `randomLocation` players server-side for friends and non-friends + sends `locationPrecision`; **Phase 10** display Firebase profile fields without stat imports |
 | `backend/runners/damageProcessor.ts` | **Phase 11B done** — friend source unified with visibility (`getMutualFriends`/Firebase, not the Postgres cache); `friendsOnly` isolation kept; sender self-damage added with no self-reward (`selfElimination` guard); landmine loop untouched. **Phase 13** — reproduce/fix live sender self-damage regression and add missile damage coverage |
 | `backend/runners/NotificationService.ts` | **Phase 13** — make coordinator `/relay/push` delivery results observable and verify token lookup at `notificationTokens/<firebaseUID>` |
-| `backend/docker/update.sh` | **Phase 12** — new Unix updater used by heartbeat-triggered and manual updates |
+| `backend/docker/update.sh` + `update.ps1` | **Phase 12 done** — git-checkout updater (fetch tag/SHA, verify version, rebuild, migrate, healthz, roll back on failure); used by the agent and manual runs |
 | `backend/docker/update.ps1` | **Phase 12** — new Windows updater used by heartbeat-triggered and manual updates |
 | `middle-earth` package | **Phase 11A done** — `PlayerLocation.locationPrecision?: "precise" \| "diffused"` (additive); version 1.0.6 → 1.1.0. Republish + reinstall in both apps so the new type propagates |
 | **coordinator** `../backend-coordinator/` | Vercel + Firebase RTDB; auth, directory, JWKS, relay, **admin portal** — **no Prisma** |
@@ -1066,7 +1082,7 @@ identity, email, or password-management authority.
 | **coordinator** `rtdbrules.json` | **New** — lock `/coordinator/*`; `firebaseUID`-scoped social/profile display paths; no profile-stat writes |
 | **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions, and **Phase 7 done** server history; **Phase 12** delete shard + remove history entries; no legacy reconciliation audit path |
 | **coordinator** admin routes/UI | **Phase 12** — permanent shard delete action with explicit confirmation, alongside disable/delist |
-| **coordinator** release route/store | **Phase 12** — latest backend release metadata, semver policy, heartbeat update instructions, admin update status |
+| **coordinator** release route/store | **Phase 12 done** — `GET /releases/backend/latest` (`src/routes/releases.ts`), `BackendRelease` in store, semver policy (`src/semver.ts`/`src/releases.ts`), heartbeat update decision, admin publish/request-update + delete |
 | **coordinator** `src/routes/purchases.ts` | **Phase 9 done** — RevenueCat secret-key verification (`src/revenuecat.ts`), RTDB purchase ledger (`store.claimPurchase`), grant-voucher minting (`src/keys.ts`), server-owned catalog (`src/catalog.ts`) |
 | `backend/server-routes/moneyApi.ts` | **Phase 9 done** — `/api/addMoney` gated solo-only; added voucher-verified `/api/redeemPurchase` |
 | `backend/server-routes/inventoryApi.ts` | **Phase 9 done** — `/api/addItem` gated solo-only; `resolveItemCategory` exported for redeem |
@@ -1180,10 +1196,11 @@ identity, email, or password-management authority.
    `jsonwebtoken` stack verifies RSA universally; implemented in coordinator).
 2. **Token lifetime** — **Decided: 12h** shard tokens (`TOKEN_TTL_HOURS`,
    coordinator env). Refresh cadence still open.
-3. **Release artifact strategy** — decide whether community shards update from
-   git tags, published Docker image digests, or both. Prefer image digests for
-   reproducibility; keep git checkout mode only if hosts are expected to build
-   locally.
+3. **Release artifact strategy** — **Decided (v1): git-checkout mode.** The
+   compose stack builds from source (`build: .`), so `docker/update.sh|ps1`
+   check out the approved tag (`backend-vX.Y.Z`) or pinned SHA and rebuild
+   locally. `imageDigest` is carried in release metadata for a future
+   image-digest mode but is not yet implemented.
 4. **Firebase store for social** — ~~RTDB vs Firestore~~ **Decided: RTDB for v1**
    (consistent with chat; single `rtdbrules.json` covers coordinator + social).
 5. **Admin portal stack** — **Decided: same deploy** — a single static page

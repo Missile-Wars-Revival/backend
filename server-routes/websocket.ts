@@ -585,7 +585,9 @@ export function setupWebSocket(app: any) {
 // never sent for a diffused player, so this offset is all an observer ever
 // sees. (Honest residual: a constant offset is in principle reverse-engineerable
 // over time; rotating the seed periodically would trade tap-stability for that.)
-const DIFFUSION_RADIUS_METERS = 100;
+// Keep in step with the frontend's diffusion circle (player.tsx
+// approximateRadius) so the drawn circle honestly bounds where the player is.
+const DIFFUSION_RADIUS_METERS = 60;
 function diffuseCoordinate(latitude: number, longitude: number, seed: string): { latitude: number; longitude: number } {
   // FNV-1a hash → a stable angle and distance within the diffusion radius.
   let hash = 2166136261;
