@@ -2,7 +2,7 @@ export const goodLootItems = [
     { name: "ClusterBomb", category: "Missiles" },
     { name: "CorporateRaider", category: "Missiles" },
     { name: "GutShot", category: "Missiles" },
-    { name: "Yokozuna", category: "Missiles" },
+    { name: "ShieldBreaker", category: "Missiles" },
     { name: "Zippy", category: "Missiles" },
     { name: "BunkerBlocker", category: "Landmines" },
     { name: "Buzzard", category: "Missiles" }
@@ -59,5 +59,5 @@ export const goodLootItems = [
   //   CorporateRaider:
   //   GutShot:
   //   TheNuke:
-  //   Yokozuna:
+  //   ShieldBreaker:
   //   Zippy:
