@@ -484,17 +484,27 @@ export function setupUserApi(app: any) {
       return res.status(400).json({ message: "Updates are required." });
     }
 
+    if (typeof username !== 'string' || !username.trim()) {
+      return res.status(400).json({ message: "Target username is required." });
+    }
+
     try {
-      const decoded = verifyToken(token) as { username: string, password: string };
-      if (typeof decoded === 'string' || !decoded.username) {
+      const decoded = verifyToken(token);
+      if (!decoded.username) {
         return res.status(401).json({ message: "Invalid token" });
       }
 
-      if (username !== decoded.username) {
+      // Staff (Firebase Staff/Debug badge, stamped into the token by the
+      // coordinator) may edit any user — that's what powers the debug menu.
+      // Everyone else may only edit themselves.
+      if (username !== decoded.username && decoded.staff !== true) {
         return res.status(403).json({ message: "Not allowed to edit this user" });
       }
 
-      const user = await prisma.users.findUnique({ where: { username: decoded.username } });
+      // Operate on the TARGET user (req.body.username), not the caller — staff
+      // edits another player, a normal user edits themselves (same row). The
+      // delete/update paths below already key on `username`.
+      const user = await prisma.users.findUnique({ where: { username: username } });
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }

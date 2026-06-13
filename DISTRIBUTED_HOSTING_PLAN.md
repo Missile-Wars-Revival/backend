@@ -662,6 +662,19 @@ and social data.
       profile screens merge identity badges (Firebase) ahead of gameplay badges
       (shard), stripping any legacy identity copies from the stat list so
       nothing renders twice. The Debug-menu gate now honors the central badge.
+- [x] **Firebase-authoritative staff authorization** (added later): the backend
+      now respects the Firebase staff role, not the per-shard Prisma `Users.role`.
+      The coordinator stamps `staff: true` into the minted shard JWT when the
+      user holds the **Staff or Debug** identity badge (`isStaffUid` in
+      `src/social.ts`, applied at every mint in `src/routes/auth.ts`); the shard's
+      `verifyToken` exposes it (`TokenPayload.staff`) and `/api/editUser` lets
+      staff edit **any** user (previously self-only) — which is what the debug
+      menu needs. (Fixed a latent bug exposed by this: `editUser` looked up the
+      caller row but applied deletes/updates to the target `username`; it now
+      operates consistently on the target.) The profile debug-menu gate
+      (`profile/index.tsx`) shows for Staff or Debug badge holders. Default-deny:
+      the claim is omitted (never `false`), and legacy/solo HS256 tokens never
+      carry it.
 - [x] **Shard-local stat contract**: confirmed — `Statistics` lives only in
       per-shard Postgres, and the Phase 7 websocket provisioning seeds a fresh
       `GameplayUser` (default stats) when a coordinator-token user first
@@ -816,17 +829,25 @@ minimumSupportedVersion, rolloutPercent, migrationRequired, publishedAt }`.
       `POST /relay/friends` exists in `src/routes/relay.ts` (shard-auth; resolves
       `/friends/<uid>` + `/profiles/<friendUid>/username`). Phase 11B also routed
       the shard damage path through it via `getFriendUsernames`.
-- [x] **Frontend selected-server persistence and recovery**: the shard was
-      already persisted in AsyncStorage (`selectedServer`). Added consecutive
-      failure tracking (`recordServerFailure`/`resetServerFailures` in
-      `api/server-discovery.ts`): the websocket hook resets the streak on a good
-      connect and records a failure when reconnects are exhausted; after 5 it
-      drops the stored shard and un-confirms the session, and `ServerSessionGate`
-      (`app/_layout.tsx`) subscribes and re-shows the selector. `signOut`
-      (`util/logincache.ts`) now clears the stored shard. Settings has a "Change
-      Server" row (`profile/settings.tsx`) that re-opens the selector (the
-      existing pick flow holds the connecting screen until the new shard
-      connects).
+- [x] **Frontend selected-server persistence and recovery**: the shard is
+      persisted in AsyncStorage (`selectedServer`). **Reuse on reopen** (added
+      after the first pass — the selector was wrongly re-shown every cold start):
+      `ServerSessionGate` (`app/_layout.tsx`) reuses a stored server on cold
+      start instead of re-prompting, silently re-minting a fresh shard token
+      (12h, no auto-refresh interceptor exists) and falling back to the cached
+      token if the coordinator is unreachable. Consecutive failure tracking
+      (`recordServerFailure`/`resetServerFailures` in `api/server-discovery.ts`):
+      the websocket hook resets the streak on a good connect and records a
+      failure when reconnects are exhausted; after 5 it drops the stored shard
+      and un-confirms the session, and the gate re-shows the selector. `signOut`
+      (`util/logincache.ts`) clears the stored shard. Settings has a "Change
+      Server" row (`profile/settings.tsx`) that re-opens the selector.
+- [x] **WebSocket liveness watchdog** (added — a half-open socket left stale
+      data, e.g. a landmine kill not visible until a full app reopen): the
+      websocket hook (`hooks/websockets/websockets.ts`) resets a 12s timeout on
+      every message; if it fires while foregrounded (the server pushes ~1s) the
+      socket is treated as dead and force-reconnected, instead of waiting for an
+      `onclose` that mobile/NAT often never delivers.
 - [x] **Server discovery empty state**: `ServerSelectScreen.tsx` now renders a
       "No servers online / Host your own →" CTA (links to the community Discord)
       instead of a dead-end message.

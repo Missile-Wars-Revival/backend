@@ -44,6 +44,10 @@ export interface TokenPayload extends jwt.JwtPayload {
     // Stable identity from the coordinator (`sub`). Absent on legacy HS256
     // tokens and on pre-Firebase accounts (whose sub is "user:<username>").
     firebaseUID?: string;
+    // Firebase-derived staff/debug flag, stamped by the coordinator (Staff or
+    // Debug identity badge). Only ever present on coordinator-minted RS256
+    // tokens; never on legacy/solo HS256 tokens (which default-deny).
+    staff?: boolean;
 }
 
 function coordinatorUrl(): string | undefined {
