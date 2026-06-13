@@ -638,28 +638,53 @@ statistics to Firebase. Each shard's Postgres remains the only store for
 and reward authority. Firebase central keeps only non-game-essential profile
 and social data.
 
-- [ ] **Firebase profile schema stays lean**: `/profiles/<uid>` may contain
-      identity/social display fields such as username, avatar/profile image
-      metadata, contact details, and `updatedAt`. Do not add `stats`,
+- [x] **Firebase profile schema stays lean**: `/profiles/<uid>` holds only
+      identity/social display fields — `username`, `lastShardId`, `updatedAt`
+      (`bootstrapProfile`/`setProfileUsername` in `src/social.ts`) plus
+      **identity badges** (next bullet). Verified: nothing writes `stats`,
       `statsByShard`, kill/death counters, placement counters, rank, inventory,
-      money, or badge mirrors to Firebase.
-- [ ] **Shard-local stat contract**: document that all `Statistics` fields
-      remain per-shard facts. A player changing shards starts with that shard's
-      local stats/progression; the old shard's stats are not imported,
-      aggregated, or shown as a global total.
-- [ ] **Backend read path**: profile endpoints and websocket profile payloads
-      read stats and badges from the local shard database only. Firebase profile
-      data can fill display fields, but it must not override or supplement
-      local gameplay stats.
-- [ ] **Backend write path**: remove any planned queue/relay/backfill work for
-      profile-stat mirroring. Existing stat mutations continue to write only to
-      the shard database.
-- [ ] **Frontend profile use**: label stats, badges, rank, and progression as
-      shard-local when they appear on profile screens. Avoid copy that implies
-      cross-shard or global stat continuity.
-- [ ] **Admin/operator visibility**: admin tooling may show each shard's local
-      stats through that shard's own APIs, but the coordinator does not compute
-      aggregate profile stats and does not store profile-stat sync status.
+      money, or gameplay/league badge mirrors to Firebase. Avatars stay in
+      Firebase Storage (`profileImages/<username>`), not a profile stat field.
+- [x] **Identity vs gameplay badge split** (resolves the contradiction between
+      "Decided #11" and this phase): **gameplay/league badges** (the
+      `awardLeagueBadge` tier rewards — Bronze/Silver/Gold/…) stay in each
+      shard's `Statistics.badges` (Postgres), earned per-world. **Identity
+      badges** (staff / early-access / founder / debug — assigned, not earned)
+      live in central Firebase at `/profiles/<uid>/identityBadges/<Badge> = true`
+      so they follow the player across shards. Stored as a set (atomic per-badge
+      grant/revoke), client-readable, **admin-SDK-write-only** (the existing
+      Phase 8 `/profiles` rules already cover this — no `rtdbrules.json` change).
+      Coordinator: `getIdentityBadges`/`setIdentityBadge` + `KNOWN_IDENTITY_BADGES`
+      (`src/social.ts`), admin API `GET`/`POST /admin/api/identity-badges` and a
+      grant/revoke panel in the `/admin` portal (`src/routes/admin.ts`).
+      Frontend: `api/identityBadges.ts` reads them (own profile by firebaseUID;
+      other players by username via the indexed `/profiles` tree) and both
+      profile screens merge identity badges (Firebase) ahead of gameplay badges
+      (shard), stripping any legacy identity copies from the stat list so
+      nothing renders twice. The Debug-menu gate now honors the central badge.
+- [x] **Shard-local stat contract**: confirmed — `Statistics` lives only in
+      per-shard Postgres, and the Phase 7 websocket provisioning seeds a fresh
+      `GameplayUser` (default stats) when a coordinator-token user first
+      connects to a shard, so switching servers starts a new local progression.
+      No import/aggregation/global-total path exists.
+- [x] **Backend read path**: verified — `userApi.ts` builds the profile
+      `statistics` (badges + counters) directly from
+      `GameplayUser.Statistics[0]` in the shard DB; Firebase supplies only the
+      display `profileImageUrl`. Identity badges are merged client-side for
+      display and never override local gameplay stats.
+- [x] **Backend write path**: nothing to remove — the speculative
+      `profileStatsSync`/`backfill-profile-stats` mirror helpers were never
+      built (they appear only in this plan's earlier change map). Stat mutations
+      write to the shard DB only.
+- [x] **Frontend profile use**: both profile screens now caption the Statistics
+      section "specific to this server" (`profile/index.tsx`,
+      `user-profile.tsx`), so RP/kills/league badges don't read as a global
+      total. Identity badges are the explicit cross-shard exception and are
+      shown ahead of the per-shard gameplay badges.
+- [x] **Admin/operator visibility**: confirmed — the coordinator stores no
+      aggregate profile stats and no profile-stat sync status; its only
+      profile-side state is the lean `/profiles` record plus identity badges.
+      Per-shard stats are seen only through that shard's own APIs.
 
 *Security boundary:* Firebase social/profile data is not gameplay authority.
 Stats stay in shard Postgres, so unverified shards can only affect their own
@@ -676,27 +701,48 @@ tested like a first-time community host would use them.
 
 #### 11A — Diffused location contract
 
-- [ ] **Define the authoritative location payload**: the websocket
-      `playerlocations` message must send the display-safe diffused
-      coordinates for other players, not their precise `Locations.latitude` /
-      `Locations.longitude`. Precise coordinates may remain server-only for
-      damage, proximity, anti-cheat, and movement validation.
-- [ ] **Add an explicit precision flag/type**: extend the websocket payload with
-      a field such as `locationPrecision: "precise" | "diffused"` or a
-      dedicated `diffusedPlayerLocation` message type. The `middle-earth`
-      package may need a versioned WS message/type update so old clients do not
-      silently misread the new shape.
-- [ ] **Validate click/tap hit testing**: reproduce the current issue where a
-      diffused player is harder to click, then verify the frontend marker uses
-      the rendered diffused coordinate and a stable hit area. The tap target
-      must not depend on hidden precise coordinates or marker jitter.
-- [ ] **Update player details copy**: the player-details UI should clearly say
-      the shown location is approximate/diffused, not precise. Do not expose
-      exact coordinates through details, debug text, or nested payload fields.
-- [ ] **Regression tests / fixture**: add a test or recorded websocket fixture
-      where a precise server location diffuses to a different client location,
-      and assert the outgoing `playerlocations` payload contains only the
-      diffused coordinate plus the precision marker.
+- [x] **Define the authoritative location payload** (decision #8: **backend owns
+      diffusion**): `websocket.ts` now diffuses server-side. The previous design
+      sent every player's *precise* `Locations.latitude/longitude` to all clients
+      and only offset the marker cosmetically in `player.tsx` — so a modified
+      client or a shard host watching traffic saw the real location. Now, in the
+      per-viewer location map, a player who has `randomLocation` on and is **not
+      one of that viewer's mutual friends** has their coordinates replaced by
+      `diffuseCoordinate(...)` before they leave the server. Precise coords stay
+      server-only for damage/proximity (those read `Locations` directly).
+- [x] **Add an explicit precision flag/type**: `PlayerLocation` in `middle-earth`
+      gained `locationPrecision?: "precise" | "diffused"` (additive — old clients
+      ignore it and keep reading lat/long, which are already the safe diffused
+      values; package bumped 1.0.6 → 1.1.0). The payload also still carries the
+      legacy `randomlocation` flag for old clients.
+- [x] **Validate click/tap hit testing**: the old jitter was `player.tsx` calling
+      `Math.random()` for both the circle offset and the marker on every location
+      tick, so the marker jumped each update. `diffuseCoordinate` is
+      **deterministic** (FNV-1a hash of the username → fixed ~100m offset), so the
+      diffused point is stable frame-to-frame; the client now renders the
+      server coordinate directly (no client-side re-randomising except the
+      old-server fallback). Stable point = stable, tappable hit area.
+- [x] **Update player details copy**: `player-details.tsx` drives the
+      Approximate/Precise row off `locationPrecision` (falling back to the legacy
+      `randomlocation && !isFriend` only for old servers). No exact coordinates
+      are shown anywhere in the details UI.
+- [ ] **Regression tests / fixture**: not added — neither repo has a test suite
+      (verification is typecheck + running the app). A fixture asserting the
+      outgoing `playerlocations` contains only the diffused coordinate would need
+      test infrastructure stood up first; deferred.
+
+*11A honest residuals:* (1) The `middle-earth` type change must be republished
+and reinstalled in both apps for the new `locationPrecision` field to appear in
+their types — at runtime the payload is plain msgpack objects, so the behavior
+already works without that. (2) The diffusion offset is a constant per username,
+so it's stable/tappable but in principle reverse-engineerable by correlating a
+player's diffused track over time; precise coords still never leave the server,
+so the worst case is ~100m, but rotating the seed periodically (at the cost of
+tap-stability) is a future option. (3) A *new* client talking to an *old* server
+(no `locationPrecision`) still falls back to the legacy client-side
+`Math.random` diffusion for `randomlocation` players; an *old* client talking to
+a *new* server receives already-diffused coords and harmlessly re-offsets them.
+Both are transitional and resolve once both ends ship Phase 11A.
 
 #### 11B — Missile damage validation
 
@@ -832,12 +878,13 @@ host can always modify local code or disable the updater. The coordinator uses
 version status only for discovery/routing and admin visibility. Verified status
 still means human trust in the host, not proof that the binary is unmodified.
 
-### Phase 13 — Cleanup unused auth/API routes and schema
+### Phase 13 — Cleanup unused auth/API routes, schema, and docs
 
 Goal: after Phase 8 moves distributed authentication to Firebase Auth and the
 coordinator, remove the old shard-owned account-management surface so community
-hosts do not carry dead routes, email/password code, or schema that implies the
-shard is still an identity provider.
+hosts do not carry dead routes, email/password code, stale schema, or docs that
+imply the shard is still an identity provider or that the implementation is
+still mid-migration.
 
 **Problem this phase fixes:** the backend still has historical login/register,
 password reset, username lookup, email-change, password-change, and legacy
@@ -870,6 +917,16 @@ not manage global identity or email/password credentials.
 - [ ] **Remove unused client calls**: delete frontend API helpers, forms, and
       navigation branches that still target removed shard auth endpoints.
       Distributed login should use Firebase Auth/coordinator APIs only.
+- [ ] **Clean public/operator docs**: update README, `.env.example`,
+      `CLAUDE.md`, Docker host docs/scripts, coordinator docs, and frontend
+      setup notes so they describe the current distributed architecture
+      directly. Remove roadmap language like "Phase 3/8/10/13", old migration
+      instructions, dead env vars, and references to removed shard auth routes.
+      Keep phase language only in this implementation plan.
+- [ ] **Clean inline/developer docs**: update comments, route descriptions,
+      OpenAPI/API notes if present, and troubleshooting text so they no longer
+      mention deprecated email/password endpoints, legacy lookup flows, or
+      phase-based migration assumptions.
 - [ ] **No legacy account migration**: do not replace these deleted routes with
       email-based legacy reconciliation. Old shard-local accounts remain local
       unless the owner handles a one-off support case outside distributed v1.
@@ -880,7 +937,8 @@ not manage global identity or email/password credentials.
 - [ ] **Tests and smoke checks**: add/adjust route tests so removed endpoints
       return 404/410/upgrade-required in distributed mode, Firebase/coordinator
       login still works, solo/local mode works only where intentionally kept,
-      and Prisma migrations do not drop gameplay data.
+      Prisma migrations do not drop gameplay data, and docs no longer mention
+      removed routes or phase-numbered rollout steps outside this plan.
 
 *Security boundary:* account ownership is established by Firebase Auth and the
 coordinator username claim. Shards should verify coordinator-issued tokens and
@@ -899,8 +957,12 @@ identity, email, or password-management authority.
 | `backend/runners/*` (push/notification) | **Phase 5** — FCM send → coordinator `/relay/push` |
 | `backend/prisma/schema.prisma` | **Phase 5** — drop social models after migration script; **Phase 13** remove unused auth/email/password schema fields |
 | `backend/scripts/migrate-social-to-firebase.ts` | **Phase 5** — one-time Postgres → Firebase central export for social data only |
-| `backend/server-routes/userApi.ts` | **Phase 10** — profile reads use Firebase only for display fields; stats/badges stay local |
-| `backend/server-routes/leagueApi.ts` | **Phase 10** — badge awards remain shard-local; no profile-stat sync helper |
+| `backend/server-routes/userApi.ts` | **Phase 10 done** — verified: profile `statistics` read from shard `Statistics`; Firebase supplies only `profileImageUrl` |
+| `backend/server-routes/leagueApi.ts` | **Phase 10** — league/gameplay badge awards remain shard-local; no profile-stat sync helper |
+| **coordinator** `src/social.ts` | **Phase 10 done** — `getIdentityBadges`/`setIdentityBadge` + `KNOWN_IDENTITY_BADGES` for central identity badges |
+| **coordinator** `src/routes/admin.ts` | **Phase 10 done** — `GET`/`POST /admin/api/identity-badges` + grant/revoke panel in the `/admin` portal |
+| `frontend/api/identityBadges.ts` | **Phase 10 done** — new: read central identity badges (own by uid, others by username) |
+| `frontend/app/(tabs)/profile/index.tsx` + `user-profile.tsx` | **Phase 10 done** — merge central identity badges with shard gameplay badges; Debug gate honors the central badge |
 | `backend/server-routes/entityApi.ts` / placement helpers | **Phase 10** — stat mutation paths remain shard-local; no mirror enqueue |
 | `backend/runners/damageProcessor.ts` / entity runners | **Phase 10** — kill/death/placement/loot stat changes remain shard-local |
 | `backend/docker/host.sh` | **New** — one-click launcher: Docker detection, setup, register, port check |
@@ -912,11 +974,11 @@ identity, email, or password-management authority.
 | `frontend/components/ServerSelectScreen.tsx` | **Phase 7 done** — full-screen post-login selector; holds `ConnectingScreen` until first gameplay payload; **Phase 12** add no-online host-your-own CTA |
 | `frontend` login/navigation flow | **Phase 7 done** — `ServerSessionGate` in `app/_layout.tsx`: login, then selector, then gameplay |
 | `frontend` WebSocket setup | Point at chosen shard URL; **Phase 7** — waits for session confirmation |
-| `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect; **Phase 11** send diffused player locations + precision metadata; **Phase 10** display Firebase profile fields without stat imports |
+| `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect; **Phase 11A done** — `diffuseCoordinate` diffuses non-friend `randomLocation` players server-side + sends `locationPrecision`; **Phase 10** display Firebase profile fields without stat imports |
 | `backend/runners/damageProcessor.ts` | **Phase 11** — missile damage must ignore friendship/friendsOnly visibility filters and include allies/sender in radius |
 | `backend/docker/update.sh` | **Phase 12** — new Unix updater used by heartbeat-triggered and manual updates |
 | `backend/docker/update.ps1` | **Phase 12** — new Windows updater used by heartbeat-triggered and manual updates |
-| `middle-earth` package | **Phase 11** — version WS message/type support for diffused-location metadata if the payload shape changes |
+| `middle-earth` package | **Phase 11A done** — `PlayerLocation.locationPrecision?: "precise" \| "diffused"` (additive); version 1.0.6 → 1.1.0. Republish + reinstall in both apps so the new type propagates |
 | **coordinator** `../backend-coordinator/` | Vercel + Firebase RTDB; auth, directory, JWKS, relay, **admin portal** — **no Prisma** |
 | **coordinator** `src/routes/auth.ts` | **Phase 7 done** — history recorded on select-server/shard-token/refresh; profile username preferred; **Phase 13** remains the only distributed auth/bootstrap surface |
 | **coordinator** server-list/discovery route | **Phase 7 done** — optional ID-token auth adds the user's history to `GET /servers`; **Phase 12** deleted shards are purged from history/list output |
@@ -933,9 +995,10 @@ identity, email, or password-management authority.
 | `frontend/api/purchases.ts` | **Phase 9 done** — new: coordinator redeem → shard voucher relay |
 | `frontend/app/_layout.tsx` | **Phase 9 done** — `Purchases.logIn(firebaseUID)` at cold start + sign-in, `logOut` on sign-out |
 | `frontend/app/(tabs)/store.tsx` | **Phase 9 done** — `buyItem` → coordinator redeem → shard voucher flow; drop client entitlement check as authority |
-| `frontend` map/player marker components | **Phase 11** — click/tap target follows diffused marker position and remains easy to select |
-| `frontend` player-details UI | **Phase 11** — say location is approximate/diffused, not precise |
-| `frontend` profile screens | **Phase 10** — display shard-local badges/stats clearly; Firebase supplies display profile fields only |
+| `frontend` map/player marker components | **Phase 11A done** — `player.tsx`/`map-players.tsx`/`playerlochook.ts` render the stable server-diffused coordinate (no more `Math.random` jitter); legacy client offset kept only as old-server fallback |
+| `frontend` player-details UI | **Phase 11A done** — `player-details.tsx` Approximate/Precise row driven by `locationPrecision` |
+| `frontend` profile screens | **Phase 10 done** — Statistics captioned "specific to this server"; identity badges (Firebase) merged ahead of per-shard gameplay badges |
+| `README.md` / `CLAUDE.md` / `.env.example` / `docker/*` / coordinator docs / frontend setup docs | **Phase 13** — remove phase-numbered rollout language, dead auth env vars, and references to removed shard auth routes |
 | `README.md` / `.env.example` / `docker/*` | **Phase 11** — validate community-host docs against a clean first-time setup and failure paths |
 
 ## Effort / risk
@@ -968,11 +1031,13 @@ identity, email, or password-management authority.
   host offline if release metadata, migrations, or Docker rebuilds are wrong.
   Keep release metadata explicit, updates locked/serialized, health-checked,
   rollback-aware, and visible in the admin portal.
-- **Phase 13:** moderate compatibility risk — deleting old auth/account routes
-  and schema is straightforward, but old app builds and solo/local mode need a
-  clear upgrade or compatibility gate. Keep distributed identity on
-  Firebase/coordinator, remove dead email/password authority from shards, and
-  protect gameplay data during schema cleanup.
+- **Phase 13:** moderate compatibility/documentation risk — deleting old
+  auth/account routes and schema is straightforward, but old app builds,
+  solo/local mode, and docs need a clear upgrade or compatibility gate. Keep
+  distributed identity on Firebase/coordinator, remove dead email/password
+  authority from shards, protect gameplay data during schema cleanup, and make
+  operational docs describe the current system without phase-numbered rollout
+  language.
 
 ## Decided
 
@@ -1012,9 +1077,12 @@ identity, email, or password-management authority.
    of truth. Shards report it in heartbeats; the coordinator can instruct
    auto-update, hide unsupported versions from discovery, and surface failures
    in the admin portal.
-11. **Profile stats portability** — stats and gameplay-earned badges do not move
-   to Firebase. They stay per-shard alongside inventory, money, local rank, live
-   world state, and reward authority.
+11. **Profile stats portability** — stats and gameplay-earned (league) badges do
+   not move to Firebase. They stay per-shard alongside inventory, money, local
+   rank, live world state, and reward authority. **Identity badges** (assigned:
+   staff / early-access / founder / debug) are the one exception — they are
+   account-level, not earned in a world, so they live in central Firebase
+   (`/profiles/<uid>/identityBadges`) and follow the player across shards.
 
 ## Open decisions to settle before/while building
 
@@ -1033,9 +1101,11 @@ identity, email, or password-management authority.
 6. **Port-forward check implementation** — external probe API vs self-hosted
    checker; must work from a typical home/VPS host and print the public URL
    players will use.
-7. **Diffusion algorithm ownership** — decide whether the backend owns the
-   diffusion calculation or whether `middle-earth` should expose a shared
-   deterministic helper used by both backend tests and frontend fixtures.
+7. **Diffusion algorithm ownership** — ~~backend vs shared helper~~ **Decided:
+   the backend owns the diffusion calculation** (`diffuseCoordinate` in
+   `websocket.ts`); precise coordinates never leave the server. `middle-earth`
+   only carries the `locationPrecision` flag, not the algorithm. A shared
+   deterministic helper could be extracted later if frontend fixtures need it.
 8. **Self-damage rewards** — decide whether a missile sender who eliminates
    themselves receives no reward, a penalty only, or the existing reward path
    with safeguards. Do this before changing missile damage logic.

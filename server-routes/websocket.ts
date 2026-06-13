@@ -446,13 +446,36 @@ export function setupWebSocket(app: any) {
 
             const transportStatus = await calculateTransportStatus(currentLocation, previousLocation, gpu.username);
 
+            // Phase 11A: diffuse server-side. A player who opted into location
+            // diffusion (`randomLocation`) and is not one of THIS viewer's
+            // mutual friends has their precise coordinates replaced with a
+            // stable, deterministic ~100m-offset point before it ever leaves
+            // the server. Friends and non-diffusing players are sent precise.
+            // mutualFriendsUsernames includes the viewer themselves, but the
+            // viewer is already excluded from allGameplayUsers.
+            const shouldDiffuse = gpu.randomLocation && !mutualFriendsUsernames.includes(gpu.username);
+            let outLat = currentLocation.latitude;
+            let outLong = currentLocation.longitude;
+            if (shouldDiffuse) {
+              const diffused = diffuseCoordinate(
+                parseFloat(currentLocation.latitude),
+                parseFloat(currentLocation.longitude),
+                gpu.username
+              );
+              outLat = diffused.latitude.toString();
+              outLong = diffused.longitude.toString();
+            }
+
             return {
               username: gpu.username,
-              latitude: currentLocation.latitude,
-              longitude: currentLocation.longitude,
+              latitude: outLat,
+              longitude: outLong,
               updatedAt: currentLocation.updatedAt,
               health: gpu.health,
               randomlocation: gpu.randomLocation,
+              // New clients render this point as-is; the legacy `randomlocation`
+              // flag stays for old clients (which re-diffuse harmlessly).
+              locationPrecision: shouldDiffuse ? "diffused" : "precise",
               transportStatus,
               profileImageUrl: locationImageUrls[gpu.username] ?? null
             };
@@ -554,6 +577,31 @@ export function setupWebSocket(app: any) {
       });
     });
   });
+}
+
+// Phase 11A: deterministic server-side location diffusion. Seeded only by the
+// username, so the offset is CONSTANT for a given player — the diffused point
+// tracks their movement with a fixed ~100m offset and never jitters, which
+// fixes the old client-side Math.random diffusion that re-randomised the marker
+// every tick and made diffused players hard to tap. Precise coordinates are
+// never sent for a diffused player, so this offset is all an observer ever
+// sees. (Honest residual: a constant offset is in principle reverse-engineerable
+// over time; rotating the seed periodically would trade tap-stability for that.)
+const DIFFUSION_RADIUS_METERS = 100;
+function diffuseCoordinate(latitude: number, longitude: number, seed: string): { latitude: number; longitude: number } {
+  // FNV-1a hash → a stable angle and distance within the diffusion radius.
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const u = hash >>> 0;
+  const angle = ((u % 36000) / 36000) * 2 * Math.PI;
+  const distance = (((u >>> 8) % 1000) / 1000) * DIFFUSION_RADIUS_METERS;
+  const earthRadius = 6371000;
+  const dLat = (distance / earthRadius) * (180 / Math.PI) * Math.cos(angle);
+  const dLong = (distance / earthRadius) * (180 / Math.PI) * Math.sin(angle) / Math.cos(latitude * Math.PI / 180);
+  return { latitude: latitude + dLat, longitude: longitude + dLong };
 }
 
 function calculateDistance(loc1: { latitude: number; longitude: number }, loc2: { latitude: number; longitude: number }) {
