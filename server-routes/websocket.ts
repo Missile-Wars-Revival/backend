@@ -447,13 +447,11 @@ export function setupWebSocket(app: any) {
             const transportStatus = await calculateTransportStatus(currentLocation, previousLocation, gpu.username);
 
             // Phase 11A: diffuse server-side. A player who opted into location
-            // diffusion (`randomLocation`) and is not one of THIS viewer's
-            // mutual friends has their precise coordinates replaced with a
-            // stable, deterministic ~100m-offset point before it ever leaves
-            // the server. Friends and non-diffusing players are sent precise.
-            // mutualFriendsUsernames includes the viewer themselves, but the
-            // viewer is already excluded from allGameplayUsers.
-            const shouldDiffuse = gpu.randomLocation && !mutualFriendsUsernames.includes(gpu.username);
+            // diffusion (`randomLocation`) has their precise coordinates
+            // replaced with a stable, deterministic ~100m-offset point before
+            // it ever leaves the server. This applies to friends and
+            // non-friends; friendship controls visibility, not precision.
+            const shouldDiffuse = gpu.randomLocation;
             let outLat = currentLocation.latitude;
             let outLong = currentLocation.longitude;
             if (shouldDiffuse) {
