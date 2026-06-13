@@ -706,10 +706,10 @@ tested like a first-time community host would use them.
       sent every player's *precise* `Locations.latitude/longitude` to all clients
       and only offset the marker cosmetically in `player.tsx` — so a modified
       client or a shard host watching traffic saw the real location. Now, in the
-      per-viewer location map, a player who has `randomLocation` on and is **not
-      one of that viewer's mutual friends** has their coordinates replaced by
-      `diffuseCoordinate(...)` before they leave the server. Precise coords stay
-      server-only for damage/proximity (those read `Locations` directly).
+      per-viewer location map, any player who has `randomLocation` on has their
+      coordinates replaced by `diffuseCoordinate(...)` before they leave the
+      server. Precise coords stay server-only for damage/proximity (those read
+      `Locations` directly). Friendship controls visibility, not precision.
 - [x] **Add an explicit precision flag/type**: `PlayerLocation` in `middle-earth`
       gained `locationPrecision?: "precise" | "diffused"` (additive — old clients
       ignore it and keep reading lat/long, which are already the safe diffused
@@ -724,8 +724,8 @@ tested like a first-time community host would use them.
       old-server fallback). Stable point = stable, tappable hit area.
 - [x] **Update player details copy**: `player-details.tsx` drives the
       Approximate/Precise row off `locationPrecision` (falling back to the legacy
-      `randomlocation && !isFriend` only for old servers). No exact coordinates
-      are shown anywhere in the details UI.
+      `randomlocation` flag only for old servers). No exact coordinates are
+      shown anywhere in the details UI for diffused players.
 - [ ] **Regression tests / fixture**: not added — neither repo has a test suite
       (verification is typecheck + running the app). A fixture asserting the
       outgoing `playerlocations` contains only the diffused coordinate would need
@@ -883,7 +883,79 @@ host can always modify local code or disable the updater. The coordinator uses
 version status only for discovery/routing and admin visibility. Verified status
 still means human trust in the host, not proof that the binary is unmodified.
 
-### Phase 13 — Cleanup unused auth/API routes, schema, and docs
+### Phase 13 — Gameplay damage, run overlay, and push relay hardening
+
+Goal: fix the remaining gameplay regressions before deleting old account/API
+surfaces. Missile damage must be trustworthy, the player must get an in-app
+"run" warning/overlay when they can still escape an incoming missile, and push
+delivery must be traceable end-to-end through Firebase central and the
+coordinator relay.
+
+**Problem this phase fixes:** Phase 11B documents sender self-damage, but live
+behavior still shows the sender avoiding damage from their own missile. The
+frontend also is not showing the expected run overlay, so players may only learn
+about incoming damage through push/inbox paths. Push notifications are failing
+often enough that the relay/token chain needs an explicit audit instead of being
+treated as already proven.
+
+- [ ] **Reproduce and fix sender missile self-damage**: create a focused local
+      scenario where a player fires a missile, remains inside its hit radius,
+      and must receive damage from their own missile. Verify the loop sees the
+      sender in `activeUsers`, the missile has `status: "Hit"`, radius/distance
+      math is correct, `processedMissiles` does not suppress first damage, and
+      the delayed `applyDamageRecursively` still finds the missile and current
+      location 30 seconds later.
+- [ ] **Add missile damage regression coverage**: add targeted tests or a small
+      executable fixture for self-damage, friend damage, non-friend shared-world
+      damage, shield protection, grace-period protection, and "moved out of
+      radius before impact" behavior. Keep landmine behavior separate.
+- [ ] **Audit missile warning and damage timing**: confirm the intended flow is
+      warning now, damage after 30 seconds, then repeated damage while the
+      player remains in radius. If gameplay should apply initial damage
+      immediately on `Hit`, change the loop and frontend copy together.
+- [ ] **Restore/implement the run overlay trigger**: identify the intended
+      frontend source for "incoming missile near me" (websocket payload,
+      notification event, or derived local map data) and make the overlay appear
+      reliably while the player can still move out of the blast radius. The
+      overlay should not depend on push notification delivery because foreground
+      gameplay needs an in-app warning.
+- [ ] **Wire overlay dismissal/state correctly**: ensure the run overlay clears
+      when the missile expires, damage applies, the player moves out of radius,
+      the player dies, or the map/session changes. Verify it appears above map
+      content and below blocking modals as intended.
+- [ ] **Add foreground notification overlay**: when a push/in-app notification
+      arrives while the app is open, show an in-app notification overlay/toast so
+      the event is not silently skipped by foreground notification behavior. It
+      should reuse the existing notification payload shape, respect notification
+      preferences, avoid duplicate display when the OS already shows a push, and
+      route taps the same way as the normal notification/inbox flow.
+- [ ] **Confirm central push-token storage path**: the canonical path is
+      `notificationTokens/<firebaseUID>` (capital `T`), with the current value
+      as a single Expo push token string. Verify `frontend/api/notifications.ts`
+      writes `notificationTokens/${auth.currentUser.uid}` after token refresh,
+      Firebase rules permit only that user to write it, and both owner shards
+      and the coordinator relay read the same exact path.
+- [ ] **Decide single-token vs multi-device tokens**: if users should receive
+      pushes on multiple devices, migrate from the current single-string value
+      to a keyed map such as `notificationTokens/<uid>/<deviceId> = token`, and
+      update frontend writes, logout removal, owner-shard reads, coordinator
+      relay reads, stale-token cleanup, and migration docs together.
+- [ ] **Make relay failures observable**: update shard `NotificationService`
+      so `/relay/push` responses with `{ delivered: false, reason }` are logged
+      with username/firebaseUID/type, not silently treated as success. Include
+      reasons such as `NO_TOKEN`, `PREFERENCES`, Expo errors,
+      `FIREBASE_UNSET`, shard auth failure, and rate limiting.
+- [ ] **End-to-end push smoke test**: from the settings test-notification button
+      or a script, verify frontend token registration, Firebase central token
+      presence, shard `/api/testNotification`, coordinator `/relay/push`,
+      Expo ticket success/failure, and local in-app notification persistence.
+      Record the exact Firebase UID and token path during the smoke test.
+
+*Security boundary:* community shards still must not store or enumerate player
+push tokens. They may address a recipient by username/firebaseUID and ask the
+coordinator to relay, but Firebase central remains the token authority.
+
+### Phase 14 — Cleanup unused auth/API routes, schema, and docs
 
 Goal: after Phase 8 moves distributed authentication to Firebase Auth and the
 coordinator, remove the old shard-owned account-management surface so community
@@ -955,12 +1027,12 @@ identity, email, or password-management authority.
 | File | Change |
 | ---- | ------ |
 | `backend/util/auth.ts` | HS256 → asymmetric verify-only; drop `signToken` on shard |
-| `backend/server-routes/authRoutes.ts` | Move login/register/reset/oauth to coordinator; **Phase 13** delete unused shard-owned login/register/lookup/password/email routes or gate solo-only survivors |
+| `backend/server-routes/authRoutes.ts` | Move login/register/reset/oauth to coordinator; **Phase 14** delete unused shard-owned login/register/lookup/password/email routes or gate solo-only survivors |
 | `backend/server-routes/*` (friends/profile) | **Phase 5** — delete social routes after Firebase cutover (no proxies) |
 | `backend/server.ts` | **Phase 5** — strip Firebase init; heartbeat loop already live |
 | `backend/runners/coordinatorClient.ts` | **Done** — 30s heartbeat to coordinator; **Phase 12** consume release metadata from heartbeat responses and schedule locked auto-updates |
 | `backend/runners/*` (push/notification) | **Phase 5** — FCM send → coordinator `/relay/push` |
-| `backend/prisma/schema.prisma` | **Phase 5** — drop social models after migration script; **Phase 13** remove unused auth/email/password schema fields |
+| `backend/prisma/schema.prisma` | **Phase 5** — drop social models after migration script; **Phase 14** remove unused auth/email/password schema fields |
 | `backend/scripts/migrate-social-to-firebase.ts` | **Phase 5** — one-time Postgres → Firebase central export for social data only |
 | `backend/server-routes/userApi.ts` | **Phase 10 done** — verified: profile `statistics` read from shard `Statistics`; Firebase supplies only `profileImageUrl` |
 | `backend/server-routes/leagueApi.ts` | **Phase 10** — league/gameplay badge awards remain shard-local; no profile-stat sync helper |
@@ -974,18 +1046,20 @@ identity, email, or password-management authority.
 | `backend/docker/host.ps1` | **New** — Windows equivalent of `host.sh` |
 | `frontend/api/axios-instance.ts` | Coordinator discovery + shard select + unverified warning UI |
 | `frontend/api/server-discovery.ts` | **Phase 7 done** — history in server list, `/auth/select-server` client, per-session confirmation gate; **Phase 12** no-online empty state says "Host your own!" |
-| `frontend` auth API helpers/screens | **Phase 13** — remove calls/forms for deleted shard auth, lookup, password-reset, email-change, and password-change routes |
+| `frontend` auth API helpers/screens | **Phase 14** — remove calls/forms for deleted shard auth, lookup, password-reset, email-change, and password-change routes |
 | `frontend/api/friends.ts` | Read/write Firebase central instead of shard REST |
 | `frontend/components/ServerSelectScreen.tsx` | **Phase 7 done** — full-screen post-login selector; holds `ConnectingScreen` until first gameplay payload; **Phase 12** add no-online host-your-own CTA |
 | `frontend` login/navigation flow | **Phase 7 done** — `ServerSessionGate` in `app/_layout.tsx`: login, then selector, then gameplay |
 | `frontend` WebSocket setup | Point at chosen shard URL; **Phase 7** — waits for session confirmation |
-| `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect; **Phase 11A done** — `diffuseCoordinate` diffuses non-friend `randomLocation` players server-side + sends `locationPrecision`; **Phase 10** display Firebase profile fields without stat imports |
-| `backend/runners/damageProcessor.ts` | **Phase 11B done** — friend source unified with visibility (`getMutualFriends`/Firebase, not the Postgres cache); `friendsOnly` isolation kept; sender self-damage added with no self-reward (`selfElimination` guard); landmine loop untouched |
+| `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect; **Phase 11A done** — `diffuseCoordinate` diffuses `randomLocation` players server-side for friends and non-friends + sends `locationPrecision`; **Phase 10** display Firebase profile fields without stat imports |
+| `backend/runners/damageProcessor.ts` | **Phase 11B done** — friend source unified with visibility (`getMutualFriends`/Firebase, not the Postgres cache); `friendsOnly` isolation kept; sender self-damage added with no self-reward (`selfElimination` guard); landmine loop untouched. **Phase 13** — reproduce/fix live sender self-damage regression and add missile damage coverage |
+| `backend/runners/NotificationService.ts` | **Phase 13** — make coordinator `/relay/push` delivery results observable and verify token lookup at `notificationTokens/<firebaseUID>` |
 | `backend/docker/update.sh` | **Phase 12** — new Unix updater used by heartbeat-triggered and manual updates |
 | `backend/docker/update.ps1` | **Phase 12** — new Windows updater used by heartbeat-triggered and manual updates |
 | `middle-earth` package | **Phase 11A done** — `PlayerLocation.locationPrecision?: "precise" \| "diffused"` (additive); version 1.0.6 → 1.1.0. Republish + reinstall in both apps so the new type propagates |
 | **coordinator** `../backend-coordinator/` | Vercel + Firebase RTDB; auth, directory, JWKS, relay, **admin portal** — **no Prisma** |
-| **coordinator** `src/routes/auth.ts` | **Phase 7 done** — history recorded on select-server/shard-token/refresh; profile username preferred; **Phase 13** remains the only distributed auth/bootstrap surface |
+| **coordinator** `src/routes/auth.ts` | **Phase 7 done** — history recorded on select-server/shard-token/refresh; profile username preferred; **Phase 14** remains the only distributed auth/bootstrap surface |
+| **coordinator** `src/routes/relay.ts` | **Phase 13** — confirm `/relay/push` reads `notificationTokens/<firebaseUID>` and returns/logs actionable delivery reasons |
 | **coordinator** server-list/discovery route | **Phase 7 done** — optional ID-token auth adds the user's history to `GET /servers`; **Phase 12** deleted shards are purged from history/list output |
 | **coordinator** `rtdbrules.json` | **New** — lock `/coordinator/*`; `firebaseUID`-scoped social/profile display paths; no profile-stat writes |
 | **coordinator** `src/store.ts` | RTDB read/write for shards, users, sessions, and **Phase 7 done** server history; **Phase 12** delete shard + remove history entries; no legacy reconciliation audit path |
@@ -1002,8 +1076,9 @@ identity, email, or password-management authority.
 | `frontend/app/(tabs)/store.tsx` | **Phase 9 done** — `buyItem` → coordinator redeem → shard voucher flow; drop client entitlement check as authority |
 | `frontend` map/player marker components | **Phase 11A done** — `player.tsx`/`map-players.tsx`/`playerlochook.ts` render the stable server-diffused coordinate (no more `Math.random` jitter); legacy client offset kept only as old-server fallback |
 | `frontend` player-details UI | **Phase 11A done** — `player-details.tsx` Approximate/Precise row driven by `locationPrecision` |
+| `frontend` missile/run overlay path | **Phase 13** — define the incoming-missile trigger source and restore/implement the run overlay independent of push delivery |
 | `frontend` profile screens | **Phase 10 done** — Statistics captioned "specific to this server"; identity badges (Firebase) merged ahead of per-shard gameplay badges |
-| `README.md` / `CLAUDE.md` / `.env.example` / `docker/*` / coordinator docs / frontend setup docs | **Phase 13** — remove phase-numbered rollout language, dead auth env vars, and references to removed shard auth routes |
+| `README.md` / `CLAUDE.md` / `.env.example` / `docker/*` / coordinator docs / frontend setup docs | **Phase 14** — remove phase-numbered rollout language, dead auth env vars, and references to removed shard auth routes |
 | `README.md` / `.env.example` / `docker/*` | **Phase 11** — validate community-host docs against a clean first-time setup and failure paths |
 
 ## Effort / risk
@@ -1036,7 +1111,11 @@ identity, email, or password-management authority.
   host offline if release metadata, migrations, or Docker rebuilds are wrong.
   Keep release metadata explicit, updates locked/serialized, health-checked,
   rollback-aware, and visible in the admin portal.
-- **Phase 13:** moderate compatibility/documentation risk — deleting old
+- **Phase 13:** moderate gameplay/notification risk — missile damage and push
+  delivery affect live combat feedback. Reproduce with focused fixtures, keep
+  foreground run-overlay behavior independent of Expo push delivery, and log
+  relay/token failure reasons clearly before changing token storage shape.
+- **Phase 14:** moderate compatibility/documentation risk — deleting old
   auth/account routes and schema is straightforward, but old app builds,
   solo/local mode, and docs need a clear upgrade or compatibility gate. Keep
   distributed identity on Firebase/coordinator, remove dead email/password
@@ -1069,7 +1148,7 @@ identity, email, or password-management authority.
    later launches.
 7. **Legacy account migration and shard auth cleanup** — account migration is
    out of scope for distributed-hosting v1. Firebase/coordinator accounts are
-   the distributed identity path, and Phase 13 removes unused shard-owned
+   the distributed identity path, and Phase 14 removes unused shard-owned
    email/password/account-management routes and schema.
 8. **Missile friendly fire** — missiles are area-of-effect damage and should
    hurt every **eligible** player in radius, including allies/friends and the
@@ -1081,8 +1160,7 @@ identity, email, or password-management authority.
    not the shard's `Users.friends` cache.
 9. **Location privacy contract** — player location sent to other clients should
    be display-safe/diffused when diffusion applies; precise location remains a
-   backend-only gameplay input unless the viewer is explicitly allowed to see
-   precision.
+   backend-only gameplay input for players with `randomLocation` enabled.
 10. **Shard version/update policy** — `backend/package.json` is the version source
    of truth. Shards report it in heartbeats; the coordinator can instruct
    auto-update, hide unsupported versions from discovery, and surface failures
