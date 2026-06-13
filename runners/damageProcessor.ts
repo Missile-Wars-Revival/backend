@@ -49,8 +49,10 @@ export const processDamage = async () => {
       // Determine which entities to process for this user
       const usernamesToProcess = await determineUsernamesToProcess(user.username, gameplayUserMap);
 
-      // Check missiles
-      for (const missile of activeMissiles.filter((m: { sentBy: any; }) => usernamesToProcess.includes(m.sentBy))) {
+      // Check missiles. Phase 11B: a player's OWN missile is always eligible
+      // against them (area-of-effect self-damage if they're in their own blast
+      // radius), independent of the friendship/friendsOnly eligibility set.
+      for (const missile of activeMissiles.filter((m: { sentBy: string; }) => usernamesToProcess.includes(m.sentBy) || m.sentBy === user.username)) {
         const missileCoords = { latitude: parseFloat(missile.destLat), longitude: parseFloat(missile.destLong) };
         const distance = haversine(userCoords.latitude.toString(), userCoords.longitude.toString(), missileCoords.latitude.toString(), missileCoords.longitude.toString());
 
@@ -78,38 +80,33 @@ async function determineUsernamesToProcess(username: string, gameplayUserMap: Ma
   const currentUser = gameplayUserMap.get(username);
   if (!currentUser) return [];
 
-  // Fetch the current user's friends list
-  let userFriends: string[] = [];
+  // Phase 11B: source mutual friends from the SAME place visibility does —
+  // Firebase central via getMutualFriends (getFriendUsernames underneath, with
+  // the Postgres Users.friends declared cache as a fallback when central is
+  // unreachable). Previously this read Users.friends directly, so damage
+  // eligibility could diverge from what the player actually sees on the map.
+  let mutualFriendsUsernames: string[] = [];
   try {
-    const user = await prisma.users.findUnique({
+    const userRow = await prisma.users.findUnique({
       where: { username: username },
-      select: { friends: true }
+      select: { friends: true, firebaseUID: true }
     });
-    userFriends = user?.friends || [];
-  } catch (error) {
-    console.error(`Error fetching friends for ${username}:`, error);
-  }
-
-  // Get mutual friends for the current user directly from the database
-  let mutualFriends: any[];
-  try {
-    mutualFriends = await prisma.users.findMany({
-      where: {
-        username: { in: userFriends },
-        friends: { has: username }
-      },
-      select: { username: true }
-    });
+    if (userRow) {
+      mutualFriendsUsernames = await getMutualFriends({
+        username,
+        friends: userRow.friends,
+        firebaseUID: userRow.firebaseUID
+      });
+    }
   } catch (error) {
     console.error(`Error getting mutual friends for ${username}:`, error);
-    mutualFriends = [];
   }
-  const mutualFriendsUsernames = mutualFriends.map(friend => friend.username);
 
-  // Always include mutual friends, regardless of friendsOnly setting
+  // friendsOnly players only ever interact with their mutual friends; everyone
+  // else also shares a world with all other non-friendsOnly players. This is
+  // the eligibility/visibility scope — within it, friendship grants no blast
+  // immunity (missiles still hit friends and the sender).
   const usersToProcess = new Set(mutualFriendsUsernames);
-
-  // If the current user is not in friendsOnly mode, add all non-friendsOnly users
   if (!currentUser.friendsOnly) {
     gameplayUserMap.forEach((user, otherUsername) => {
       if (!user.friendsOnly && otherUsername !== username) {
@@ -390,31 +387,42 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
           // console.log(`User ${user.username} eliminated. Lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`);
 
-          // Use the pre-calculated rewardAmount and rankPointsReward here
-          const updatedAttacker = await prisma.gameplayUser.update({
-            where: { username: attackerUsername },
-            data: {
-              money: { increment: rewardAmount + moneyLoss },
-              rankPoints: { increment: rankPointsReward },
-            },
-            select: { id: true, money: true, rankPoints: true },
-          });
+          // Phase 11B: no self-reward. If a player is eliminated by their own
+          // missile (inside their own blast radius), they still take the death
+          // and its penalty, but there is no kill reward, reward notification,
+          // or kill stat — that would be a self-reward / self-elimination loop.
+          const selfElimination = attackerUsername === user.username;
 
-          // console.log(`Attacker ${attackerUsername} updated. New balance: ${updatedAttacker.money}, New rank points: ${updatedAttacker.rankPoints}`);
+          if (!selfElimination) {
+            // Use the pre-calculated rewardAmount and rankPointsReward here
+            const updatedAttacker = await prisma.gameplayUser.update({
+              where: { username: attackerUsername },
+              data: {
+                money: { increment: rewardAmount + moneyLoss },
+                rankPoints: { increment: rankPointsReward },
+              },
+              select: { id: true, money: true, rankPoints: true },
+            });
 
-          // Create a notification for the attacker
-          await prisma.notifications.create({
-            data: {
-              userId: attackerUsername,
-              title: "Elimination Reward",
-              body: `You've been rewarded ${rewardAmount + moneyLoss} coins and ${rankPointsReward} rank points for eliminating ${user.username} with your ${damageSource}!`,
-              sentby: "server",
-            },
-          });
+            // Create a notification for the attacker
+            await prisma.notifications.create({
+              data: {
+                userId: attackerUsername,
+                title: "Elimination Reward",
+                body: `You've been rewarded ${rewardAmount + moneyLoss} coins and ${rankPointsReward} rank points for eliminating ${user.username} with your ${damageSource}!`,
+                sentby: "server",
+              },
+            });
+
+            // Update kill statistic
+            await updateKillStatistic(updatedAttacker.id, prisma);
+          }
 
           // Create a notification for the eliminated user
-          const eliminationMessage = `You have been eliminated by a ${receivedType} ${damageSource} sent by ${attackerUsername}! You lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`;
-          await sendNotification(user.username, "Eliminated!", eliminationMessage, attackerUsername);
+          const eliminationMessage = selfElimination
+            ? `You eliminated yourself with your own ${receivedType} ${damageSource}! You lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`
+            : `You have been eliminated by a ${receivedType} ${damageSource} sent by ${attackerUsername}! You lost ${moneyLoss} coins and ${rankPointsLoss} rank points.`;
+          await sendNotification(user.username, "Eliminated!", eliminationMessage, selfElimination ? "server" : attackerUsername);
 
           //grace period notification
           const gracePeriodMessage = `You have entered a 5-minute grace period. During this time, you will be protected from all damage.`;
@@ -422,9 +430,6 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
 
           // Update death statistic
           await updateDeathStatistic(user.id, prisma);
-
-          // Update kill statistic
-          await updateKillStatistic(updatedAttacker.id, prisma);
 
           // Set the last death time for the user
           lastDeathTime.set(user.username, Date.now());

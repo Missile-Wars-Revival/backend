@@ -746,44 +746,44 @@ Both are transitional and resolve once both ends ship Phase 11A.
 
 #### 11B — Missile damage validation
 
-- [ ] **Separate visibility from damage eligibility**: friendsOnly/friendship
-      filters can decide which missiles/entities a player sees, but damage
-      processing must evaluate every active player against every impacted
-      missile in radius. A friend/ally relationship must not suppress missile
-      damage.
-- [ ] **Friendly fire is intentional for missiles**: missiles should damage all
-      players in radius, including mutual friends/allies and the sender, unless
-      an explicit protection rule applies (shield, grace period, dead player,
-      inactive location, or outside radius).
-- [ ] **Audit sender/self-damage behavior**: confirm the sender is included in
-      the damage pass when they are inside the blast radius. Notifications and
-      rewards should not create nonsensical self-reward/self-elimination loops;
-      define the expected reward behavior before shipping the fix.
-- [ ] **Add targeted tests**: cover at least these cases: friend in radius takes
-      missile damage, sender in radius takes missile damage, non-friend in
-      radius takes missile damage, player outside radius does not, shielded
-      player does not, grace-period player does not.
-- [ ] **Keep landmine rules separate**: landmine ownership/friend behavior can
-      be reviewed separately; do not accidentally change landmine behavior while
-      fixing missile blast damage.
+- [x] **Eligibility vs blast immunity** (clarified from owner feedback): the
+      `friendsOnly` filter defines the *eligibility set* — a `friendsOnly` player
+      only interacts with their mutual friends, everyone else also shares a world
+      with all non-`friendsOnly` players (`determineUsernamesToProcess`). That
+      isolation is intentionally **kept** (a `friendsOnly` player is not hit by
+      non-friends). What was fixed: friendship inside a shared world grants **no
+      blast immunity** — mutual friends in radius already take missile damage,
+      and that path is unchanged. (Note: this refines Decided #8 — "everyone in
+      radius regardless of friendship" means *within the eligibility world*, not
+      across the `friendsOnly` boundary.)
+- [x] **Friend source unified with visibility** (answers "how does this work now
+      friends are in Firebase?"): `determineUsernamesToProcess` previously read
+      the shard's `Users.friends` Postgres cache directly, while visibility reads
+      Firebase central via `getMutualFriends`/`getFriendUsernames`. They could
+      diverge. Damage now uses `getMutualFriends` too (Firebase central; Postgres
+      declared cache as the offline fallback), so damage eligibility matches what
+      the player sees.
+- [x] **Sender self-damage, no self-reward** (Decided #9): a player's own missile
+      is now eligible against them (`m.sentBy === user.username` added to the
+      missile loop), so they take AoE damage if inside their own blast radius. On
+      a self-elimination the death + penalty apply, but the kill reward, reward
+      notification, and kill stat are skipped (`selfElimination` guard in
+      `applyDamage`); the eliminated-user message becomes "You eliminated
+      yourself…".
+- [x] **Landmines untouched**: only the missile loop gained self-eligibility; the
+      landmine loop still filters by `usernamesToProcess` exactly as before, so
+      landmine ownership/friend behavior is unchanged.
+- [ ] **Targeted tests**: not added — no test suite in the backend (verification
+      is typecheck + running the app). The cases worth covering when test infra
+      exists: friend in radius takes damage, sender in radius takes damage,
+      non-friend in radius (shared world) takes damage, `friendsOnly` player not
+      hit by a non-friend, outside radius / shielded / grace-period take none.
 
 #### 11C — Docker docs and first-time host validation
 
-- [ ] **Failure-path docs**: validate common failures have clear next steps:
-      Docker missing, Docker daemon stopped, port already in use, port not
-      forwarded, coordinator unreachable, bad shard API key, health check
-      failing, and database container not ready.
-- [ ] **Version/update path**: document the exact update flow for hosts pulling
-      a new backend version (`git pull`, rebuild, migrate, preserve DB volume),
-      plus how to wipe/reset intentionally.
-- [ ] **Smoke-test checklist**: add a short post-setup checklist: `/healthz`
-      works locally, public reachability check passes, coordinator admin shows
-      heartbeat/player count, server appears in discovery, a test user can
-      select it, websocket connects, and location/missile loops run.
-- [ ] **Docs match implementation**: ensure `.env.example`, README, host
-      scripts, Dockerfile, `docker-compose.yml`, and coordinator registration
-      messages all use the same env var names and do not mention deprecated
-      Firebase/admin secrets for community shards.
+**Descoped** (owner confirmed Docker hosting is running well). The setup docs,
+failure-path guidance, update flow, and smoke-test checklist are not part of
+this phase. Revisit only if first-time community hosts hit setup friction.
 
 ### Phase 12 — Coordinator-driven shard auto-update
 
@@ -826,6 +826,11 @@ minimumSupportedVersion, rolloutPercent, migrationRequired, publishedAt }`.
       clear call to action such as "No servers online. Host your own!" and link
       or route to the community-hosting instructions. Keep the copy short enough
       to fit the existing selector layout on mobile.
+- [ ] **Frontend update overlay UX and restart hardening**: improve the OTA
+      update overlay so title/subtitle/progress-step text wraps and scales
+      cleanly on small screens, and harden the completion path so finishing an
+      update cannot start overlapping checks or reload while the app is already
+      backgrounded/restarting. Verify the restart handoff on iOS and Android.
 - [ ] **Version policy**: coordinator compares semantic versions, not strings.
       Patch/minor releases can be optional or gradual via `rolloutPercent`;
       security fixes or protocol-breaking releases set `minimumSupportedVersion`
@@ -975,7 +980,7 @@ identity, email, or password-management authority.
 | `frontend` login/navigation flow | **Phase 7 done** — `ServerSessionGate` in `app/_layout.tsx`: login, then selector, then gameplay |
 | `frontend` WebSocket setup | Point at chosen shard URL; **Phase 7** — waits for session confirmation |
 | `backend/server-routes/websocket.ts` | **Phase 7 done** — provision migrated users on first coordinator-token connect; **Phase 11A done** — `diffuseCoordinate` diffuses non-friend `randomLocation` players server-side + sends `locationPrecision`; **Phase 10** display Firebase profile fields without stat imports |
-| `backend/runners/damageProcessor.ts` | **Phase 11** — missile damage must ignore friendship/friendsOnly visibility filters and include allies/sender in radius |
+| `backend/runners/damageProcessor.ts` | **Phase 11B done** — friend source unified with visibility (`getMutualFriends`/Firebase, not the Postgres cache); `friendsOnly` isolation kept; sender self-damage added with no self-reward (`selfElimination` guard); landmine loop untouched |
 | `backend/docker/update.sh` | **Phase 12** — new Unix updater used by heartbeat-triggered and manual updates |
 | `backend/docker/update.ps1` | **Phase 12** — new Windows updater used by heartbeat-triggered and manual updates |
 | `middle-earth` package | **Phase 11A done** — `PlayerLocation.locationPrecision?: "precise" \| "diffused"` (additive); version 1.0.6 → 1.1.0. Republish + reinstall in both apps so the new type propagates |
@@ -1067,8 +1072,13 @@ identity, email, or password-management authority.
    the distributed identity path, and Phase 13 removes unused shard-owned
    email/password/account-management routes and schema.
 8. **Missile friendly fire** — missiles are area-of-effect damage and should
-   hurt every eligible player in radius, including allies/friends and the
+   hurt every **eligible** player in radius, including allies/friends and the
    sender. Friendship controls visibility/social UX, not blast immunity.
+   **Clarified (Phase 11B):** "eligible" is scoped by `friendsOnly` — a
+   `friendsOnly` player only shares a world with their mutual friends and is not
+   hit by non-friends. Within a shared world, friendship grants no immunity. The
+   damage eligibility set is sourced from Firebase central (same as visibility),
+   not the shard's `Users.friends` cache.
 9. **Location privacy contract** — player location sent to other clients should
    be display-safe/diffused when diffusion applies; precise location remains a
    backend-only gameplay input unless the viewer is explicitly allowed to see
@@ -1106,6 +1116,8 @@ identity, email, or password-management authority.
    `websocket.ts`); precise coordinates never leave the server. `middle-earth`
    only carries the `locationPrecision` flag, not the algorithm. A shared
    deterministic helper could be extracted later if frontend fixtures need it.
-8. **Self-damage rewards** — decide whether a missile sender who eliminates
-   themselves receives no reward, a penalty only, or the existing reward path
-   with safeguards. Do this before changing missile damage logic.
+8. **Self-damage rewards** — ~~no reward / penalty only / existing path~~
+   **Decided: take damage, no self-reward.** The sender takes AoE damage if
+   inside their own blast radius; a self-elimination still applies the death and
+   its money/rank penalty, but no kill reward, reward notification, or kill stat
+   (implemented in `damageProcessor.ts` via the `selfElimination` guard).
