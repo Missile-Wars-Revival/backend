@@ -837,8 +837,10 @@ minimumSupportedVersion, rolloutPercent, migrationRequired, publishedAt }`.
       so outdated shards are hidden from discovery until updated.
 - [ ] **Shard update agent**: extend `runners/coordinatorClient.ts` so a shard
       that receives `update_available` schedules a local update instead of only
-      logging it. Updates must be serialized with a lock file so repeated
-      heartbeats cannot start overlapping pulls/builds.
+      logging it. The update path should run `git pull`, `npm install`, any
+      required build/migration step, and restart the shard. Updates must be
+      serialized with a lock file so repeated heartbeats cannot start
+      overlapping pulls/builds.
 - [ ] **Updater script**: add `backend/docker/update.sh` and
       `backend/docker/update.ps1` used by both the heartbeat-triggered updater
       and manual host runs. The script should:
