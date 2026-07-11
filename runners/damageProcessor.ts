@@ -434,9 +434,13 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
           // Set the last death time for the user
           lastDeathTime.set(user.username, Date.now());
         } else if (updatedUser.isAlive) {
-          // Send damage notification
-          const damageMessage = `You have taken ${damage} damage from a ${receivedType} ${damageSource} placed by ${attackerUsername}!`;
-          await sendNotification(user.username, "Damaged!", damageMessage, attackerUsername);
+          // Send damage notification. Phase 13: own-missile self-damage reads as
+          // "your own missile", not as if a player named after you attacked you.
+          const selfInflicted = attackerUsername === user.username;
+          const damageMessage = selfInflicted
+            ? `You have taken ${damage} damage from your own ${receivedType} ${damageSource}!`
+            : `You have taken ${damage} damage from a ${receivedType} ${damageSource} placed by ${attackerUsername}!`;
+          await sendNotification(user.username, "Damaged!", damageMessage, selfInflicted ? "server" : attackerUsername);
 
           // console.log(`Damage notification sent to user ${user.username}`);
 
@@ -459,8 +463,12 @@ async function applyDamage(user: GameplayUser, damage: number, attackerUsername:
       await applyDamageRecursively();
     } else if (damageSource === 'missile') {
       // console.log(`Scheduling initial missile damage for user ${user.username}`);
-      const initialMissileMessage = `Warning! A ${receivedType} missile from ${attackerUsername} is heading your way! Impact in 30 seconds.`;
-      await sendNotification(user.username, "Missile Damage!", initialMissileMessage, attackerUsername);
+      // Phase 13: own-missile warning reads as "your own missile".
+      const selfInflicted = attackerUsername === user.username;
+      const initialMissileMessage = selfInflicted
+        ? `Warning! Your own ${receivedType} missile is about to hit you! Impact in 30 seconds.`
+        : `Warning! A ${receivedType} missile from ${attackerUsername} is heading your way! Impact in 30 seconds.`;
+      await sendNotification(user.username, "Missile Damage!", initialMissileMessage, selfInflicted ? "server" : attackerUsername);
       setTimeout(applyDamageRecursively, 30000);
     }
 
