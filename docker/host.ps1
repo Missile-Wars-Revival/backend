@@ -141,6 +141,31 @@ function Read-AvailableName($coordinatorUrl) {
     } while (-not $value)
 }
 
+function Read-Region {
+    $regions = @(
+        "us-east", "us-west", "canada", "south-america",
+        "eu-west", "eu-central", "uk", "africa",
+        "asia", "australia"
+    )
+    $other = $regions.Count + 1
+    Write-Host "Region - pick the location closest to your server:"
+    for ($i = 0; $i -lt $regions.Count; $i++) {
+        Write-Host ("  {0,2}. {1}" -f ($i + 1), $regions[$i])
+    }
+    Write-Host ("  {0,2}. Other (type your own)" -f $other)
+    while ($true) {
+        $choice = Read-Host "Enter a number 1-$other"
+        $n = 0
+        if ([int]::TryParse($choice, [ref]$n) -and $n -ge 1 -and $n -le $other) {
+            if ($n -eq $other) {
+                return (Read-Required "Custom region label (example: me-central, sa-east)")
+            }
+            return $regions[$n - 1]
+        }
+        Write-Warn "Please enter a number between 1 and $other."
+    }
+}
+
 function Read-OwnerEmail {
     do {
         $value = Read-Host "Owner contact email (required, example: you@example.com)"
@@ -167,7 +192,7 @@ if ($coordinatorUrl -and $shardApiKey) {
     Write-Host ""
 
     $regName = Read-AvailableName $regCoord
-    $regRegion = Read-Required "Region label (example: eu-west, us-east, australia)"
+    $regRegion = Read-Region
 
     if ($publicIp) { $defaultHttp = "http://${publicIp}:${port}" } else { $defaultHttp = "http://YOUR_PUBLIC_IP:${port}" }
     Write-Host ""

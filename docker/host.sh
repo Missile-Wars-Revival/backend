@@ -136,6 +136,37 @@ read_required() {
     printf '%s' "$value"
 }
 
+read_region() {
+    set -- us-east us-west canada south-america eu-west eu-central uk africa asia australia
+    count=$#
+    other=$((count + 1))
+    echo "Region - pick the location closest to your server:" >&2
+    i=1
+    for r in "$@"; do
+        printf '  %2d. %s\n' "$i" "$r" >&2
+        i=$((i + 1))
+    done
+    printf '  %2d. Other (type your own)\n' "$other" >&2
+    while :; do
+        printf 'Enter a number 1-%d: ' "$other" >&2
+        read -r choice
+        case "$choice" in
+            ''|*[!0-9]*)
+                warn "Please enter a number between 1 and $other." >&2
+                continue
+                ;;
+        esac
+        if [ "$choice" -ge 1 ] && [ "$choice" -lt "$other" ]; then
+            eval "printf '%s' \"\${$choice}\""
+            return 0
+        elif [ "$choice" -eq "$other" ]; then
+            read_required 'Custom region label (example: me-central, sa-east): '
+            return 0
+        fi
+        warn "Please enter a number between 1 and $other." >&2
+    done
+}
+
 read_available_name() {
     value=""
     while [ -z "$value" ]; do
@@ -175,7 +206,7 @@ else
     echo ""
 
     REG_NAME="$(read_available_name)"
-    REG_REGION="$(read_required 'Region label (example: eu-west, us-east, australia): ')"
+    REG_REGION="$(read_region)"
 
     DEFAULT_HTTP="http://${PUBLIC_IP:-YOUR_PUBLIC_IP}:${PORT}"
     echo ""
